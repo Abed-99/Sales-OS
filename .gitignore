@@ -24,3 +24,9 @@ Thumbs.db
 
 .vercel
 .env*
+
+supabase/.temp/
+supabase/.branches/
+
+supabase/.temp/
+supabase/.branches/
