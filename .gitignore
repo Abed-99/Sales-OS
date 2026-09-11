@@ -1,0 +1,26 @@
+# Dependencies and Next.js output
+node_modules/
+.next/
+out/
+
+# Local environment secrets
+.env*
+!.env.example
+
+# TypeScript generated state
+*.tsbuildinfo
+
+# Local backup / review artifacts
+.sales-os-backup-*/
+*.before-fix
+sales-os-*-review*.txt
+preview.html
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+.vercel
+.env*
