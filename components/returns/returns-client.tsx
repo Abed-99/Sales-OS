@@ -1,824 +1,1457 @@
 "use client";
 
 import {
-  useMemo,
+  useEffect,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import type {
+  FormEvent,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 
-type Relation<T> =
-  | T
-  | T[]
-  | null;
+export type ReturnsTab =
+  | "sales"
+  | "purchases"
+  | "history";
 
-function one<T>(
-  value: Relation<T>
-) {
-  return Array.isArray(value)
-    ? value[0] ?? null
-    : value;
-}
+export type ReturnHistoryKindFilter =
+  | "all"
+  | "sales"
+  | "purchases";
 
-function num(
-  value: unknown
-) {
-  const n =
-    Number(value || 0);
-
-  return Number.isFinite(n)
-    ? n
-    : 0;
-}
-
-function today() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
-}
-
-type NameRelation = {
-  id: string;
-  name: string;
-};
-
-type ProductRelation = {
-  id: string;
-  name: string;
-  sku: string | null;
-};
+export type ReturnHistoryStatusFilter =
+  | "all"
+  | "posted"
+  | "reversed"
+  | "cancelled";
 
 export type ReturnWarehouse = {
   id: string;
   name: string;
   code: string | null;
   is_default: boolean;
-  active: boolean;
 };
 
-export type ReturnSalesInvoiceItem = {
+export type SalesReturnCandidateItem = {
   id: string;
   product_id: string;
+  product_name: string;
+  sku: string | null;
   description: string;
   unit: string | null;
-  quantity: number;
-  unit_price: number;
-  line_total: number;
-  products:
-    Relation<ProductRelation>;
+  invoiced_quantity: number;
+  returned_quantity: number;
+  available_quantity: number;
 };
 
-export type ReturnSalesInvoice = {
+export type SalesReturnCandidate = {
   id: string;
   invoice_number: string;
-  trader_id: string;
   invoice_date: string;
   currency: string;
-  subtotal: number;
-  discount_total: number;
   total: number;
-  status: string;
-  traders:
-    Relation<NameRelation>;
-  sales_invoice_items:
-    ReturnSalesInvoiceItem[];
+
+  trader: {
+    id: string;
+    name: string;
+  } | null;
+
+  items:
+    SalesReturnCandidateItem[];
 };
 
-export type ReturnPurchaseInvoiceItem = {
+export type PurchaseReturnCandidateItem = {
   id: string;
   product_id: string;
+  product_name: string;
+  sku: string | null;
   description: string | null;
-  quantity: number;
-  unit_cost: number;
-  line_total: number;
-  products:
-    Relation<ProductRelation>;
+  invoiced_quantity: number;
+  received_quantity: number;
+  returned_quantity: number;
+  available_quantity: number;
 };
 
-export type ReturnPurchaseInvoice = {
+export type PurchaseReturnCandidate = {
   id: string;
   invoice_number: string;
   supplier_invoice_number: string | null;
-  supplier_id: string;
   invoice_date: string;
   currency: string;
   total: number;
-  status: string;
-  suppliers:
-    Relation<NameRelation>;
-  purchase_invoice_items:
-    ReturnPurchaseInvoiceItem[];
+
+  supplier: {
+    id: string;
+    name: string;
+  } | null;
+
+  items:
+    PurchaseReturnCandidateItem[];
 };
 
-export type SalesReturnRecord = {
+export type ReturnHistoryRow = {
   id: string;
+
+  kind:
+    | "sales"
+    | "purchases";
+
   return_number: string;
-  sales_invoice_id: string;
-  trader_id: string;
-  warehouse_id: string;
+  invoice_number: string;
+  party_name: string;
+  warehouse_name: string;
+
   return_date: string;
-  status: string;
+
+  status:
+    | "posted"
+    | "reversed"
+    | "cancelled";
+
   currency: string;
-  subtotal: number;
-  discount_total: number;
   total: number;
+
   notes: string | null;
+
   created_at: string;
+
+  reversed_at:
+    | string
+    | null;
+
+  reversal_reason:
+    | string
+    | null;
 };
 
-export type PurchaseReturnRecord = {
-  id: string;
-  return_number: string;
-  purchase_invoice_id: string;
-  supplier_id: string;
-  warehouse_id: string;
-  return_date: string;
-  status: string;
-  currency: string;
-  inventory_cost_total: number;
-  total: number;
-  notes: string | null;
-  created_at: string;
+export type ReturnsStats = {
+  salesCount: number;
+  salesPostedCount: number;
+  salesReversedCount: number;
+
+  purchaseCount: number;
+  purchasePostedCount: number;
+  purchaseReversedCount: number;
+
+  salesTotals: {
+    currency: string;
+    total: number;
+  }[];
+
+  purchaseTotals: {
+    currency: string;
+    total: number;
+  }[];
 };
 
-type Tab =
-  | "sales"
-  | "purchases"
-  | "history";
+type Notice = {
+  type:
+    | "success"
+    | "error";
+
+  text: string;
+};
+
+function numeric(
+  value: unknown
+) {
+  const result =
+    Number(
+      value ?? 0
+    );
+
+  return Number.isFinite(
+    result
+  )
+    ? result
+    : 0;
+}
+
+function quantity(
+  value: unknown
+) {
+  return numeric(
+    value
+  ).toFixed(3);
+}
+
+function money(
+  value: unknown,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(
+    numeric(value)
+  )} ${currency}`;
+}
+
+function formatTotals(
+  rows: {
+    currency: string;
+    total: number;
+  }[]
+) {
+  if (!rows.length) {
+    return "0.00";
+  }
+
+  return rows
+    .map(
+      (row) =>
+        money(
+          row.total,
+          row.currency
+        )
+    )
+    .join(" • ");
+}
+
+function businessDate() {
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const year =
+    parts.find(
+      (part) =>
+        part.type ===
+        "year"
+    )?.value;
+
+  const month =
+    parts.find(
+      (part) =>
+        part.type ===
+        "month"
+    )?.value;
+
+  const day =
+    parts.find(
+      (part) =>
+        part.type ===
+        "day"
+    )?.value;
+
+  return `${year}-${month}-${day}`;
+}
+
+function friendlyError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action:
+    | "create"
+    | "reverse"
+) {
+  const raw =
+    error?.message ?? "";
+
+  const message =
+    raw.toLowerCase();
+
+  if (
+    error?.code ===
+      "42501" ||
+    message.includes(
+      "not allowed"
+    ) ||
+    message.includes(
+      "permission"
+    )
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
+  }
+
+  if (
+    message.includes(
+      "finance period"
+    ) &&
+    message.includes(
+      "closed"
+    )
+  ) {
+    return "الفترة المحاسبية لهذا التاريخ مغلقة.";
+  }
+
+  if (
+    message.includes(
+      "return date cannot be before invoice date"
+    )
+  ) {
+    return "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة.";
+  }
+
+  if (
+    message.includes(
+      "return date cannot be in the future"
+    )
+  ) {
+    return "تاريخ المرتجع لا يمكن أن يكون بالمستقبل.";
+  }
+
+  if (
+    message.includes(
+      "posted sales invoice not found"
+    )
+  ) {
+    return "فاتورة البيع غير موجودة أو لم تعد مرحلة.";
+  }
+
+  if (
+    message.includes(
+      "posted purchase invoice not found"
+    )
+  ) {
+    return "فاتورة الشراء غير موجودة أو لم تعد مرحلة.";
+  }
+
+  if (
+    message.includes(
+      "invalid warehouse"
+    )
+  ) {
+    return "المستودع غير صالح أو أصبح غير نشط.";
+  }
+
+  if (
+    message.includes(
+      "return quantity must be greater than zero"
+    )
+  ) {
+    return "كمية المرتجع يجب أن تكون أكبر من صفر.";
+  }
+
+  if (
+    message.includes(
+      "returned quantity exceeds invoiced quantity"
+    )
+  ) {
+    return "الكمية المرتجعة أكبر من الكمية المباعة المتاحة للإرجاع.";
+  }
+
+  if (
+    message.includes(
+      "returned quantity exceeds received quantity"
+    )
+  ) {
+    return "الكمية المرتجعة أكبر من الكمية المستلمة فعلياً.";
+  }
+
+  if (
+    message.includes(
+      "not enough available stock"
+    )
+  ) {
+    return "المخزون المتاح غير كافٍ لإتمام مرتجع الشراء.";
+  }
+
+  if (
+    message.includes(
+      "reversal reason required"
+    )
+  ) {
+    return "سبب عكس المرتجع مطلوب.";
+  }
+
+  if (
+    message.includes(
+      "only posted"
+    ) &&
+    message.includes(
+      "return"
+    )
+  ) {
+    return "يمكن عكس المرتجعات المرحلة فقط.";
+  }
+
+  if (
+    message.includes(
+      "already reserved"
+    ) ||
+    message.includes(
+      "transferred or used"
+    )
+  ) {
+    return "لا يمكن عكس مرتجع المبيعات لأن البضاعة المرتجعة تم حجزها أو نقلها أو استخدامها.";
+  }
+
+  if (
+    message.includes(
+      "original inventory cost"
+    )
+  ) {
+    return "تعذر العثور على حركة المخزون الأصلية لهذا المرتجع.";
+  }
+
+  if (
+    message.includes(
+      "financial journal"
+    ) ||
+    message.includes(
+      "original journal"
+    )
+  ) {
+    return "تعذر عكس القيد المحاسبي المرتبط بالمرتجع.";
+  }
+
+  if (
+    action === "reverse"
+  ) {
+    return "تعذر عكس المرتجع.";
+  }
+
+  return "تعذر إنشاء المرتجع. راجع البيانات وحاول مرة ثانية.";
+}
+
+function statusLabel(
+  status:
+    ReturnHistoryRow["status"]
+) {
+  if (
+    status ===
+    "posted"
+  ) {
+    return "مرحّل";
+  }
+
+  if (
+    status ===
+    "reversed"
+  ) {
+    return "معكوس";
+  }
+
+  return "ملغى";
+}
+
+function statusColor(
+  status:
+    ReturnHistoryRow["status"]
+) {
+  if (
+    status ===
+    "posted"
+  ) {
+    return "green";
+  }
+
+  return "gray";
+}
 
 export function ReturnsClient({
   companyId,
-  baseCurrency,
+  initialTab,
+  initialStats,
   warehouses,
-  salesInvoices,
-  purchaseInvoices,
-  salesReturns,
-  purchaseReturns,
-  salesReturnItems,
-  purchaseReturnItems,
+  salesCandidates,
+  purchaseCandidates,
+  historyRows,
+  totalCount,
+  page,
+  pageSize,
+  searchQuery,
+  historyKind,
+  historyStatus,
   canCreate,
   canReverse,
+  initialError,
 }: {
   companyId: string;
-  baseCurrency: string;
-  warehouses: ReturnWarehouse[];
-  salesInvoices: ReturnSalesInvoice[];
-  purchaseInvoices: ReturnPurchaseInvoice[];
-  salesReturns: SalesReturnRecord[];
-  purchaseReturns: PurchaseReturnRecord[];
-  salesReturnItems: {
-    id: string;
-    sales_return_id: string;
-    sales_invoice_item_id: string;
-    quantity: number;
-  }[];
-  purchaseReturnItems: {
-    id: string;
-    purchase_return_id: string;
-    purchase_invoice_item_id: string;
-    quantity: number;
-  }[];
+
+  initialTab:
+    ReturnsTab;
+
+  initialStats:
+    ReturnsStats;
+
+  warehouses:
+    ReturnWarehouse[];
+
+  salesCandidates:
+    SalesReturnCandidate[];
+
+  purchaseCandidates:
+    PurchaseReturnCandidate[];
+
+  historyRows:
+    ReturnHistoryRow[];
+
+  totalCount: number;
+
+  page: number;
+  pageSize: number;
+
+  searchQuery: string;
+
+  historyKind:
+    ReturnHistoryKindFilter;
+
+  historyStatus:
+    ReturnHistoryStatusFilter;
+
   canCreate: boolean;
   canReverse: boolean;
+
+  initialError:
+    string | null;
 }) {
   const [supabase] =
-    useState(() => createClient());
+    useState(
+      () =>
+        createClient()
+    );
 
-  const router = useRouter();
+  const router =
+    useRouter();
 
-  const [tab, setTab] =
-    useState<Tab>("sales");
-
-  const [search, setSearch] =
-    useState("");
-
-  const [
-    salesOpen,
-    setSalesOpen,
-  ] = useState(false);
+  const searchParams =
+    useSearchParams();
 
   const [
-    purchaseOpen,
-    setPurchaseOpen,
-  ] = useState(false);
+    tab,
+    setTab,
+  ] =
+    useState<ReturnsTab>(
+      initialTab
+    );
 
   const [
-    salesInvoiceId,
-    setSalesInvoiceId,
-  ] = useState("");
+    search,
+    setSearch,
+  ] =
+    useState(
+      searchQuery
+    );
 
   const [
-    purchaseInvoiceId,
-    setPurchaseInvoiceId,
-  ] = useState("");
+    kindFilter,
+    setKindFilter,
+  ] =
+    useState<
+      ReturnHistoryKindFilter
+    >(
+      historyKind
+    );
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] =
+    useState<
+      ReturnHistoryStatusFilter
+    >(
+      historyStatus
+    );
+
+  const [
+    notice,
+    setNotice,
+  ] =
+    useState<
+      Notice | null
+    >(
+      initialError
+        ? {
+            type:
+              "error",
+
+            text:
+              initialError,
+          }
+        : null
+    );
 
   const [
     warehouseId,
     setWarehouseId,
-  ] = useState(
-    warehouses.find(
-      (warehouse) =>
-        warehouse.is_default
-    )?.id ||
-      warehouses[0]?.id ||
-      ""
-  );
+  ] =
+    useState(
+      warehouses.find(
+        (warehouse) =>
+          warehouse.is_default
+      )?.id ??
+        warehouses[0]?.id ??
+        ""
+    );
 
   const [
     returnDate,
     setReturnDate,
-  ] = useState(today());
+  ] =
+    useState(
+      businessDate()
+    );
 
-  const [notes, setNotes] =
+  const [
+    notes,
+    setNotes,
+  ] =
     useState("");
 
   const [
     quantities,
     setQuantities,
-  ] = useState<
-    Record<string, string>
-  >({});
+  ] =
+    useState<
+      Record<
+        string,
+        string
+      >
+    >({});
 
-  const [saving, setSaving] =
-    useState(false);
+  const [
+    salesTarget,
+    setSalesTarget,
+  ] =
+    useState<
+      SalesReturnCandidate | null
+    >(null);
 
-  const [message, setMessage] =
+  const [
+    purchaseTarget,
+    setPurchaseTarget,
+  ] =
+    useState<
+      PurchaseReturnCandidate | null
+    >(null);
+
+  const [
+    reverseTarget,
+    setReverseTarget,
+  ] =
+    useState<
+      ReturnHistoryRow | null
+    >(null);
+
+  const [
+    reverseReason,
+    setReverseReason,
+  ] =
     useState("");
+
+  const [
+    formMessage,
+    setFormMessage,
+  ] =
+    useState("");
+
+  const [
+    reverseMessage,
+    setReverseMessage,
+  ] =
+    useState("");
+
+  const [
+    saving,
+    setSaving,
+  ] =
+    useState(false);
 
   const [
     busyReturn,
     setBusyReturn,
-  ] = useState<string | null>(null);
+  ] =
+    useState<
+      string | null
+    >(null);
 
-  const activeSalesReturnIds =
-    useMemo(
-      () =>
-        new Set(
-          salesReturns
-            .filter(
-              (item) =>
-                item.status ===
-                "posted"
-            )
-            .map(
-              (item) =>
-                item.id
-            )
-        ),
-      [salesReturns]
+  useEffect(() => {
+    setTab(
+      initialTab
     );
 
-  const activePurchaseReturnIds =
-    useMemo(
-      () =>
-        new Set(
-          purchaseReturns
-            .filter(
-              (item) =>
-                item.status ===
-                "posted"
-            )
-            .map(
-              (item) =>
-                item.id
-            )
-        ),
-      [purchaseReturns]
+    setSearch(
+      searchQuery
     );
 
-  function returnedSalesQty(
-    itemId: string
-  ) {
-    return salesReturnItems
-      .filter(
-        (row) =>
-          row.sales_invoice_item_id ===
-            itemId &&
-          activeSalesReturnIds.has(
-            row.sales_return_id
-          )
-      )
-      .reduce(
-        (sum, row) =>
-          sum +
-          num(
-            row.quantity
-          ),
-        0
-      );
-  }
-
-  function returnedPurchaseQty(
-    itemId: string
-  ) {
-    return purchaseReturnItems
-      .filter(
-        (row) =>
-          row.purchase_invoice_item_id ===
-            itemId &&
-          activePurchaseReturnIds.has(
-            row.purchase_return_id
-          )
-      )
-      .reduce(
-        (sum, row) =>
-          sum +
-          num(
-            row.quantity
-          ),
-        0
-      );
-  }
-
-  const selectedSalesInvoice =
-    salesInvoices.find(
-      (invoice) =>
-        invoice.id ===
-        salesInvoiceId
-    ) || null;
-
-  const selectedPurchaseInvoice =
-    purchaseInvoices.find(
-      (invoice) =>
-        invoice.id ===
-        purchaseInvoiceId
-    ) || null;
-
-  const filteredSalesInvoices =
-    salesInvoices.filter(
-      (invoice) => {
-        const trader =
-          one(
-            invoice.traders
-          );
-
-        const text =
-          `${invoice.invoice_number} ${trader?.name || ""}`
-            .toLowerCase();
-
-        return text.includes(
-          search
-            .trim()
-            .toLowerCase()
-        );
-      }
+    setKindFilter(
+      historyKind
     );
 
-  const filteredPurchaseInvoices =
-    purchaseInvoices.filter(
-      (invoice) => {
-        const supplier =
-          one(
-            invoice.suppliers
-          );
-
-        const text =
-          `${invoice.invoice_number} ${invoice.supplier_invoice_number || ""} ${supplier?.name || ""}`
-            .toLowerCase();
-
-        return text.includes(
-          search
-            .trim()
-            .toLowerCase()
-        );
-      }
+    setStatusFilter(
+      historyStatus
     );
+  }, [
+    initialTab,
+    searchQuery,
+    historyKind,
+    historyStatus,
+  ]);
 
-  const salesReturnTotal =
-    salesReturns
-      .filter(
-        (item) =>
-          item.status ===
-          "posted"
-      )
-      .reduce(
-        (sum, item) =>
-          sum +
-          num(
-            item.total
-          ),
-        0
+  useEffect(() => {
+    if (
+      initialError
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          initialError,
+      });
+    }
+  }, [
+    initialError,
+  ]);
+
+  useEffect(() => {
+    if (
+      !warehouses.length
+    ) {
+      setWarehouseId(
+        ""
       );
-
-  const purchaseReturnTotal =
-    purchaseReturns
-      .filter(
-        (item) =>
-          item.status ===
-          "posted"
-      )
-      .reduce(
-        (sum, item) =>
-          sum +
-          num(
-            item.total
-          ),
-        0
-      );
-
-  function startSalesReturn(
-    invoice: ReturnSalesInvoice
-  ) {
-    const initial: Record<
-      string,
-      string
-    > = {};
-
-    for (const item of
-      invoice.sales_invoice_items) {
-      initial[item.id] = "";
+      return;
     }
 
-    setSalesInvoiceId(
-      invoice.id
+    if (
+      warehouses.some(
+        (warehouse) =>
+          warehouse.id ===
+          warehouseId
+      )
+    ) {
+      return;
+    }
+
+    setWarehouseId(
+      warehouses.find(
+        (warehouse) =>
+          warehouse.is_default
+      )?.id ??
+        warehouses[0].id
+    );
+  }, [
+    warehouses,
+    warehouseId,
+  ]);
+
+  const pageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        totalCount /
+          pageSize
+      )
     );
 
-    setPurchaseInvoiceId(
-      ""
+  function navigate({
+    nextTab = tab,
+    nextSearch = search,
+    nextPage = 1,
+    nextKind = kindFilter,
+    nextStatus = statusFilter,
+  }: {
+    nextTab?:
+      ReturnsTab;
+
+    nextSearch?:
+      string;
+
+    nextPage?:
+      number;
+
+    nextKind?:
+      ReturnHistoryKindFilter;
+
+    nextStatus?:
+      ReturnHistoryStatusFilter;
+  }) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
+
+    params.set(
+      "tab",
+      nextTab
     );
+
+    const clean =
+      nextSearch.trim();
+
+    if (clean) {
+      params.set(
+        "q",
+        clean
+      );
+    } else {
+      params.delete(
+        "q"
+      );
+    }
+
+    if (
+      nextPage > 1
+    ) {
+      params.set(
+        "page",
+        String(
+          nextPage
+        )
+      );
+    } else {
+      params.delete(
+        "page"
+      );
+    }
+
+    if (
+      nextTab ===
+      "history"
+    ) {
+      if (
+        nextKind !==
+        "all"
+      ) {
+        params.set(
+          "kind",
+          nextKind
+        );
+      } else {
+        params.delete(
+          "kind"
+        );
+      }
+
+      if (
+        nextStatus !==
+        "all"
+      ) {
+        params.set(
+          "status",
+          nextStatus
+        );
+      } else {
+        params.delete(
+          "status"
+        );
+      }
+    } else {
+      params.delete(
+        "kind"
+      );
+
+      params.delete(
+        "status"
+      );
+    }
+
+    router.push(
+      `/returns?${params.toString()}`
+    );
+  }
+
+  function switchTab(
+    nextTab:
+      ReturnsTab
+  ) {
+    if (
+      !canCreate &&
+      nextTab !==
+        "history"
+    ) {
+      return;
+    }
+
+    setTab(
+      nextTab
+    );
+
+    setSearch("");
+
+    navigate({
+      nextTab,
+      nextSearch: "",
+      nextPage: 1,
+    });
+  }
+
+  function openSalesReturn(
+    invoice:
+      SalesReturnCandidate
+  ) {
+    if (!canCreate) {
+      return;
+    }
+
+    const next:
+      Record<
+        string,
+        string
+      > = {};
+
+    for (
+      const item of
+      invoice.items
+    ) {
+      next[item.id] =
+        "";
+    }
 
     setQuantities(
-      initial
+      next
     );
 
     setReturnDate(
-      today()
+      businessDate()
     );
 
     setNotes("");
-    setMessage("");
-    setSalesOpen(true);
+    setFormMessage("");
+
+    setSalesTarget(
+      invoice
+    );
+
+    setPurchaseTarget(
+      null
+    );
   }
 
-  function startPurchaseReturn(
-    invoice: ReturnPurchaseInvoice
+  function openPurchaseReturn(
+    invoice:
+      PurchaseReturnCandidate
   ) {
-    const initial: Record<
-      string,
-      string
-    > = {};
-
-    for (const item of
-      invoice.purchase_invoice_items) {
-      initial[item.id] = "";
+    if (!canCreate) {
+      return;
     }
 
-    setPurchaseInvoiceId(
-      invoice.id
-    );
+    const next:
+      Record<
+        string,
+        string
+      > = {};
 
-    setSalesInvoiceId(
-      ""
-    );
+    for (
+      const item of
+      invoice.items
+    ) {
+      next[item.id] =
+        "";
+    }
 
     setQuantities(
-      initial
+      next
     );
 
     setReturnDate(
-      today()
+      businessDate()
     );
 
     setNotes("");
-    setMessage("");
-    setPurchaseOpen(
-      true
+    setFormMessage("");
+
+    setPurchaseTarget(
+      invoice
+    );
+
+    setSalesTarget(
+      null
     );
   }
 
   async function saveSalesReturn(
     event:
-      React.FormEvent<HTMLFormElement>
+      FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
     if (
-      !selectedSalesInvoice ||
-      !warehouseId
+      !salesTarget ||
+      !canCreate ||
+      saving
     ) {
-      setMessage(
-        "اختار الفاتورة والمستودع."
-      );
       return;
     }
 
-    const items =
-      selectedSalesInvoice.sales_invoice_items
-        .map((item) => ({
-          sales_invoice_item_id:
-            item.id,
-          quantity:
-            num(
-              quantities[
-                item.id
-              ]
-            ),
-          max:
-            Math.max(
-              num(
-                item.quantity
-              ) -
-                returnedSalesQty(
-                  item.id
-                ),
-              0
-            ),
-        }))
-        .filter(
-          (item) =>
-            item.quantity >
-            0
-        );
+    setFormMessage(
+      ""
+    );
 
-    if (!items.length) {
-      setMessage(
-        "اكتب كمية مرتجعة لمنتج واحد على الأقل."
+    if (
+      !warehouseId
+    ) {
+      setFormMessage(
+        "لا يوجد مستودع صالح للمرتجع."
       );
       return;
     }
 
     if (
-      items.some(
-        (item) =>
-          item.quantity >
-          item.max
-      )
+      !returnDate
     ) {
-      setMessage(
-        "في كمية أكبر من الكمية المتبقية القابلة للإرجاع."
+      setFormMessage(
+        "حدد تاريخ المرتجع."
+      );
+      return;
+    }
+
+    if (
+      returnDate <
+      salesTarget.invoice_date
+    ) {
+      setFormMessage(
+        "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة."
+      );
+      return;
+    }
+
+    if (
+      returnDate >
+      businessDate()
+    ) {
+      setFormMessage(
+        "تاريخ المرتجع لا يمكن أن يكون بالمستقبل."
+      );
+      return;
+    }
+
+    const payload:
+      Array<{
+        sales_invoice_item_id:
+          string;
+
+        quantity:
+          number;
+      }> = [];
+
+    for (
+      const item of
+      salesTarget.items
+    ) {
+      const value =
+        numeric(
+          quantities[
+            item.id
+          ]
+        );
+
+      const available =
+        numeric(
+          item.available_quantity
+        );
+
+      if (
+        value < 0
+      ) {
+        setFormMessage(
+          "كمية المرتجع لا يمكن أن تكون سالبة."
+        );
+        return;
+      }
+
+      if (
+        value >
+        available +
+          0.0005
+      ) {
+        setFormMessage(
+          `كمية ${item.product_name} أكبر من المتاح للإرجاع.`
+        );
+        return;
+      }
+
+      if (
+        value > 0
+      ) {
+        payload.push({
+          sales_invoice_item_id:
+            item.id,
+
+          quantity:
+            Number(
+              value.toFixed(
+                3
+              )
+            ),
+        });
+      }
+    }
+
+    if (
+      !payload.length
+    ) {
+      setFormMessage(
+        "اكتب كمية مرتجعة لصنف واحد على الأقل."
       );
       return;
     }
 
     setSaving(true);
-    setMessage("");
 
-    const { error } =
-      await supabase.rpc(
-        "create_sales_return",
-        {
-          target_company:
-            companyId,
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "create_sales_return",
+          {
+            target_company:
+              companyId,
 
-          target_invoice:
-            selectedSalesInvoice.id,
+            target_invoice:
+              salesTarget.id,
 
-          target_warehouse:
-            warehouseId,
+            target_warehouse:
+              warehouseId,
 
-          target_date:
-            returnDate,
+            target_date:
+              returnDate,
 
-          target_notes:
-            notes.trim() ||
-            null,
+            target_notes:
+              notes.trim() ||
+              null,
 
-          items_payload:
-            items.map(
-              ({
-                sales_invoice_item_id,
-                quantity,
-              }) => ({
-                sales_invoice_item_id,
-                quantity,
-              })
-            ),
-        }
+            items_payload:
+              payload,
+          }
+        );
+
+      if (error) {
+        setFormMessage(
+          friendlyError(
+            error,
+            "create"
+          )
+        );
+        return;
+      }
+
+      setSalesTarget(
+        null
       );
 
-    setSaving(false);
+      setNotice({
+        type:
+          "success",
 
-    if (error) {
-      setMessage(
-        error.message
-      );
-      return;
+        text:
+          "تم ترحيل مرتجع المبيعات وتحديث المخزون والمحاسبة.",
+      });
+
+      router.refresh();
+
+    } finally {
+      setSaving(false);
     }
-
-    setSalesOpen(false);
-    router.refresh();
   }
 
   async function savePurchaseReturn(
     event:
-      React.FormEvent<HTMLFormElement>
+      FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
     if (
-      !selectedPurchaseInvoice ||
-      !warehouseId
+      !purchaseTarget ||
+      !canCreate ||
+      saving
     ) {
-      setMessage(
-        "اختار الفاتورة والمستودع."
-      );
       return;
     }
 
-    const items =
-      selectedPurchaseInvoice.purchase_invoice_items
-        .map((item) => ({
-          purchase_invoice_item_id:
-            item.id,
+    setFormMessage(
+      ""
+    );
 
-          quantity:
-            num(
-              quantities[
-                item.id
-              ]
-            ),
-
-          max:
-            Math.max(
-              num(
-                item.quantity
-              ) -
-                returnedPurchaseQty(
-                  item.id
-                ),
-              0
-            ),
-        }))
-        .filter(
-          (item) =>
-            item.quantity >
-            0
-        );
-
-    if (!items.length) {
-      setMessage(
-        "اكتب كمية مرتجعة لمنتج واحد على الأقل."
+    if (
+      !warehouseId
+    ) {
+      setFormMessage(
+        "لا يوجد مستودع صالح للمرتجع."
       );
       return;
     }
 
     if (
-      items.some(
-        (item) =>
-          item.quantity >
-          item.max
-      )
+      !returnDate
     ) {
-      setMessage(
-        "في كمية أكبر من الكمية المتبقية القابلة للإرجاع."
+      setFormMessage(
+        "حدد تاريخ المرتجع."
+      );
+      return;
+    }
+
+    if (
+      returnDate <
+      purchaseTarget.invoice_date
+    ) {
+      setFormMessage(
+        "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة."
+      );
+      return;
+    }
+
+    if (
+      returnDate >
+      businessDate()
+    ) {
+      setFormMessage(
+        "تاريخ المرتجع لا يمكن أن يكون بالمستقبل."
+      );
+      return;
+    }
+
+    const payload:
+      Array<{
+        purchase_invoice_item_id:
+          string;
+
+        quantity:
+          number;
+      }> = [];
+
+    for (
+      const item of
+      purchaseTarget.items
+    ) {
+      const value =
+        numeric(
+          quantities[
+            item.id
+          ]
+        );
+
+      const available =
+        numeric(
+          item.available_quantity
+        );
+
+      if (
+        value < 0
+      ) {
+        setFormMessage(
+          "كمية المرتجع لا يمكن أن تكون سالبة."
+        );
+        return;
+      }
+
+      if (
+        value >
+        available +
+          0.0005
+      ) {
+        setFormMessage(
+          `كمية ${item.product_name} أكبر من الكمية المستلمة المتاحة للإرجاع.`
+        );
+        return;
+      }
+
+      if (
+        value > 0
+      ) {
+        payload.push({
+          purchase_invoice_item_id:
+            item.id,
+
+          quantity:
+            Number(
+              value.toFixed(
+                3
+              )
+            ),
+        });
+      }
+    }
+
+    if (
+      !payload.length
+    ) {
+      setFormMessage(
+        "اكتب كمية مرتجعة لصنف واحد على الأقل."
       );
       return;
     }
 
     setSaving(true);
-    setMessage("");
 
-    const { error } =
-      await supabase.rpc(
-        "create_purchase_return",
-        {
-          target_company:
-            companyId,
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "create_purchase_return",
+          {
+            target_company:
+              companyId,
 
-          target_invoice:
-            selectedPurchaseInvoice.id,
+            target_invoice:
+              purchaseTarget.id,
 
-          target_warehouse:
-            warehouseId,
+            target_warehouse:
+              warehouseId,
 
-          target_date:
-            returnDate,
+            target_date:
+              returnDate,
 
-          target_notes:
-            notes.trim() ||
-            null,
+            target_notes:
+              notes.trim() ||
+              null,
 
-          items_payload:
-            items.map(
-              ({
-                purchase_invoice_item_id,
-                quantity,
-              }) => ({
-                purchase_invoice_item_id,
-                quantity,
-              })
-            ),
-        }
+            items_payload:
+              payload,
+          }
+        );
+
+      if (error) {
+        setFormMessage(
+          friendlyError(
+            error,
+            "create"
+          )
+        );
+        return;
+      }
+
+      setPurchaseTarget(
+        null
       );
 
-    setSaving(false);
+      setNotice({
+        type:
+          "success",
 
-    if (error) {
-      setMessage(
-        error.message
-      );
+        text:
+          "تم ترحيل مرتجع المشتريات وتحديث المخزون والمحاسبة.",
+      });
+
+      router.refresh();
+
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openReverse(
+    row:
+      ReturnHistoryRow
+  ) {
+    if (
+      !canReverse ||
+      row.status !==
+        "posted"
+    ) {
       return;
     }
 
-    setPurchaseOpen(false);
-    router.refresh();
+    setReverseTarget(
+      row
+    );
+
+    setReverseReason(
+      ""
+    );
+
+    setReverseMessage(
+      ""
+    );
   }
 
-  const tabButton = (
-    key: Tab,
-    label: string
-  ) => (
-    <button
-      type="button"
-      className={
-        tab === key
-          ? "primaryButton"
-          : "softButton"
-      }
-      onClick={() =>
-        setTab(key)
-      }
-    >
-      {label}
-    </button>
-  );
-  function returnStatusLabel(
-    status: string
+  async function saveReverse(
+    event:
+      FormEvent<HTMLFormElement>
   ) {
-    if (status === "posted") {
-      return "مرحّل";
-    }
+    event.preventDefault();
 
-    if (status === "reversed") {
-      return "معكوس";
-    }
-
-    return "ملغى";
-  }
-
-  async function reverseReturn(
-    kind: "sales" | "purchases",
-    id: string,
-    number: string
-  ) {
-    if (!canReverse) {
+    if (
+      !reverseTarget ||
+      !canReverse
+    ) {
       return;
     }
 
     const reason =
-      window.prompt(
-        `سبب عكس المرتجع ${number}:`
-      );
+      reverseReason.trim();
 
-    if (reason === null) {
-      return;
-    }
-
-    if (!reason.trim()) {
-      window.alert(
+    if (!reason) {
+      setReverseMessage(
         "اكتب سبب عكس المرتجع."
       );
       return;
     }
 
-    const confirmed =
-      window.confirm(
-        `تأكيد عكس المرتجع ${number}؟ سيتم عكس حركة المخزون والقيد المحاسبي.`
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setBusyReturn(id);
-
-    const { error } =
-      await supabase.rpc(
-        kind === "sales"
-          ? "reverse_sales_return"
-          : "reverse_purchase_return",
-        {
-          target_company:
-            companyId,
-
-          target_return:
-            id,
-
-          target_reason:
-            reason.trim(),
-        }
-      );
-
-    setBusyReturn(null);
-
-    if (error) {
-      window.alert(
-        error.message
-      );
-      return;
-    }
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
+    setBusyReturn(
+      reverseTarget.id
     );
-  }
 
+    setReverseMessage(
+      ""
+    );
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          reverseTarget.kind ===
+          "sales"
+            ? "reverse_sales_return"
+            : "reverse_purchase_return",
+          {
+            target_company:
+              companyId,
+
+            target_return:
+              reverseTarget.id,
+
+            target_reason:
+              reason,
+          }
+        );
+
+      if (error) {
+        setReverseMessage(
+          friendlyError(
+            error,
+            "reverse"
+          )
+        );
+        return;
+      }
+
+      setReverseTarget(
+        null
+      );
+
+      setNotice({
+        type:
+          "success",
+
+        text:
+          "تم عكس المرتجع وحركة المخزون والقيد المحاسبي.",
+      });
+
+      router.refresh();
+
+    } finally {
+      setBusyReturn(
+        null
+      );
+    }
+  }
 
   return (
     <div className="page">
@@ -833,38 +1466,63 @@ export function ReturnsClient({
           </h2>
 
           <p className="muted">
-            مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائيًا.
+            مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائياً.
           </p>
         </div>
       </div>
 
+      {notice ? (
+        <div
+          className={
+            notice.type ===
+            "error"
+              ? "toastError"
+              : "panel panelPad"
+          }
+          role={
+            notice.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={{
+            marginBottom:
+              14,
+          }}
+        >
+          {notice.text}
+        </div>
+      ) : null}
+
       <section className="statsGrid">
         <Mini
-          title="مرتجعات مبيعات"
+          title="مرتجعات المبيعات"
           value={String(
-            salesReturns.length
+            initialStats.salesCount
+          )}
+          subtitle={`${initialStats.salesPostedCount} مرحلة • ${initialStats.salesReversedCount} معكوسة`}
+        />
+
+        <Mini
+          title="قيمة مرتجعات المبيعات المرحلة"
+          value={formatTotals(
+            initialStats.salesTotals
           )}
         />
 
         <Mini
-          title="قيمة مرتجعات المبيعات"
-          value={`${salesReturnTotal.toFixed(
-            2
-          )} ${baseCurrency}`}
-        />
-
-        <Mini
-          title="مرتجعات مشتريات"
+          title="مرتجعات المشتريات"
           value={String(
-            purchaseReturns.length
+            initialStats.purchaseCount
           )}
+          subtitle={`${initialStats.purchasePostedCount} مرحلة • ${initialStats.purchaseReversedCount} معكوسة`}
         />
 
         <Mini
-          title="قيمة مرتجعات المشتريات"
-          value={`${purchaseReturnTotal.toFixed(
-            2
-          )} ${baseCurrency}`}
+          title="قيمة مرتجعات المشتريات المرحلة"
+          value={formatTotals(
+            initialStats.purchaseTotals
+          )}
         />
       </section>
 
@@ -875,277 +1533,328 @@ export function ReturnsClient({
           flexWrap: "wrap",
         }}
       >
-        {tabButton(
-          "sales",
-          "مرتجع مبيعات"
-        )}
+        {canCreate ? (
+          <>
+            <button
+              type="button"
+              className={
+                tab ===
+                "sales"
+                  ? "primaryButton"
+                  : "softButton"
+              }
+              onClick={() =>
+                switchTab(
+                  "sales"
+                )
+              }
+            >
+              مرتجع مبيعات
+            </button>
 
-        {tabButton(
-          "purchases",
-          "مرتجع مشتريات"
-        )}
+            <button
+              type="button"
+              className={
+                tab ===
+                "purchases"
+                  ? "primaryButton"
+                  : "softButton"
+              }
+              onClick={() =>
+                switchTab(
+                  "purchases"
+                )
+              }
+            >
+              مرتجع مشتريات
+            </button>
+          </>
+        ) : null}
 
-        {tabButton(
-          "history",
-          "سجل المرتجعات"
-        )}
+        <button
+          type="button"
+          className={
+            tab ===
+            "history"
+              ? "primaryButton"
+              : "softButton"
+          }
+          onClick={() =>
+            switchTab(
+              "history"
+            )
+          }
+        >
+          سجل المرتجعات
+        </button>
       </div>
 
-      {tab !== "history" && (
-        <section
-          className="panel"
-          style={{
-            marginTop: 14,
+      <section
+        className="panel"
+        style={{
+          marginTop: 14,
+        }}
+      >
+        <form
+          className="filters"
+          onSubmit={(
+            event
+          ) => {
+            event.preventDefault();
+
+            navigate({
+              nextSearch:
+                search,
+              nextPage: 1,
+            });
           }}
         >
-          <div className="filters">
-            <div className="searchBox">
-              <Icons.search
-                size={16}
-              />
+          <div className="searchBox">
+            <Icons.search
+              size={16}
+            />
 
-              <input
-                value={search}
+            <input
+              value={
+                search
+              }
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event.target.value
+                )
+              }
+              placeholder={
+                tab ===
+                "sales"
+                  ? "رقم فاتورة البيع أو اسم العميل..."
+                  : tab ===
+                    "purchases"
+                    ? "رقم فاتورة الشراء أو اسم المورد..."
+                    : "رقم المرتجع، الفاتورة أو اسم العميل/المورد..."
+              }
+              aria-label="بحث في المرتجعات"
+            />
+
+            <button
+              type="submit"
+              className="softButton"
+            >
+              بحث
+            </button>
+          </div>
+
+          {tab ===
+          "history" ? (
+            <>
+              <select
+                value={
+                  kindFilter
+                }
+                aria-label="نوع المرتجع"
                 onChange={(
                   event
-                ) =>
-                  setSearch(
+                ) => {
+                  const value =
                     event.target
-                      .value
-                  )
-                }
-                placeholder={
-                  tab === "sales"
-                    ? "بحث برقم فاتورة البيع أو العميل..."
-                    : "بحث برقم فاتورة الشراء أو المورد..."
-                }
-              />
-            </div>
-          </div>
+                      .value as ReturnHistoryKindFilter;
 
-          {tab ===
-            "sales" && (
-            <InvoiceSalesTable
-              invoices={
-                filteredSalesInvoices
-              }
-              returnedQuantity={
-                returnedSalesQty
-              }
-              canCreate={
-                canCreate
-              }
-              onReturn={
-                startSalesReturn
-              }
-            />
+                  setKindFilter(
+                    value
+                  );
+
+                  navigate({
+                    nextKind:
+                      value,
+                    nextPage:
+                      1,
+                  });
+                }}
+              >
+                <option value="all">
+                  كل الأنواع
+                </option>
+
+                <option value="sales">
+                  مبيعات
+                </option>
+
+                <option value="purchases">
+                  مشتريات
+                </option>
+              </select>
+
+              <select
+                value={
+                  statusFilter
+                }
+                aria-label="حالة المرتجع"
+                onChange={(
+                  event
+                ) => {
+                  const value =
+                    event.target
+                      .value as ReturnHistoryStatusFilter;
+
+                  setStatusFilter(
+                    value
+                  );
+
+                  navigate({
+                    nextStatus:
+                      value,
+                    nextPage:
+                      1,
+                  });
+                }}
+              >
+                <option value="all">
+                  كل الحالات
+                </option>
+
+                <option value="posted">
+                  مرحّل
+                </option>
+
+                <option value="reversed">
+                  معكوس
+                </option>
+
+                <option value="cancelled">
+                  ملغى
+                </option>
+              </select>
+            </>
+          ) : (
+            <div />
           )}
 
-          {tab ===
-            "purchases" && (
-            <InvoicePurchaseTable
-              invoices={
-                filteredPurchaseInvoices
-              }
-              returnedQuantity={
-                returnedPurchaseQty
-              }
-              canCreate={
-                canCreate
-              }
-              onReturn={
-                startPurchaseReturn
-              }
-            />
-          )}
-        </section>
-      )}
-
-      {tab ===
-        "history" && (
-        <section
-          className="panel"
-          style={{
-            marginTop: 14,
-          }}
-        >
-          <div className="tableWrap">
-            <table className="dataTable">
-              <thead>
-                <tr>
-                  <th>رقم المرتجع</th>
-                  <th>النوع</th>
-                  <th>الفاتورة</th>
-                  <th>التاريخ</th>
-                  <th>المبلغ</th>
-                  <th>الحالة</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {[
-                  ...salesReturns.map(
-                    (item) => ({
-                      id:
-                        item.id,
-                      number:
-                        item.return_number,
-                      type:
-                        "مبيعات",
-                      invoice:
-                        salesInvoices.find(
-                          (
-                            invoice
-                          ) =>
-                            invoice.id ===
-                            item.sales_invoice_id
-                        )
-                          ?.invoice_number ||
-                        "—",
-                      date:
-                        item.return_date,
-                      total:
-                        item.total,
-                      currency:
-                        item.currency,
-                      status:
-                        item.status,
-                    })
-                  ),
-
-                  ...purchaseReturns.map(
-                    (item) => ({
-                      id:
-                        item.id,
-                      number:
-                        item.return_number,
-                      type:
-                        "مشتريات",
-                      invoice:
-                        purchaseInvoices.find(
-                          (
-                            invoice
-                          ) =>
-                            invoice.id ===
-                            item.purchase_invoice_id
-                        )
-                          ?.invoice_number ||
-                        "—",
-                      date:
-                        item.return_date,
-                      total:
-                        item.total,
-                      currency:
-                        item.currency,
-                      status:
-                        item.status,
-                    })
-                  ),
-                ]
-                  .sort(
-                    (a, b) =>
-                      b.date.localeCompare(
-                        a.date
-                      )
-                  )
-                  .map(
-                    (item) => (
-                      <tr
-                        key={
-                          item.id
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              item.number
-                            }
-                          </strong>
-                        </td>
-
-                        <td>
-                          {
-                            item.type
-                          }
-                        </td>
-
-                        <td>
-                          {
-                            item.invoice
-                          }
-                        </td>
-
-                        <td>
-                          {
-                            item.date
-                          }
-                        </td>
-
-                        <td>
-                          {num(
-                            item.total
-                          ).toFixed(
-                            2
-                          )}{" "}
-                          {
-                            item.currency
-                          }
-                        </td>
-
-                        <td>
-                          <span
-                            className={`chip ${
-                              item.status ===
-                              "posted"
-                                ? "green"
-                                : "gray"
-                            }`}
-                          >
-                            {returnStatusLabel(item.status)}
-                          </span>
-                        </td>
-
-                        <td>
-                          {canReverse && item.status === "posted" ? (
-                            <button
-                              type="button"
-                              className="softButton"
-                              data-return-reverse-action="true"
-                              disabled={busyReturn === item.id}
-                              onClick={() =>
-                                void reverseReturn(
-                                  item.type === "??????"
-                                    ? "sales"
-                                    : "purchases",
-                                  item.id,
-                                  item.number
-                                )
-                              }
-                            >
-                              {busyReturn === item.id
-                                ? "?? ????..."
-                                : "??? ???????"}
-                            </button>
-                          ) : (
-                            "?"
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  )}
-              </tbody>
-            </table>
+          <div className="resultCount">
+            {totalCount} نتيجة
           </div>
-        </section>
-      )}
+        </form>
 
-      {salesOpen &&
-        selectedSalesInvoice && (
+        {tab ===
+        "sales" ? (
+          <SalesCandidatesTable
+            rows={
+              salesCandidates
+            }
+            canCreate={
+              canCreate
+            }
+            onReturn={
+              openSalesReturn
+            }
+          />
+        ) : null}
+
+        {tab ===
+        "purchases" ? (
+          <PurchaseCandidatesTable
+            rows={
+              purchaseCandidates
+            }
+            canCreate={
+              canCreate
+            }
+            onReturn={
+              openPurchaseReturn
+            }
+          />
+        ) : null}
+
+        {tab ===
+        "history" ? (
+          <HistoryTable
+            rows={
+              historyRows
+            }
+            canReverse={
+              canReverse
+            }
+            busyReturn={
+              busyReturn
+            }
+            onReverse={
+              openReverse
+            }
+          />
+        ) : null}
+
+        {pageCount >
+        1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page <= 1
+              }
+              onClick={() =>
+                navigate({
+                  nextSearch:
+                    searchQuery,
+                  nextPage:
+                    page - 1,
+                  nextKind:
+                    historyKind,
+                  nextStatus:
+                    historyStatus,
+                })
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {page} من{" "}
+              {pageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page >=
+                pageCount
+              }
+              onClick={() =>
+                navigate({
+                  nextSearch:
+                    searchQuery,
+                  nextPage:
+                    page + 1,
+                  nextKind:
+                    historyKind,
+                  nextStatus:
+                    historyStatus,
+                })
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      {salesTarget ? (
         <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
               maxWidth: 900,
+              width: "94vw",
             }}
           >
             <div className="modalHeader">
@@ -1157,14 +1866,12 @@ export function ReturnsClient({
                 <h2>
                   مرتجع فاتورة{" "}
                   {
-                    selectedSalesInvoice.invoice_number
+                    salesTarget.invoice_number
                   }
                 </h2>
 
                 <p className="muted">
-                  {one(
-                    selectedSalesInvoice.traders
-                  )?.name ||
+                  {salesTarget.trader?.name ||
                     "عميل"}
                 </p>
               </div>
@@ -1172,9 +1879,12 @@ export function ReturnsClient({
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  saving
+                }
                 onClick={() =>
-                  setSalesOpen(
-                    false
+                  setSalesTarget(
+                    null
                   )
                 }
               >
@@ -1203,6 +1913,9 @@ export function ReturnsClient({
                 setDate={
                   setReturnDate
                 }
+                minDate={
+                  salesTarget.invoice_date
+                }
               />
 
               <div
@@ -1214,131 +1927,135 @@ export function ReturnsClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>المنتج</th>
-                      <th>المباع</th>
-                      <th>مرتجع سابق</th>
-                      <th>متاح للإرجاع</th>
-                      <th>الكمية</th>
+                      <th>
+                        الصنف
+                      </th>
+                      <th>
+                        مباع
+                      </th>
+                      <th>
+                        مرتجع سابق
+                      </th>
+                      <th>
+                        متاح
+                      </th>
+                      <th>
+                        الكمية
+                      </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {selectedSalesInvoice.sales_invoice_items.map(
-                      (item) => {
-                        const returned =
-                          returnedSalesQty(
+                    {salesTarget.items.map(
+                      (item) => (
+                        <tr
+                          key={
                             item.id
-                          );
-
-                        const available =
-                          Math.max(
-                            num(
-                              item.quantity
-                            ) -
-                              returned,
-                            0
-                          );
-
-                        return (
-                          <tr
-                            key={
-                              item.id
-                            }
-                          >
-                            <td>
-                              <strong>
-                                {one(
-                                  item.products
-                                )?.name ||
-                                  item.description}
-                              </strong>
-                            </td>
-
-                            <td>
-                              {num(
-                                item.quantity
-                              )}
-                            </td>
-
-                            <td>
+                          }
+                        >
+                          <td>
+                            <strong>
                               {
-                                returned
+                                item.product_name
                               }
-                            </td>
+                            </strong>
 
-                            <td>
-                              {
-                                available
+                            <div className="muted">
+                              {item.sku ||
+                                item.unit ||
+                                item.description}
+                            </div>
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.invoiced_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.returned_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.available_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            <input
+                              type="number"
+                              min="0"
+                              max={
+                                item.available_quantity
                               }
-                            </td>
+                              step="0.001"
+                              value={
+                                quantities[
+                                  item.id
+                                ] ??
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setQuantities(
+                                  (
+                                    current
+                                  ) => ({
+                                    ...current,
 
-                            <td>
-                              <input
-                                type="number"
-                                min="0"
-                                max={
-                                  available
-                                }
-                                step="0.001"
-                                disabled={
-                                  available <=
-                                  0
-                                }
-                                value={
-                                  quantities[
-                                    item.id
-                                  ] ||
-                                  ""
-                                }
-                                onChange={(
-                                  event
-                                ) =>
-                                  setQuantities(
-                                    (
-                                      current
-                                    ) => ({
-                                      ...current,
-                                      [item.id]:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                                style={{
-                                  minWidth:
-                                    100,
-                                }}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      }
+                                    [item.id]:
+                                      event.target.value,
+                                  })
+                                )
+                              }
+                              style={{
+                                minWidth:
+                                  100,
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      )
                     )}
                   </tbody>
                 </table>
               </div>
 
               <Notes
-                value={notes}
+                value={
+                  notes
+                }
                 setValue={
                   setNotes
                 }
               />
 
-              {message && (
-                <div className="toastError">
+              {formMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
                   {
-                    message
+                    formMessage
                   }
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
+                  disabled={
+                    saving
+                  }
                   onClick={() =>
-                    setSalesOpen(
-                      false
+                    setSalesTarget(
+                      null
                     )
                   }
                 >
@@ -1346,26 +2063,31 @@ export function ReturnsClient({
                 </button>
 
                 <button
+                  type="submit"
                   className="primaryButton"
                   disabled={
                     saving
                   }
                 >
-                  ترحيل مرتجع المبيعات
+                  {saving
+                    ? "جارٍ الترحيل..."
+                    : "ترحيل مرتجع المبيعات"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
 
-      {purchaseOpen &&
-        selectedPurchaseInvoice && (
+      {purchaseTarget ? (
         <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
               maxWidth: 900,
+              width: "94vw",
             }}
           >
             <div className="modalHeader">
@@ -1377,14 +2099,12 @@ export function ReturnsClient({
                 <h2>
                   مرتجع فاتورة{" "}
                   {
-                    selectedPurchaseInvoice.invoice_number
+                    purchaseTarget.invoice_number
                   }
                 </h2>
 
                 <p className="muted">
-                  {one(
-                    selectedPurchaseInvoice.suppliers
-                  )?.name ||
+                  {purchaseTarget.supplier?.name ||
                     "مورد"}
                 </p>
               </div>
@@ -1392,9 +2112,12 @@ export function ReturnsClient({
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  saving
+                }
                 onClick={() =>
-                  setPurchaseOpen(
-                    false
+                  setPurchaseTarget(
+                    null
                   )
                 }
               >
@@ -1423,6 +2146,9 @@ export function ReturnsClient({
                 setDate={
                   setReturnDate
                 }
+                minDate={
+                  purchaseTarget.invoice_date
+                }
               />
 
               <div
@@ -1434,132 +2160,144 @@ export function ReturnsClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>المنتج</th>
-                      <th>المشترى</th>
-                      <th>مرتجع سابق</th>
-                      <th>متاح للإرجاع</th>
-                      <th>الكمية</th>
+                      <th>
+                        الصنف
+                      </th>
+                      <th>
+                        بالفاتورة
+                      </th>
+                      <th>
+                        مستلم فعلياً
+                      </th>
+                      <th>
+                        مرتجع سابق
+                      </th>
+                      <th>
+                        متاح
+                      </th>
+                      <th>
+                        الكمية
+                      </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {selectedPurchaseInvoice.purchase_invoice_items.map(
-                      (item) => {
-                        const returned =
-                          returnedPurchaseQty(
+                    {purchaseTarget.items.map(
+                      (item) => (
+                        <tr
+                          key={
                             item.id
-                          );
-
-                        const available =
-                          Math.max(
-                            num(
-                              item.quantity
-                            ) -
-                              returned,
-                            0
-                          );
-
-                        return (
-                          <tr
-                            key={
-                              item.id
-                            }
-                          >
-                            <td>
-                              <strong>
-                                {one(
-                                  item.products
-                                )?.name ||
-                                  item.description ||
-                                  "منتج"}
-                              </strong>
-                            </td>
-
-                            <td>
-                              {num(
-                                item.quantity
-                              )}
-                            </td>
-
-                            <td>
+                          }
+                        >
+                          <td>
+                            <strong>
                               {
-                                returned
+                                item.product_name
                               }
-                            </td>
+                            </strong>
 
-                            <td>
-                              {
-                                available
+                            <div className="muted">
+                              {item.sku ||
+                                item.description ||
+                                ""}
+                            </div>
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.invoiced_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.received_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.returned_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            {quantity(
+                              item.available_quantity
+                            )}
+                          </td>
+
+                          <td>
+                            <input
+                              type="number"
+                              min="0"
+                              max={
+                                item.available_quantity
                               }
-                            </td>
+                              step="0.001"
+                              value={
+                                quantities[
+                                  item.id
+                                ] ??
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setQuantities(
+                                  (
+                                    current
+                                  ) => ({
+                                    ...current,
 
-                            <td>
-                              <input
-                                type="number"
-                                min="0"
-                                max={
-                                  available
-                                }
-                                step="0.001"
-                                disabled={
-                                  available <=
-                                  0
-                                }
-                                value={
-                                  quantities[
-                                    item.id
-                                  ] ||
-                                  ""
-                                }
-                                onChange={(
-                                  event
-                                ) =>
-                                  setQuantities(
-                                    (
-                                      current
-                                    ) => ({
-                                      ...current,
-                                      [item.id]:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                                style={{
-                                  minWidth:
-                                    100,
-                                }}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      }
+                                    [item.id]:
+                                      event.target.value,
+                                  })
+                                )
+                              }
+                              style={{
+                                minWidth:
+                                  100,
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      )
                     )}
                   </tbody>
                 </table>
               </div>
 
               <Notes
-                value={notes}
+                value={
+                  notes
+                }
                 setValue={
                   setNotes
                 }
               />
 
-              {message && (
-                <div className="toastError">
+              {formMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
                   {
-                    message
+                    formMessage
                   }
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
+                  disabled={
+                    saving
+                  }
                   onClick={() =>
-                    setPurchaseOpen(
-                      false
+                    setPurchaseTarget(
+                      null
                     )
                   }
                 >
@@ -1567,36 +2305,152 @@ export function ReturnsClient({
                 </button>
 
                 <button
+                  type="submit"
                   className="primaryButton"
                   disabled={
                     saving
                   }
                 >
-                  ترحيل مرتجع المشتريات
+                  {saving
+                    ? "جارٍ الترحيل..."
+                    : "ترحيل مرتجع المشتريات"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
+
+      {reverseTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  عكس مرتجع
+                </span>
+
+                <h2>
+                  {
+                    reverseTarget.return_number
+                  }
+                </h2>
+              </div>
+            </div>
+
+            <form
+              onSubmit={
+                saveReverse
+              }
+            >
+              <p>
+                سيتم عكس حركة المخزون والقيد المحاسبي للمرتجع.
+              </p>
+
+              <p className="muted">
+                {reverseTarget.kind ===
+                "sales"
+                  ? "مرتجع مبيعات"
+                  : "مرتجع مشتريات"}{" "}
+                • فاتورة{" "}
+                {
+                  reverseTarget.invoice_number
+                }
+              </p>
+
+              <label className="field">
+                <span>
+                  سبب العكس *
+                </span>
+
+                <textarea
+                  value={
+                    reverseReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setReverseReason(
+                      event.target.value
+                    )
+                  }
+                  placeholder="اكتب سبب واضح لعكس المرتجع..."
+                />
+              </label>
+
+              {reverseMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
+                  {
+                    reverseMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    busyReturn ===
+                    reverseTarget.id
+                  }
+                  onClick={() =>
+                    setReverseTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  type="submit"
+                  className="dangerButton"
+                  disabled={
+                    busyReturn ===
+                    reverseTarget.id
+                  }
+                >
+                  {busyReturn ===
+                  reverseTarget.id
+                    ? "جارٍ العكس..."
+                    : "تأكيد عكس المرتجع"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function InvoiceSalesTable({
-  invoices,
-  returnedQuantity,
+function SalesCandidatesTable({
+  rows,
   canCreate,
   onReturn,
 }: {
-  invoices: ReturnSalesInvoice[];
-  returnedQuantity:
-    (itemId: string) => number;
+  rows:
+    SalesReturnCandidate[];
+
   canCreate: boolean;
+
   onReturn:
-    (invoice: ReturnSalesInvoice) => void;
+    (
+      row:
+        SalesReturnCandidate
+    ) => void;
 }) {
-  if (!invoices.length) {
+  if (
+    !rows.length
+  ) {
     return (
       <div className="empty">
         <Icons.box
@@ -1604,8 +2458,12 @@ function InvoiceSalesTable({
         />
 
         <h3>
-          ما في فواتير بيع
+          لا توجد فواتير بيع قابلة للإرجاع
         </h3>
+
+        <p>
+          الفواتير المرحلة التي بقي فيها كمية قابلة للإرجاع ستظهر هنا.
+        </p>
       </div>
     );
   }
@@ -1615,94 +2473,93 @@ function InvoiceSalesTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>الفاتورة</th>
-            <th>العميل</th>
-            <th>التاريخ</th>
-            <th>القيمة</th>
-            <th>بنود قابلة للإرجاع</th>
-            <th />
+            <th>
+              الفاتورة
+            </th>
+
+            <th>
+              العميل
+            </th>
+
+            <th>
+              التاريخ
+            </th>
+
+            <th>
+              القيمة
+            </th>
+
+            <th>
+              أصناف قابلة للإرجاع
+            </th>
+
+            <th>
+              الإجراء
+            </th>
           </tr>
         </thead>
 
         <tbody>
-          {invoices.map(
-            (invoice) => {
-              const availableItems =
-                invoice.sales_invoice_items.filter(
-                  (item) =>
-                    num(
-                      item.quantity
-                    ) -
-                      returnedQuantity(
-                        item.id
-                      ) >
-                    0
-                ).length;
+          {rows.map(
+            (row) => (
+              <tr
+                key={
+                  row.id
+                }
+              >
+                <td>
+                  <strong>
+                    {
+                      row.invoice_number
+                    }
+                  </strong>
+                </td>
 
-              return (
-                <tr
-                  key={
-                    invoice.id
+                <td>
+                  {row.trader?.name ||
+                    "—"}
+                </td>
+
+                <td>
+                  {
+                    row.invoice_date
                   }
-                >
-                  <td>
-                    <strong>
-                      {
-                        invoice.invoice_number
+                </td>
+
+                <td>
+                  {money(
+                    row.total,
+                    row.currency
+                  )}
+                </td>
+
+                <td>
+                  {
+                    row.items.length
+                  }
+                </td>
+
+                <td>
+                  {canCreate ? (
+                    <button
+                      type="button"
+                      className="primaryButton"
+                      onClick={() =>
+                        onReturn(
+                          row
+                        )
                       }
-                    </strong>
-                  </td>
-
-                  <td>
-                    {one(
-                      invoice.traders
-                    )?.name ||
-                      "—"}
-                  </td>
-
-                  <td>
-                    {
-                      invoice.invoice_date
-                    }
-                  </td>
-
-                  <td>
-                    {num(
-                      invoice.total
-                    ).toFixed(
-                      2
-                    )}{" "}
-                    {
-                      invoice.currency
-                    }
-                  </td>
-
-                  <td>
-                    {
-                      availableItems
-                    }
-                  </td>
-
-                  <td>
-                    {canCreate &&
-                      availableItems >
-                        0 && (
-                        <button
-                          type="button"
-                          className="primaryButton"
-                          onClick={() =>
-                            onReturn(
-                              invoice
-                            )
-                          }
-                        >
-                          مرتجع
-                        </button>
-                      )}
-                  </td>
-                </tr>
-              );
-            }
+                    >
+                      إنشاء مرتجع
+                    </button>
+                  ) : (
+                    <span className="muted">
+                      عرض فقط
+                    </span>
+                  )}
+                </td>
+              </tr>
+            )
           )}
         </tbody>
       </table>
@@ -1710,20 +2567,25 @@ function InvoiceSalesTable({
   );
 }
 
-function InvoicePurchaseTable({
-  invoices,
-  returnedQuantity,
+function PurchaseCandidatesTable({
+  rows,
   canCreate,
   onReturn,
 }: {
-  invoices: ReturnPurchaseInvoice[];
-  returnedQuantity:
-    (itemId: string) => number;
+  rows:
+    PurchaseReturnCandidate[];
+
   canCreate: boolean;
+
   onReturn:
-    (invoice: ReturnPurchaseInvoice) => void;
+    (
+      row:
+        PurchaseReturnCandidate
+    ) => void;
 }) {
-  if (!invoices.length) {
+  if (
+    !rows.length
+  ) {
     return (
       <div className="empty">
         <Icons.box
@@ -1731,7 +2593,155 @@ function InvoicePurchaseTable({
         />
 
         <h3>
-          ما في فواتير شراء
+          لا توجد فواتير شراء قابلة للإرجاع
+        </h3>
+
+        <p>
+          تظهر هنا فقط الكميات التي تم استلامها فعلياً وما زالت قابلة للإرجاع للمورد.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="tableWrap">
+      <table className="dataTable">
+        <thead>
+          <tr>
+            <th>
+              الفاتورة
+            </th>
+
+            <th>
+              فاتورة المورد
+            </th>
+
+            <th>
+              المورد
+            </th>
+
+            <th>
+              التاريخ
+            </th>
+
+            <th>
+              القيمة
+            </th>
+
+            <th>
+              أصناف قابلة للإرجاع
+            </th>
+
+            <th>
+              الإجراء
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map(
+            (row) => (
+              <tr
+                key={
+                  row.id
+                }
+              >
+                <td>
+                  <strong>
+                    {
+                      row.invoice_number
+                    }
+                  </strong>
+                </td>
+
+                <td>
+                  {row.supplier_invoice_number ||
+                    "—"}
+                </td>
+
+                <td>
+                  {row.supplier?.name ||
+                    "—"}
+                </td>
+
+                <td>
+                  {
+                    row.invoice_date
+                  }
+                </td>
+
+                <td>
+                  {money(
+                    row.total,
+                    row.currency
+                  )}
+                </td>
+
+                <td>
+                  {
+                    row.items.length
+                  }
+                </td>
+
+                <td>
+                  {canCreate ? (
+                    <button
+                      type="button"
+                      className="primaryButton"
+                      onClick={() =>
+                        onReturn(
+                          row
+                        )
+                      }
+                    >
+                      إنشاء مرتجع
+                    </button>
+                  ) : (
+                    <span className="muted">
+                      عرض فقط
+                    </span>
+                  )}
+                </td>
+              </tr>
+            )
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HistoryTable({
+  rows,
+  canReverse,
+  busyReturn,
+  onReverse,
+}: {
+  rows:
+    ReturnHistoryRow[];
+
+  canReverse: boolean;
+
+  busyReturn:
+    string | null;
+
+  onReverse:
+    (
+      row:
+        ReturnHistoryRow
+    ) => void;
+}) {
+  if (
+    !rows.length
+  ) {
+    return (
+      <div className="empty">
+        <Icons.box
+          size={28}
+        />
+
+        <h3>
+          لا يوجد سجل مرتجعات
         </h3>
       </div>
     );
@@ -1742,99 +2752,149 @@ function InvoicePurchaseTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>الفاتورة</th>
-            <th>المورد</th>
-            <th>التاريخ</th>
-            <th>القيمة</th>
-            <th>بنود قابلة للإرجاع</th>
-            <th />
+            <th>
+              المرتجع
+            </th>
+
+            <th>
+              النوع
+            </th>
+
+            <th>
+              الفاتورة
+            </th>
+
+            <th>
+              العميل / المورد
+            </th>
+
+            <th>
+              المستودع
+            </th>
+
+            <th>
+              التاريخ
+            </th>
+
+            <th>
+              المبلغ
+            </th>
+
+            <th>
+              الحالة
+            </th>
+
+            <th>
+              الإجراء
+            </th>
           </tr>
         </thead>
 
         <tbody>
-          {invoices.map(
-            (invoice) => {
-              const availableItems =
-                invoice.purchase_invoice_items.filter(
-                  (item) =>
-                    num(
-                      item.quantity
-                    ) -
-                      returnedQuantity(
-                        item.id
-                      ) >
-                    0
-                ).length;
+          {rows.map(
+            (row) => (
+              <tr
+                key={
+                  row.id
+                }
+              >
+                <td>
+                  <strong>
+                    {
+                      row.return_number
+                    }
+                  </strong>
 
-              return (
-                <tr
-                  key={
-                    invoice.id
-                  }
-                >
-                  <td>
-                    <strong>
-                      {
-                        invoice.invoice_number
-                      }
-                    </strong>
-
+                  {row.reversal_reason ? (
                     <div className="muted">
-                      {invoice.supplier_invoice_number ||
-                        ""}
+                      سبب العكس:{" "}
+                      {
+                        row.reversal_reason
+                      }
                     </div>
-                  </td>
+                  ) : null}
+                </td>
 
-                  <td>
-                    {one(
-                      invoice.suppliers
-                    )?.name ||
-                      "—"}
-                  </td>
+                <td>
+                  {row.kind ===
+                  "sales"
+                    ? "مبيعات"
+                    : "مشتريات"}
+                </td>
 
-                  <td>
-                    {
-                      invoice.invoice_date
-                    }
-                  </td>
+                <td>
+                  {
+                    row.invoice_number
+                  }
+                </td>
 
-                  <td>
-                    {num(
-                      invoice.total
-                    ).toFixed(
-                      2
-                    )}{" "}
-                    {
-                      invoice.currency
-                    }
-                  </td>
+                <td>
+                  {
+                    row.party_name
+                  }
+                </td>
 
-                  <td>
-                    {
-                      availableItems
-                    }
-                  </td>
+                <td>
+                  {
+                    row.warehouse_name
+                  }
+                </td>
 
-                  <td>
-                    {canCreate &&
-                      availableItems >
-                        0 && (
-                        <button
-                          type="button"
-                          className="primaryButton"
-                          onClick={() =>
-                            onReturn(
-                              invoice
-                            )
-                          }
-                        >
-                          مرتجع
-                        </button>
-                      )}
-                  </td>
-                </tr>
-              );
-            }
+                <td>
+                  {
+                    row.return_date
+                  }
+                </td>
+
+                <td>
+                  {money(
+                    row.total,
+                    row.currency
+                  )}
+                </td>
+
+                <td>
+                  <span
+                    className={`chip ${statusColor(
+                      row.status
+                    )}`}
+                  >
+                    {statusLabel(
+                      row.status
+                    )}
+                  </span>
+                </td>
+
+                <td>
+                  {canReverse &&
+                  row.status ===
+                    "posted" ? (
+                    <button
+                      type="button"
+                      className="dangerButton"
+                      disabled={
+                        busyReturn ===
+                        row.id
+                      }
+                      onClick={() =>
+                        onReverse(
+                          row
+                        )
+                      }
+                    >
+                      {busyReturn ===
+                      row.id
+                        ? "جارٍ العكس..."
+                        : "عكس المرتجع"}
+                    </button>
+                  ) : (
+                    <span className="muted">
+                      —
+                    </span>
+                  )}
+                </td>
+              </tr>
+            )
           )}
         </tbody>
       </table>
@@ -1848,14 +2908,26 @@ function ReturnHeader({
   setWarehouseId,
   date,
   setDate,
+  minDate,
 }: {
-  warehouses: ReturnWarehouse[];
+  warehouses:
+    ReturnWarehouse[];
+
   warehouseId: string;
+
   setWarehouseId:
-    (value: string) => void;
+    (
+      value: string
+    ) => void;
+
   date: string;
+
   setDate:
-    (value: string) => void;
+    (
+      value: string
+    ) => void;
+
+  minDate: string;
 }) {
   return (
     <div className="formGrid">
@@ -1872,13 +2944,18 @@ function ReturnHeader({
             event
           ) =>
             setWarehouseId(
-              event.target
-                .value
+              event.target.value
             )
           }
         >
+          <option value="">
+            اختر المستودع
+          </option>
+
           {warehouses.map(
-            (warehouse) => (
+            (
+              warehouse
+            ) => (
               <option
                 key={
                   warehouse.id
@@ -1890,8 +2967,8 @@ function ReturnHeader({
                 {
                   warehouse.name
                 }
-                {warehouse.is_default
-                  ? " - الرئيسي"
+                {warehouse.code
+                  ? ` - ${warehouse.code}`
                   : ""}
               </option>
             )
@@ -1906,13 +2983,20 @@ function ReturnHeader({
 
         <input
           type="date"
-          value={date}
+          min={
+            minDate
+          }
+          max={
+            businessDate()
+          }
+          value={
+            date
+          }
           onChange={(
             event
           ) =>
             setDate(
-              event.target
-                .value
+              event.target.value
             )
           }
         />
@@ -1926,8 +3010,11 @@ function Notes({
   setValue,
 }: {
   value: string;
+
   setValue:
-    (value: string) => void;
+    (
+      value: string
+    ) => void;
 }) {
   return (
     <label
@@ -1937,20 +3024,21 @@ function Notes({
       }}
     >
       <span>
-        سبب / ملاحظات المرتجع
+        ملاحظات
       </span>
 
       <textarea
-        rows={3}
-        value={value}
+        value={
+          value
+        }
         onChange={(
           event
         ) =>
           setValue(
-            event.target
-              .value
+            event.target.value
           )
         }
+        placeholder="اختياري"
       />
     </label>
   );
@@ -1959,9 +3047,11 @@ function Notes({
 function Mini({
   title,
   value,
+  subtitle,
 }: {
   title: string;
   value: string;
+  subtitle?: string;
 }) {
   return (
     <div className="statCard">
@@ -1972,6 +3062,12 @@ function Mini({
       <div className="statValue">
         {value}
       </div>
+
+      {subtitle ? (
+        <div className="muted">
+          {subtitle}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,9 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type {
+  FormEvent,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+
 import { Icons } from "@/components/icons";
+import { createClient } from "@/lib/supabase/client";
 
 export type PurchaseNeed = {
   sales_order_item_id: string;
@@ -63,6 +74,7 @@ export type PurchaseInvoiceRow = {
   total: number;
   paid_total: number;
   balance_due: number;
+  cancellation_reason: string | null;
   created_at: string;
   suppliers:
     | InvoiceSupplier
@@ -109,6 +121,31 @@ export type SupplierPaymentRow = {
     | null;
 };
 
+type PurchaseStats = {
+  needCount: number;
+  remainingUnits: number;
+  invoiceCount: number;
+  outstandingTotal: number;
+  supplierCreditTotal: number;
+};
+
+type InvoiceStatusFilter =
+  | "all"
+  | "posted"
+  | "cancelled";
+
+type PaymentStatusFilter =
+  | "all"
+  | "posted"
+  | "reversed";
+
+type PaymentMethod =
+  | "cash"
+  | "bank"
+  | "card"
+  | "check"
+  | "other";
+
 type DraftLine = {
   key: string;
   productId: string;
@@ -120,15 +157,12 @@ type DraftLine = {
   salesOrderItemId: string | null;
   maxQuantity: number | null;
   traderName: string | null;
-  orderId: string | null;
 };
 
-type PaymentMethod =
-  | "cash"
-  | "bank"
-  | "card"
-  | "check"
-  | "other";
+type Notice = {
+  type: "success" | "error";
+  text: string;
+};
 
 const paymentMethodLabels: Record<
   PaymentMethod,
@@ -153,10 +187,196 @@ function newKey() {
   return crypto.randomUUID();
 }
 
-function today() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
+function businessDateInput() {
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const get = (
+    type: string
+  ) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function money(
+  value: number,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(
+    Number(value || 0)
+  )} ${currency}`;
+}
+
+function friendlyError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action:
+    | "invoice"
+    | "payment"
+    | "cancel"
+    | "reverse"
+    | "quote"
+) {
+  const raw =
+    error?.message ?? "";
+
+  const message =
+    raw.toLowerCase();
+
+  if (
+    error?.code ===
+      "42501" ||
+    message.includes(
+      "not allowed"
+    ) ||
+    message.includes(
+      "permission"
+    )
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
+  }
+
+  if (
+    message.includes(
+      "archived supplier"
+    ) ||
+    message.includes(
+      "invalid supplier"
+    )
+  ) {
+    return "المورد غير صالح أو مؤرشف.";
+  }
+
+  if (
+    message.includes(
+      "archived product"
+    ) ||
+    message.includes(
+      "invalid product"
+    )
+  ) {
+    return "أحد الأصناف غير صالح أو مؤرشف.";
+  }
+
+  if (
+    message.includes(
+      "due date"
+    )
+  ) {
+    return "تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ الفاتورة.";
+  }
+
+  if (
+    message.includes(
+      "discount exceeds"
+    )
+  ) {
+    return "الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر.";
+  }
+
+  if (
+    message.includes(
+      "allocation exceeds"
+    )
+  ) {
+    return "أحد المبالغ الموزعة أكبر من الرصيد المسموح.";
+  }
+
+  if (
+    message.includes(
+      "reverse goods receipts"
+    )
+  ) {
+    return "لا يمكن إلغاء الفاتورة قبل عكس استلام البضاعة المرتبط بها.";
+  }
+
+  if (
+    message.includes(
+      "reverse allocated supplier payments"
+    )
+  ) {
+    return "لا يمكن إلغاء الفاتورة قبل عكس دفعات المورد الموزعة عليها.";
+  }
+
+  if (
+    message.includes(
+      "cancellation reason"
+    )
+  ) {
+    return "سبب إلغاء الفاتورة مطلوب.";
+  }
+
+  if (
+    message.includes(
+      "reversal reason"
+    )
+  ) {
+    return "سبب عكس الدفعة مطلوب.";
+  }
+
+  if (
+    message.includes(
+      "currency"
+    ) ||
+    message.includes(
+      "exchange"
+    ) ||
+    message.includes(
+      "rate"
+    )
+  ) {
+    return "تعذر احتساب سعر الصرف لهذه العملية.";
+  }
+
+  if (
+    action === "invoice"
+  ) {
+    return "تعذر إنشاء فاتورة الشراء. راجع البيانات وحاول مرة ثانية.";
+  }
+
+  if (
+    action === "payment"
+  ) {
+    return "تعذر تسجيل دفعة المورد. راجع البيانات وحاول مرة ثانية.";
+  }
+
+  if (
+    action === "cancel"
+  ) {
+    return "تعذر إلغاء فاتورة الشراء.";
+  }
+
+  if (
+    action === "reverse"
+  ) {
+    return "تعذر عكس دفعة المورد.";
+  }
+
+  return "تعذر احتساب المبلغ بعملة الصندوق.";
 }
 
 function emptyManualLine(): DraftLine {
@@ -168,10 +388,10 @@ function emptyManualLine(): DraftLine {
     discountAmount: "0",
     taxAmount: "0",
     notes: "",
-    salesOrderItemId: null,
+    salesOrderItemId:
+      null,
     maxQuantity: null,
     traderName: null,
-    orderId: null,
   };
 }
 
@@ -186,6 +406,21 @@ export function PurchasesClient({
   cashboxes,
   initialPayments,
   initialError,
+  initialStats,
+  invoiceTotalCount,
+  invoicePage,
+  paymentTotalCount,
+  paymentPage,
+  pageSize,
+  invoiceSearchQuery,
+  invoiceStatusFilter,
+  paymentSearchQuery,
+  paymentStatusFilter,
+  canCreateInvoice,
+  canCancelInvoice,
+  canPaySupplier,
+  canViewPayments,
+  canReversePayment,
 }: {
   companyId: string;
   currency: string;
@@ -197,237 +432,505 @@ export function PurchasesClient({
   cashboxes: CashboxOption[];
   initialPayments: SupplierPaymentRow[];
   initialError: string | null;
+  initialStats: PurchaseStats;
+  invoiceTotalCount: number;
+  invoicePage: number;
+  paymentTotalCount: number;
+  paymentPage: number;
+  pageSize: number;
+  invoiceSearchQuery: string;
+  invoiceStatusFilter: InvoiceStatusFilter;
+  paymentSearchQuery: string;
+  paymentStatusFilter: PaymentStatusFilter;
+  canCreateInvoice: boolean;
+  canCancelInvoice: boolean;
+  canPaySupplier: boolean;
+  canViewPayments: boolean;
+  canReversePayment: boolean;
 }) {
-  const [supabase] = useState(
-    () => createClient()
-  );
+  const [supabase] =
+    useState(
+      () =>
+        createClient()
+    );
 
-  const router = useRouter();
+  const router =
+    useRouter();
 
-  const [invoices, setInvoices] =
-    useState(initialInvoices);
+  const searchParams =
+    useSearchParams();
 
-  const [payments, setPayments] =
-    useState(initialPayments);
+  const [
+    invoices,
+    setInvoices,
+  ] =
+    useState(
+      initialInvoices
+    );
 
-  const [message, setMessage] =
-    useState(initialError || "");
+  const [
+    payments,
+    setPayments,
+  ] =
+    useState(
+      initialPayments
+    );
 
-  const [saving, setSaving] =
+  const [
+    notice,
+    setNotice,
+  ] =
+    useState<Notice | null>(
+      initialError
+        ? {
+            type: "error",
+            text: initialError,
+          }
+        : null
+    );
+
+  const [
+    invoiceSearch,
+    setInvoiceSearch,
+  ] =
+    useState(
+      invoiceSearchQuery
+    );
+
+  const [
+    invoiceFilter,
+    setInvoiceFilter,
+  ] =
+    useState<InvoiceStatusFilter>(
+      invoiceStatusFilter
+    );
+
+  const [
+    paymentSearch,
+    setPaymentSearch,
+  ] =
+    useState(
+      paymentSearchQuery
+    );
+
+  const [
+    paymentFilter,
+    setPaymentFilter,
+  ] =
+    useState<PaymentStatusFilter>(
+      paymentStatusFilter
+    );
+
+  useEffect(() => {
+    setInvoices(
+      initialInvoices
+    );
+  }, [
+    initialInvoices,
+  ]);
+
+  useEffect(() => {
+    setPayments(
+      initialPayments
+    );
+  }, [
+    initialPayments,
+  ]);
+
+  useEffect(() => {
+    setInvoiceSearch(
+      invoiceSearchQuery
+    );
+
+    setInvoiceFilter(
+      invoiceStatusFilter
+    );
+  }, [
+    invoiceSearchQuery,
+    invoiceStatusFilter,
+  ]);
+
+  useEffect(() => {
+    setPaymentSearch(
+      paymentSearchQuery
+    );
+
+    setPaymentFilter(
+      paymentStatusFilter
+    );
+  }, [
+    paymentSearchQuery,
+    paymentStatusFilter,
+  ]);
+
+  useEffect(() => {
+    if (initialError) {
+      setNotice({
+        type: "error",
+        text: initialError,
+      });
+    }
+  }, [initialError]);
+
+  // ==========================================================
+  // INVOICE FORM
+  // ==========================================================
+
+  const [
+    invoiceOpen,
+    setInvoiceOpen,
+  ] =
     useState(false);
 
-  const [busyInvoice, setBusyInvoice] =
-    useState<string | null>(null);
-
-  const [busyPayment, setBusyPayment] =
-    useState<string | null>(null);
-
-  // ======================================================
-  // PURCHASE INVOICE FORM
-  // ======================================================
-
-  const [open, setOpen] =
-    useState(false);
-
-  const [supplierId, setSupplierId] =
+  const [
+    supplierId,
+    setSupplierId,
+  ] =
     useState("");
 
   const [
     supplierInvoiceNumber,
     setSupplierInvoiceNumber,
-  ] = useState("");
-
-  const [invoiceDate, setInvoiceDate] =
-    useState(today());
-
-  const [dueDate, setDueDate] =
+  ] =
     useState("");
 
-  const [invoiceNotes, setInvoiceNotes] =
+  const [
+    invoiceDate,
+    setInvoiceDate,
+  ] =
+    useState(
+      businessDateInput()
+    );
+
+  const [
+    dueDate,
+    setDueDate,
+  ] =
     useState("");
 
-  const [lines, setLines] =
-    useState<DraftLine[]>([]);
+  const [
+    invoiceNotes,
+    setInvoiceNotes,
+  ] =
+    useState("");
 
-  // ======================================================
-  // SUPPLIER PAYMENT FORM
-  // ======================================================
+  const [
+    lines,
+    setLines,
+  ] =
+    useState<
+      DraftLine[]
+    >([]);
 
-  const [paymentOpen, setPaymentOpen] =
+  const [
+    invoiceMessage,
+    setInvoiceMessage,
+  ] =
+    useState("");
+
+  const [
+    savingInvoice,
+    setSavingInvoice,
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // PAYMENT FORM
+  // ==========================================================
+
+  const [
+    paymentOpen,
+    setPaymentOpen,
+  ] =
     useState(false);
 
   const [
     paymentSupplierId,
     setPaymentSupplierId,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     paymentCashboxId,
     setPaymentCashboxId,
-  ] = useState(
-    cashboxes[0]?.id || ""
-  );
-
-  const [paymentAmount, setPaymentAmount] =
+  ] =
     useState("");
 
-  
   const [
-    paymentCashAmount,
-    setPaymentCashAmount,
-  ] = useState("");
+    paymentAmount,
+    setPaymentAmount,
+  ] =
+    useState("");
 
   const [
-    paymentCashCurrency,
-    setPaymentCashCurrency,
-  ] = useState(currency);
-
-  const [
-    paymentInvoiceCurrency,
-    setPaymentInvoiceCurrency,
-  ] = useState(currency);
-
-  const [
-    paymentFxRate,
-    setPaymentFxRate,
-  ] = useState<number | null>(1);
-
-  const [
-    paymentQuoteError,
-    setPaymentQuoteError,
-  ] = useState("");
-
-  const [paymentDate, setPaymentDate] =
-    useState(today());
+    paymentDate,
+    setPaymentDate,
+  ] =
+    useState(
+      businessDateInput()
+    );
 
   const [
     paymentMethod,
     setPaymentMethod,
-  ] = useState<PaymentMethod>("cash");
+  ] =
+    useState<PaymentMethod>(
+      "cash"
+    );
 
   const [
     paymentReference,
     setPaymentReference,
-  ] = useState("");
+  ] =
+    useState("");
 
-  const [paymentNotes, setPaymentNotes] =
+  const [
+    paymentNotes,
+    setPaymentNotes,
+  ] =
     useState("");
 
   const [
     paymentAllocations,
     setPaymentAllocations,
-  ] = useState<Record<string, string>>({});
+  ] =
+    useState<
+      Record<
+        string,
+        string
+      >
+    >({});
 
-  // ======================================================
-  // PRICE MAP
-  // ======================================================
+  const [
+    paymentCashAmount,
+    setPaymentCashAmount,
+  ] =
+    useState("");
 
-  const priceMap = useMemo(() => {
-    const map =
-      new Map<string, number>();
-
-    for (const row of supplierPrices) {
-      if (!row.available) continue;
-
-      map.set(
-        `${row.supplier_id}:${row.product_id}`,
-        Number(row.purchase_price)
-      );
-    }
-
-    return map;
-  }, [supplierPrices]);
-
-  // ======================================================
-  // NEEDS
-  // ======================================================
-
-  const eligibleNeeds = useMemo(() => {
-    if (!supplierId) return [];
-
-    return needs;
-  }, [needs, supplierId]);
-
-  const selectedNeedIds = useMemo(
-    () =>
-      new Set(
-        lines
-          .map(
-            (line) =>
-              line.salesOrderItemId
-          )
-          .filter(
-            (
-              value
-            ): value is string =>
-              Boolean(value)
-          )
-      ),
-    [lines]
-  );
-
-  // ======================================================
-  // PURCHASE INVOICE TOTALS
-  // ======================================================
-
-  const totals = useMemo(() => {
-    return lines.reduce(
-      (result, line) => {
-        const quantity =
-          Number(line.quantity || 0);
-
-        const unitCost =
-          Number(line.unitCost || 0);
-
-        const discount =
-          Number(
-            line.discountAmount || 0
-          );
-
-        const tax =
-          Number(
-            line.taxAmount || 0
-          );
-
-        const base =
-          quantity * unitCost;
-
-        const total =
-          Math.max(
-            base - discount + tax,
-            0
-          );
-
-        return {
-          subtotal:
-            result.subtotal + base,
-
-          discount:
-            result.discount + discount,
-
-          tax:
-            result.tax + tax,
-
-          total:
-            result.total + total,
-        };
-      },
-      {
-        subtotal: 0,
-        discount: 0,
-        tax: 0,
-        total: 0,
-      }
+  const [
+    paymentCashCurrency,
+    setPaymentCashCurrency,
+  ] =
+    useState(
+      currency
     );
-  }, [lines]);
 
-  // ======================================================
-  // PAYMENT TOTALS
-  // ======================================================
+  const [
+    paymentInvoiceCurrency,
+    setPaymentInvoiceCurrency,
+  ] =
+    useState(
+      currency
+    );
+
+  const [
+    paymentQuoteError,
+    setPaymentQuoteError,
+  ] =
+    useState("");
+
+  const [
+    quoteLoading,
+    setQuoteLoading,
+  ] =
+    useState(false);
+
+  const [
+    paymentMessage,
+    setPaymentMessage,
+  ] =
+    useState("");
+
+  const [
+    savingPayment,
+    setSavingPayment,
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // CANCEL / REVERSE MODALS
+  // ==========================================================
+
+  const [
+    cancelTarget,
+    setCancelTarget,
+  ] =
+    useState<
+      PurchaseInvoiceRow | null
+    >(null);
+
+  const [
+    cancelReason,
+    setCancelReason,
+  ] =
+    useState("");
+
+  const [
+    cancelMessage,
+    setCancelMessage,
+  ] =
+    useState("");
+
+  const [
+    cancelling,
+    setCancelling,
+  ] =
+    useState(false);
+
+  const [
+    reverseTarget,
+    setReverseTarget,
+  ] =
+    useState<
+      SupplierPaymentRow | null
+    >(null);
+
+  const [
+    reverseReason,
+    setReverseReason,
+  ] =
+    useState("");
+
+  const [
+    reverseMessage,
+    setReverseMessage,
+  ] =
+    useState("");
+
+  const [
+    reversing,
+    setReversing,
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // MAPS / CALCULATIONS
+  // ==========================================================
+
+  const priceMap =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          number
+        >();
+
+      for (
+        const row of
+        supplierPrices
+      ) {
+        if (
+          !row.available
+        ) {
+          continue;
+        }
+
+        map.set(
+          `${row.supplier_id}:${row.product_id}`,
+          Number(
+            row.purchase_price
+          )
+        );
+      }
+
+      return map;
+    }, [
+      supplierPrices,
+    ]);
+
+  const selectedNeedIds =
+    useMemo(
+      () =>
+        new Set(
+          lines
+            .map(
+              (line) =>
+                line.salesOrderItemId
+            )
+            .filter(
+              (
+                value
+              ): value is string =>
+                Boolean(
+                  value
+                )
+            )
+        ),
+      [lines]
+    );
+
+  const invoiceTotals =
+    useMemo(() => {
+      return lines.reduce(
+        (
+          result,
+          line
+        ) => {
+          const quantity =
+            Number(
+              line.quantity ||
+                0
+            );
+
+          const cost =
+            Number(
+              line.unitCost ||
+                0
+            );
+
+          const discount =
+            Number(
+              line.discountAmount ||
+                0
+            );
+
+          const tax =
+            Number(
+              line.taxAmount ||
+                0
+            );
+
+          const subtotal =
+            quantity *
+            cost;
+
+          return {
+            subtotal:
+              result.subtotal +
+              subtotal,
+
+            discount:
+              result.discount +
+              discount,
+
+            tax:
+              result.tax +
+              tax,
+
+            total:
+              result.total +
+              Math.max(
+                subtotal -
+                  discount +
+                  tax,
+                0
+              ),
+          };
+        },
+        {
+          subtotal: 0,
+          discount: 0,
+          tax: 0,
+          total: 0,
+        }
+      );
+    }, [lines]);
 
   const paymentInvoices =
     useMemo(() => {
-      if (!paymentSupplierId) {
+      if (
+        !paymentSupplierId
+      ) {
         return [];
       }
 
@@ -439,10 +942,11 @@ export function PurchasesClient({
             );
 
           return (
-            invoice.status !==
-              "cancelled" &&
+            invoice.status ===
+              "posted" &&
             Number(
-              invoice.balance_due
+              invoice.balance_due ||
+                0
             ) > 0 &&
             supplier?.id ===
               paymentSupplierId
@@ -459,264 +963,209 @@ export function PurchasesClient({
       return Object.values(
         paymentAllocations
       ).reduce(
-        (sum, value) =>
+        (
+          sum,
+          value
+        ) =>
           sum +
-          Number(value || 0),
+          Number(
+            value || 0
+          ),
         0
       );
-    }, [paymentAllocations]);
+    }, [
+      paymentAllocations,
+    ]);
 
-  const paymentAmountNumber =
-    Number(paymentAmount || 0);
-
-  const paymentUnallocated =
+  const invoicePageCount =
     Math.max(
-      paymentAmountNumber -
-        paymentAllocated,
-      0
+      1,
+      Math.ceil(
+        invoiceTotalCount /
+          pageSize
+      )
     );
 
+  const paymentPageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        paymentTotalCount /
+          pageSize
+      )
+    );
 
-  useEffect(() => {
-    let cancelled = false;
+  // ==========================================================
+  // URL NAVIGATION
+  // ==========================================================
 
-    async function refreshSupplierPaymentQuote() {
-      if (
-        !paymentCashboxId ||
-        !paymentDate
-      ) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      const cashbox =
-        cashboxes.find(
-          (row) =>
-            row.id ===
-            paymentCashboxId
-        );
-
-      if (!cashbox) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      const invoiceCurrency =
-        paymentInvoices[0]
-          ?.currency ?? currency;
-
-      setPaymentCashCurrency(
-        cashbox.currency
+  function navigateInvoices(
+    nextSearch: string,
+    nextFilter: InvoiceStatusFilter,
+    nextPage = 1
+  ) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
       );
 
-      setPaymentInvoiceCurrency(
-        invoiceCurrency
+    const clean =
+      nextSearch.trim();
+
+    if (clean) {
+      params.set(
+        "iq",
+        clean
       );
-
-      if (
-        paymentInvoices.some(
-          (invoice) =>
-            invoice.currency !==
-            invoiceCurrency
-        )
-      ) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError(
-          "لا يمكن دفع فواتير بعملات مختلفة ضمن نفس الدفعة."
-        );
-        return;
-      }
-
-      const invoiceAmount =
-        Number(
-          paymentAmount || 0
-        );
-
-      if (
-        !Number.isFinite(
-          invoiceAmount
-        ) ||
-        invoiceAmount <= 0
-      ) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      if (
-        cashbox.currency ===
-        invoiceCurrency
-      ) {
-        setPaymentCashAmount(
-          invoiceAmount.toFixed(2)
-        );
-        setPaymentFxRate(1);
-        setPaymentQuoteError("");
-        return;
-      }
-
-      const {
-        data,
-        error,
-      } = await supabase.rpc(
-        "payment_currency_quote",
-        {
-          target_company:
-            companyId,
-
-          target_invoice_currency:
-            invoiceCurrency,
-
-          target_payment_currency:
-            cashbox.currency,
-
-          target_invoice_amount:
-            invoiceAmount,
-
-          target_payment_date:
-            paymentDate,
-        }
+    } else {
+      params.delete(
+        "iq"
       );
-
-      if (cancelled) {
-        return;
-      }
-
-      if (error) {
-        setPaymentCashAmount("");
-        setPaymentFxRate(null);
-        setPaymentQuoteError(
-          error.message
-        );
-        return;
-      }
-
-      const quote =
-        Array.isArray(data)
-          ? data[0]
-          : data;
-
-      const quotedAmount =
-        Number(
-          quote?.payment_amount ??
-            0
-        );
-
-      const quotedRate =
-        Number(
-          quote?.payment_rate_to_base ??
-            0
-        );
-
-      if (
-        !Number.isFinite(
-          quotedAmount
-        ) ||
-        quotedAmount <= 0
-      ) {
-        setPaymentCashAmount("");
-        setPaymentFxRate(null);
-        setPaymentQuoteError(
-          "تعذر حساب مبلغ الصندوق."
-        );
-        return;
-      }
-
-      setPaymentCashAmount(
-        quotedAmount.toFixed(2)
-      );
-
-      setPaymentFxRate(
-        Number.isFinite(
-          quotedRate
-        ) &&
-          quotedRate > 0
-          ? quotedRate
-          : null
-      );
-
-      setPaymentQuoteError("");
     }
 
-    void refreshSupplierPaymentQuote();
+    if (
+      nextFilter !==
+      "all"
+    ) {
+      params.set(
+        "istatus",
+        nextFilter
+      );
+    } else {
+      params.delete(
+        "istatus"
+      );
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    paymentCashboxId,
-    paymentDate,
-    paymentAmount,
-    paymentInvoices,
-    cashboxes,
-    companyId,
-    currency,
-    supabase,
-  ]);
-  const unpaidTotal = useMemo(
-    () =>
-      invoices
-        .filter(
-          (invoice) =>
-            invoice.status !==
-            "cancelled"
+    if (
+      nextPage > 1
+    ) {
+      params.set(
+        "ipage",
+        String(
+          nextPage
         )
-        .reduce(
-          (sum, invoice) =>
-            sum +
-            Number(
-              invoice.balance_due || 0
-            ),
-          0
-        ),
-    [invoices]
-  );
+      );
+    } else {
+      params.delete(
+        "ipage"
+      );
+    }
 
-  const supplierCreditTotal =
-    useMemo(
-      () =>
-        payments
-          .filter(
-            (payment) =>
-              payment.status ===
-              "posted"
-          )
-          .reduce(
-            (sum, payment) =>
-              sum +
-              Number(
-                payment.unallocated_total ||
-                  0
-              ) *
-                Number(
-                  payment.exchange_rate_to_base ||
-                    1
-                ),
-            0
-          ),
-      [payments]
+    router.push(
+      `/purchases${
+        params.toString()
+          ? `?${params.toString()}`
+          : ""
+      }`
+    );
+  }
+
+  function navigatePayments(
+    nextSearch: string,
+    nextFilter: PaymentStatusFilter,
+    nextPage = 1
+  ) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
+
+    const clean =
+      nextSearch.trim();
+
+    if (clean) {
+      params.set(
+        "pq",
+        clean
+      );
+    } else {
+      params.delete(
+        "pq"
+      );
+    }
+
+    if (
+      nextFilter !==
+      "all"
+    ) {
+      params.set(
+        "pstatus",
+        nextFilter
+      );
+    } else {
+      params.delete(
+        "pstatus"
+      );
+    }
+
+    if (
+      nextPage > 1
+    ) {
+      params.set(
+        "ppage",
+        String(
+          nextPage
+        )
+      );
+    } else {
+      params.delete(
+        "ppage"
+      );
+    }
+
+    router.push(
+      `/purchases${
+        params.toString()
+          ? `?${params.toString()}`
+          : ""
+      }`
+    );
+  }
+
+  // ==========================================================
+  // INVOICE HELPERS
+  // ==========================================================
+
+  function resetInvoiceForm() {
+    setSupplierId("");
+    setSupplierInvoiceNumber(
+      ""
+    );
+    setInvoiceDate(
+      businessDateInput()
+    );
+    setDueDate("");
+    setInvoiceNotes("");
+    setLines([]);
+    setInvoiceMessage("");
+  }
+
+  function startInvoice() {
+    if (
+      !canCreateInvoice
+    ) {
+      return;
+    }
+
+    resetInvoiceForm();
+    setInvoiceOpen(
+      true
+    );
+  }
+
+  function changeSupplier(
+    value: string
+  ) {
+    setSupplierId(
+      value
     );
 
-  const remainingUnits =
-    useMemo(
-      () =>
-        needs.reduce(
-          (sum, need) =>
-            sum +
-            Number(
-              need.remaining_quantity ||
-                0
-            ),
-          0
-        ),
-      [needs]
+    setLines([]);
+    setInvoiceMessage(
+      ""
     );
-
-  // ======================================================
-  // PURCHASE INVOICE HELPERS
-  // ======================================================
+  }
 
   function priceForProduct(
     productId: string
@@ -735,52 +1184,17 @@ export function PurchasesClient({
     );
   }
 
-  function resetInvoiceForm() {
-    setSupplierId("");
-    setSupplierInvoiceNumber("");
-    setDueDate("");
-    setInvoiceNotes("");
-    setLines([]);
-    setMessage("");
-    setInvoiceDate(today());
-  }
-
-  function startInvoice() {
-    resetInvoiceForm();
-    setOpen(true);
-  }
-
-  function changeSupplier(
-    value: string
-  ) {
-    if (
-      lines.length > 0 &&
-      value !== supplierId
-    ) {
-      const confirmed =
-        window.confirm(
-          "تغيير المورد سيحذف البنود الموجودة في الفاتورة الحالية. متابعة؟"
-        );
-
-      if (!confirmed) return;
-    }
-
-    setSupplierId(value);
-    setLines([]);
-    setMessage("");
-  }
-
   function addNeed(
     need: PurchaseNeed
   ) {
-    if (!supplierId) {
-      setMessage(
-        "اختار المورد أولًا."
+    if (
+      !supplierId
+    ) {
+      setInvoiceMessage(
+        "اختر المورد أولاً."
       );
       return;
     }
-
-    
 
     if (
       selectedNeedIds.has(
@@ -795,72 +1209,63 @@ export function PurchasesClient({
         need.product_id
       );
 
-    const unitCost =
-      currentPrice ?? 0;
+    setLines(
+      (current) => [
+        ...current,
+        {
+          key: newKey(),
+          productId:
+            need.product_id,
+          quantity:
+            String(
+              Number(
+                need.remaining_quantity
+              )
+            ),
+          unitCost:
+            currentPrice !=
+            null
+              ? String(
+                  currentPrice
+                )
+              : "",
+          discountAmount:
+            "0",
+          taxAmount: "0",
+          notes: "",
+          salesOrderItemId:
+            need.sales_order_item_id,
+          maxQuantity:
+            Number(
+              need.remaining_quantity
+            ),
+          traderName:
+            need.trader_name ||
+            null,
+        },
+      ]
+    );
 
-    setLines((current) => [
-      ...current,
-      {
-        key: newKey(),
-        productId:
-          need.product_id,
-
-        quantity: String(
-          Number(
-            need.remaining_quantity
-          )
-        ),
-
-        unitCost:
-          String(unitCost),
-
-        discountAmount: "0",
-        taxAmount: "0",
-        notes: "",
-
-        salesOrderItemId:
-          need.sales_order_item_id,
-
-        maxQuantity:
-          Number(
-            need.remaining_quantity
-          ),
-
-        traderName:
-          need.trader_name || null,
-
-        orderId:
-          need.order_id,
-      },
-    ]);
-
-    setMessage("");
+    setInvoiceMessage(
+      ""
+    );
   }
 
   function addManualLine() {
-    if (!supplierId) {
-      setMessage(
-        "اختار المورد أولًا."
+    if (
+      !supplierId
+    ) {
+      setInvoiceMessage(
+        "اختر المورد أولاً."
       );
       return;
     }
 
-    setLines((current) => [
-      ...current,
-      emptyManualLine(),
-    ]);
-
-    setMessage("");
-  }
-
-  function removeLine(
-    key: string
-  ) {
-    setLines((current) =>
-      current.filter(
-        (line) =>
-          line.key !== key
-      )
+    setLines(
+      (current) => [
+        ...current,
+        emptyManualLine(),
+      ]
     );
   }
 
@@ -868,54 +1273,76 @@ export function PurchasesClient({
     key: string,
     patch: Partial<DraftLine>
   ) {
-    setLines((current) =>
-      current.map((line) =>
-        line.key === key
-          ? {
-              ...line,
-              ...patch,
-            }
-          : line
-      )
+    setLines(
+      (current) =>
+        current.map(
+          (line) =>
+            line.key === key
+              ? {
+                  ...line,
+                  ...patch,
+                }
+              : line
+        )
     );
   }
 
-  function chooseManualProduct(
+  function chooseProduct(
     line: DraftLine,
     productId: string
   ) {
-    const currentPrice =
+    const price =
       supplierId
         ? priceMap.get(
             `${supplierId}:${productId}`
-          ) ?? null
+          )
         : null;
 
-    updateLine(line.key, {
-      productId,
-
-      unitCost:
-        currentPrice != null
-          ? String(currentPrice)
-          : "",
-    });
+    updateLine(
+      line.key,
+      {
+        productId,
+        unitCost:
+          price != null
+            ? String(
+                price
+              )
+            : "",
+      }
+    );
   }
 
   async function saveInvoice(
-    event: React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
-    setMessage("");
 
-    if (!supplierId) {
-      setMessage(
-        "اختار المورد."
+    setInvoiceMessage(
+      ""
+    );
+
+    if (
+      !canCreateInvoice
+    ) {
+      setInvoiceMessage(
+        "ما عندك صلاحية إنشاء فاتورة شراء."
       );
       return;
     }
 
-    if (!invoiceDate) {
-      setMessage(
+    if (
+      !supplierId
+    ) {
+      setInvoiceMessage(
+        "اختر المورد."
+      );
+      return;
+    }
+
+    if (
+      !invoiceDate
+    ) {
+      setInvoiceMessage(
         "تاريخ الفاتورة مطلوب."
       );
       return;
@@ -923,40 +1350,54 @@ export function PurchasesClient({
 
     if (
       dueDate &&
-      dueDate < invoiceDate
+      dueDate <
+        invoiceDate
     ) {
-      setMessage(
+      setInvoiceMessage(
         "تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ الفاتورة."
       );
       return;
     }
 
-    if (!lines.length) {
-      setMessage(
-        "أضف بندًا واحدًا على الأقل للفاتورة."
+    if (
+      !lines.length
+    ) {
+      setInvoiceMessage(
+        "أضف بنداً واحداً على الأقل."
       );
       return;
     }
 
-    for (const line of lines) {
+    for (
+      const line of
+      lines
+    ) {
       const quantity =
-        Number(line.quantity);
+        Number(
+          line.quantity
+        );
 
-      const unitCost =
-        Number(line.unitCost);
+      const cost =
+        Number(
+          line.unitCost
+        );
 
       const discount =
         Number(
-          line.discountAmount || 0
+          line.discountAmount ||
+            0
         );
 
       const tax =
         Number(
-          line.taxAmount || 0
+          line.taxAmount ||
+            0
         );
 
-      if (!line.productId) {
-        setMessage(
+      if (
+        !line.productId
+      ) {
+        setInvoiceMessage(
           "يوجد بند بدون صنف."
         );
         return;
@@ -968,7 +1409,7 @@ export function PurchasesClient({
         ) ||
         quantity <= 0
       ) {
-        setMessage(
+        setInvoiceMessage(
           "راجع كميات الفاتورة."
         );
         return;
@@ -980,19 +1421,19 @@ export function PurchasesClient({
         quantity >
           line.maxQuantity
       ) {
-        setMessage(
-          `الكمية أكبر من المتبقي لطلب التاجر ${line.traderName || ""}.`
+        setInvoiceMessage(
+          "إحدى الكميات أكبر من احتياج الشراء المتبقي."
         );
         return;
       }
 
       if (
         !Number.isFinite(
-          unitCost
+          cost
         ) ||
-        unitCost < 0
+        cost < 0
       ) {
-        setMessage(
+        setInvoiceMessage(
           "راجع أسعار الشراء."
         );
         return;
@@ -1003,131 +1444,222 @@ export function PurchasesClient({
           discount
         ) ||
         discount < 0 ||
-        !Number.isFinite(tax) ||
+        !Number.isFinite(
+          tax
+        ) ||
         tax < 0
       ) {
-        setMessage(
+        setInvoiceMessage(
           "راجع الخصم والضريبة."
+        );
+        return;
+      }
+
+      if (
+        discount >
+        quantity * cost +
+          0.001
+      ) {
+        setInvoiceMessage(
+          "الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر."
         );
         return;
       }
     }
 
     const payload =
-      lines.map((line) => ({
-        product_id:
-          line.productId,
+      lines.map(
+        (line) => ({
+          product_id:
+            line.productId,
 
-        quantity:
-          Number(line.quantity),
+          quantity:
+            Number(
+              line.quantity
+            ),
 
-        unit_cost:
-          Number(line.unitCost),
+          unit_cost:
+            Number(
+              line.unitCost
+            ),
 
-        discount_amount:
-          Number(
-            line.discountAmount ||
-              0
-          ),
+          discount_amount:
+            Number(
+              line.discountAmount ||
+                0
+            ),
 
-        tax_amount:
-          Number(
-            line.taxAmount || 0
-          ),
+          tax_amount:
+            Number(
+              line.taxAmount ||
+                0
+            ),
 
-        notes:
-          line.notes.trim() ||
-          null,
-
-        allocations:
-          line.salesOrderItemId
-            ? [
-                {
-                  sales_order_item_id:
-                    line.salesOrderItemId,
-
-                  quantity:
-                    Number(
-                      line.quantity
-                    ),
-                },
-              ]
-            : [],
-      }));
-
-    setSaving(true);
-
-    const { error } =
-      await supabase.rpc(
-        "create_purchase_invoice",
-        {
-          target_company:
-            companyId,
-
-          target_supplier:
-            supplierId,
-
-          target_supplier_invoice_number:
-            supplierInvoiceNumber.trim() ||
+          notes:
+            line.notes.trim() ||
             null,
 
-          target_invoice_date:
-            invoiceDate,
+          allocations:
+            line.salesOrderItemId
+              ? [
+                  {
+                    sales_order_item_id:
+                      line.salesOrderItemId,
 
-          target_due_date:
-            dueDate || null,
-
-          target_notes:
-            invoiceNotes.trim() ||
-            null,
-
-          items_payload:
-            payload,
-        }
+                    quantity:
+                      Number(
+                        line.quantity
+                      ),
+                  },
+                ]
+              : [],
+        })
       );
 
-    setSaving(false);
-
-    if (error) {
-      setMessage(
-        error.message
-      );
-      return;
-    }
-
-    setOpen(false);
-    resetInvoiceForm();
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
+    setSavingInvoice(
+      true
     );
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "create_purchase_invoice",
+          {
+            target_company:
+              companyId,
+
+            target_supplier:
+              supplierId,
+
+            target_supplier_invoice_number:
+              supplierInvoiceNumber.trim() ||
+              null,
+
+            target_invoice_date:
+              invoiceDate,
+
+            target_due_date:
+              dueDate ||
+              null,
+
+            target_notes:
+              invoiceNotes.trim() ||
+              null,
+
+            items_payload:
+              payload,
+          }
+        );
+
+      if (error) {
+        setInvoiceMessage(
+          friendlyError(
+            error,
+            "invoice"
+          )
+        );
+        return;
+      }
+
+      setInvoiceOpen(
+        false
+      );
+
+      resetInvoiceForm();
+
+      setNotice({
+        type: "success",
+        text:
+          "تم إنشاء فاتورة الشراء بنجاح.",
+      });
+
+      router.refresh();
+    } finally {
+      setSavingInvoice(
+        false
+      );
+    }
   }
 
-  // ======================================================
-  // SUPPLIER PAYMENT HELPERS
-  // ======================================================
+  // ==========================================================
+  // PAYMENT HELPERS
+  // ==========================================================
 
   function resetPaymentForm() {
-    setPaymentSupplierId("");
-    setPaymentCashboxId(
-      cashboxes[0]?.id || ""
+    setPaymentSupplierId(
+      ""
     );
-    setPaymentAmount("");
-    setPaymentDate(today());
-    setPaymentMethod("cash");
-    setPaymentReference("");
-    setPaymentNotes("");
-    setPaymentAllocations({});
-    setMessage("");
+
+    const preferred =
+      cashboxes.find(
+        (row) =>
+          row.currency ===
+          currency
+      ) ??
+      cashboxes[0];
+
+    setPaymentCashboxId(
+      preferred?.id ??
+        ""
+    );
+
+    setPaymentAmount(
+      ""
+    );
+
+    setPaymentDate(
+      businessDateInput()
+    );
+
+    setPaymentMethod(
+      "cash"
+    );
+
+    setPaymentReference(
+      ""
+    );
+
+    setPaymentNotes(
+      ""
+    );
+
+    setPaymentAllocations(
+      {}
+    );
+
+    setPaymentCashAmount(
+      ""
+    );
+
+    setPaymentCashCurrency(
+      preferred?.currency ??
+        currency
+    );
+
+    setPaymentInvoiceCurrency(
+      currency
+    );
+
+    setPaymentQuoteError(
+      ""
+    );
+
+    setPaymentMessage(
+      ""
+    );
   }
 
   function startPayment(
     invoice?: PurchaseInvoiceRow
   ) {
+    if (
+      !canPaySupplier
+    ) {
+      return;
+    }
+
     resetPaymentForm();
 
     if (invoice) {
@@ -1142,47 +1674,64 @@ export function PurchasesClient({
             0
         );
 
-      setPaymentSupplierId(
-        supplier?.id || ""
-      );
-
-      if (balance > 0) {
-        setPaymentAmount(
-          balance.toFixed(2)
+      const matchingCashbox =
+        cashboxes.find(
+          (row) =>
+            row.currency ===
+            invoice.currency
         );
 
-        setPaymentAllocations({
-          [invoice.id]:
-            balance.toFixed(2),
-        });
+      setPaymentSupplierId(
+        supplier?.id ??
+          ""
+      );
+
+      setPaymentAmount(
+        balance > 0
+          ? balance.toFixed(
+              2
+            )
+          : ""
+      );
+
+      setPaymentAllocations(
+        balance > 0
+          ? {
+              [invoice.id]:
+                balance.toFixed(
+                  2
+                ),
+            }
+          : {}
+      );
+
+      if (
+        matchingCashbox
+      ) {
+        setPaymentCashboxId(
+          matchingCashbox.id
+        );
       }
     }
 
-    setPaymentOpen(true);
+    setPaymentOpen(
+      true
+    );
   }
 
   function changePaymentSupplier(
     value: string
   ) {
-    if (
-      Object.keys(
-        paymentAllocations
-      ).length > 0
-    ) {
-      const confirmed =
-        window.confirm(
-          "تغيير المورد سيحذف توزيع الدفعة الحالي. متابعة؟"
-        );
-
-      if (!confirmed) return;
-    }
-
     setPaymentSupplierId(
       value
     );
 
     setPaymentAllocations(
       {}
+    );
+
+    setPaymentMessage(
+      ""
     );
   }
 
@@ -1193,12 +1742,13 @@ export function PurchasesClient({
     setPaymentAllocations(
       (current) => ({
         ...current,
-        [invoiceId]: value,
+        [invoiceId]:
+          value,
       })
     );
   }
 
-  function allocateFullInvoice(
+  function allocateInvoice(
     invoice: PurchaseInvoiceRow
   ) {
     const balance =
@@ -1207,19 +1757,24 @@ export function PurchasesClient({
           0
       );
 
-    const currentOther =
+    const other =
       Object.entries(
         paymentAllocations
       ).reduce(
         (
           sum,
-          [id, value]
+          [
+            id,
+            value,
+          ]
         ) =>
-          id === invoice.id
+          id ===
+          invoice.id
             ? sum
             : sum +
               Number(
-                value || 0
+                value ||
+                  0
               ),
         0
       );
@@ -1227,67 +1782,259 @@ export function PurchasesClient({
     const available =
       Math.max(
         Number(
-          paymentAmount || 0
-        ) - currentOther,
+          paymentAmount ||
+            0
+        ) -
+          other,
         0
-      );
-
-    const value =
-      Math.min(
-        balance,
-        available
       );
 
     setAllocation(
       invoice.id,
-      value > 0
-        ? value.toFixed(2)
+      Math.min(
+        available,
+        balance
+      ) > 0
+        ? Math.min(
+            available,
+            balance
+          ).toFixed(2)
         : ""
     );
   }
 
+  useEffect(() => {
+    let cancelled =
+      false;
+
+    async function quote() {
+      if (
+        !paymentOpen
+      ) {
+        return;
+      }
+
+      const cashbox =
+        cashboxes.find(
+          (row) =>
+            row.id ===
+            paymentCashboxId
+        );
+
+      const amount =
+        Number(
+          paymentAmount ||
+            0
+        );
+
+      if (
+        !cashbox ||
+        !paymentDate ||
+        !Number.isFinite(
+          amount
+        ) ||
+        amount <= 0
+      ) {
+        setPaymentCashAmount(
+          ""
+        );
+
+        setPaymentQuoteError(
+          ""
+        );
+
+        setQuoteLoading(
+          false
+        );
+
+        return;
+      }
+
+      const invoiceCurrency =
+        paymentInvoices[0]
+          ?.currency ??
+        currency;
+
+      if (
+        paymentInvoices.some(
+          (invoice) =>
+            invoice.currency !==
+            invoiceCurrency
+        )
+      ) {
+        setPaymentQuoteError(
+          "لا يمكن توزيع دفعة واحدة على فواتير بعملات مختلفة."
+        );
+
+        setPaymentCashAmount(
+          ""
+        );
+
+        return;
+      }
+
+      setPaymentCashCurrency(
+        cashbox.currency
+      );
+
+      setPaymentInvoiceCurrency(
+        invoiceCurrency
+      );
+
+      if (
+        cashbox.currency ===
+        invoiceCurrency
+      ) {
+        setPaymentCashAmount(
+          amount.toFixed(2)
+        );
+
+        setPaymentQuoteError(
+          ""
+        );
+
+        setQuoteLoading(
+          false
+        );
+
+        return;
+      }
+
+      setQuoteLoading(
+        true
+      );
+
+      setPaymentCashAmount(
+        ""
+      );
+
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          "payment_currency_quote",
+          {
+            target_company:
+              companyId,
+
+            target_invoice_currency:
+              invoiceCurrency,
+
+            target_payment_currency:
+              cashbox.currency,
+
+            target_invoice_amount:
+              amount,
+
+            target_payment_date:
+              paymentDate,
+          }
+        );
+
+      if (cancelled) {
+        return;
+      }
+
+      setQuoteLoading(
+        false
+      );
+
+      if (error) {
+        setPaymentQuoteError(
+          friendlyError(
+            error,
+            "quote"
+          )
+        );
+        return;
+      }
+
+      const result =
+        Array.isArray(
+          data
+        )
+          ? data[0]
+          : data;
+
+      const cashAmount =
+        Number(
+          result?.payment_amount ??
+            0
+        );
+
+      if (
+        !Number.isFinite(
+          cashAmount
+        ) ||
+        cashAmount <= 0
+      ) {
+        setPaymentQuoteError(
+          "تعذر احتساب مبلغ الصندوق."
+        );
+        return;
+      }
+
+      setPaymentCashAmount(
+        cashAmount.toFixed(
+          2
+        )
+      );
+
+      setPaymentQuoteError(
+        ""
+      );
+    }
+
+    void quote();
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, [
+    paymentOpen,
+    paymentCashboxId,
+    paymentDate,
+    paymentAmount,
+    paymentInvoices,
+    cashboxes,
+    companyId,
+    currency,
+    supabase,
+  ]);
+
   async function savePayment(
-    event: React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
-    setMessage("");
+
+    setPaymentMessage(
+      ""
+    );
+
+    if (
+      !canPaySupplier
+    ) {
+      setPaymentMessage(
+        "ما عندك صلاحية تسجيل دفعة مورد."
+      );
+      return;
+    }
+
+    if (
+      !paymentSupplierId
+    ) {
+      setPaymentMessage(
+        "اختر المورد."
+      );
+      return;
+    }
 
     const amount =
-      Number(paymentAmount);
-
-    
-    const selectedCashbox =
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.id ===
-          paymentCashboxId
+      Number(
+        paymentAmount
       );
-
-    const invoiceCurrencyForPayment =
-      paymentInvoices[0]
-        ?.currency ?? currency;
-
-    const cashAmount =
-      selectedCashbox?.currency ===
-      invoiceCurrencyForPayment
-        ? amount
-        : Number(
-            paymentCashAmount
-          );
-
-    if (!paymentSupplierId) {
-      setMessage(
-        "اختار المورد."
-      );
-      return;
-    }
-
-    if (!paymentCashboxId) {
-      setMessage(
-        "ما في صندوق مالي نشط مختار."
-      );
-      return;
-    }
 
     if (
       !Number.isFinite(
@@ -1295,91 +2042,88 @@ export function PurchasesClient({
       ) ||
       amount <= 0
     ) {
-      setMessage(
+      setPaymentMessage(
         "اكتب مبلغ دفعة صحيح."
+      );
+      return;
+    }
+
+    const cashbox =
+      cashboxes.find(
+        (row) =>
+          row.id ===
+          paymentCashboxId
+      );
+
+    if (!cashbox) {
+      setPaymentMessage(
+        "اختر صندوقاً مالياً صالحاً."
       );
       return;
     }
 
     if (
       paymentAllocated >
-      amount + 0.001
+      amount + 0.01
     ) {
-      setMessage(
-        "مجموع توزيع الدفعة أكبر من مبلغ الدفعة."
+      setPaymentMessage(
+        "مجموع التوزيع أكبر من مبلغ الدفعة."
       );
       return;
     }
 
-
-    if (!selectedCashbox) {
-      setMessage(
-        "الصندوق المختار غير صالح."
-      );
-      return;
-    }
-
-    if (paymentQuoteError) {
-      setMessage(
-        paymentQuoteError
-      );
-      return;
-    }
+    const invoiceCurrency =
+      paymentInvoices[0]
+        ?.currency ??
+      currency;
 
     if (
-      selectedCashbox.currency !==
-        invoiceCurrencyForPayment &&
-      Math.abs(
-        paymentAllocated -
-          amount
-      ) > 0.01
+      paymentInvoices.some(
+        (invoice) =>
+          invoice.currency !==
+          invoiceCurrency
+      )
     ) {
-      setMessage(
-        "عند الدفع بعملة مختلفة لازم توزع كامل مبلغ الدفعة على الفواتير."
+      setPaymentMessage(
+        "لا يمكن دفع فواتير بعملات مختلفة في نفس العملية."
       );
       return;
     }
 
-    if (
-      !Number.isFinite(
-        cashAmount
-      ) ||
-      cashAmount <= 0
-    ) {
-      setMessage(
-        "تعذر حساب المبلغ بعملة الصندوق."
-      );
-      return;
-    }
-    const allocations: Array<{
-      purchase_invoice_id: string;
-      amount: number;
-    }> = [];
+    const allocations:
+      Array<{
+        purchase_invoice_id: string;
+        amount: number;
+      }> = [];
 
     for (
       const invoice of
-        paymentInvoices
+      paymentInvoices
     ) {
       const value =
         Number(
           paymentAllocations[
             invoice.id
-          ] || 0
+          ] ||
+            0
         );
-
-      if (value <= 0) {
-        continue;
-      }
 
       if (
         !Number.isFinite(
           value
-        )
+        ) ||
+        value < 0
       ) {
-        setMessage(
-          "راجع توزيع الدفعات."
+        setPaymentMessage(
+          "راجع توزيع الدفعة."
         );
         return;
+      }
+
+      if (
+        value <= 0
+      ) {
+        continue;
       }
 
       if (
@@ -1387,9 +2131,9 @@ export function PurchasesClient({
         Number(
           invoice.balance_due
         ) +
-          0.001
+          0.01
       ) {
-        setMessage(
+        setPaymentMessage(
           `المبلغ الموزع على ${invoice.invoice_number} أكبر من رصيد الفاتورة.`
         );
         return;
@@ -1398,233 +2142,387 @@ export function PurchasesClient({
       allocations.push({
         purchase_invoice_id:
           invoice.id,
-        amount: value,
+        amount:
+          Number(
+            value.toFixed(
+              2
+            )
+          ),
       });
     }
 
-    setSaving(true);
+    setSavingPayment(
+      true
+    );
 
-    const { error } =
-      await supabase.rpc(
-        "record_supplier_payment",
-        {
-          target_company:
-            companyId,
+    try {
+      let cashAmount =
+        amount;
 
-          target_supplier:
-            paymentSupplierId,
+      if (
+        cashbox.currency !==
+        invoiceCurrency
+      ) {
+        const {
+          data,
+          error,
+        } =
+          await supabase.rpc(
+            "payment_currency_quote",
+            {
+              target_company:
+                companyId,
 
-          target_cashbox:
-            paymentCashboxId,
+              target_invoice_currency:
+                invoiceCurrency,
 
-          target_amount:
-            cashAmount,
+              target_payment_currency:
+                cashbox.currency,
 
-          target_payment_date:
-            paymentDate,
+              target_invoice_amount:
+                amount,
 
-          target_method:
-            paymentMethod,
+              target_payment_date:
+                paymentDate,
+            }
+          );
 
-          target_reference:
-            paymentReference.trim() ||
-            null,
-
-          target_notes:
-            paymentNotes.trim() ||
-            null,
-
-          allocations_payload:
-            allocations,
+        if (error) {
+          setPaymentMessage(
+            friendlyError(
+              error,
+              "quote"
+            )
+          );
+          return;
         }
+
+        const result =
+          Array.isArray(
+            data
+          )
+            ? data[0]
+            : data;
+
+        cashAmount =
+          Number(
+            result?.payment_amount ??
+              0
+          );
+
+        if (
+          !Number.isFinite(
+            cashAmount
+          ) ||
+          cashAmount <= 0
+        ) {
+          setPaymentMessage(
+            "تعذر تثبيت مبلغ الدفعة بعملة الصندوق."
+          );
+          return;
+        }
+      }
+
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "record_supplier_payment",
+          {
+            target_company:
+              companyId,
+
+            target_supplier:
+              paymentSupplierId,
+
+            target_cashbox:
+              paymentCashboxId,
+
+            target_amount:
+              Number(
+                cashAmount.toFixed(
+                  2
+                )
+              ),
+
+            target_payment_date:
+              paymentDate,
+
+            target_method:
+              paymentMethod,
+
+            target_reference:
+              paymentReference.trim() ||
+              null,
+
+            target_notes:
+              paymentNotes.trim() ||
+              null,
+
+            allocations_payload:
+              allocations,
+          }
+        );
+
+      if (error) {
+        setPaymentMessage(
+          friendlyError(
+            error,
+            "payment"
+          )
+        );
+        return;
+      }
+
+      setPaymentOpen(
+        false
       );
 
-    setSaving(false);
+      resetPaymentForm();
 
-    if (error) {
-      setMessage(
-        error.message
+      setNotice({
+        type: "success",
+        text:
+          "تم تسجيل دفعة المورد بنجاح.",
+      });
+
+      router.refresh();
+    } finally {
+      setSavingPayment(
+        false
       );
+    }
+  }
+
+  // ==========================================================
+  // CANCEL INVOICE
+  // ==========================================================
+
+  function openCancel(
+    invoice: PurchaseInvoiceRow
+  ) {
+    if (
+      !canCancelInvoice
+    ) {
       return;
     }
 
-    setPaymentOpen(false);
-    resetPaymentForm();
+    setCancelTarget(
+      invoice
+    );
 
-    router.refresh();
+    setCancelReason(
+      ""
+    );
 
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
+    setCancelMessage(
+      ""
     );
   }
 
-  async function reversePayment(
-    payment: SupplierPaymentRow
+  async function saveCancel(
+    event: FormEvent<HTMLFormElement>
   ) {
-    const reason =
-      window.prompt(
-        `سبب عكس الدفعة ${payment.payment_number}:`
-      );
+    event.preventDefault();
 
-    if (reason === null) {
+    if (
+      !cancelTarget ||
+      !canCancelInvoice
+    ) {
       return;
     }
 
-    if (!reason.trim()) {
-      window.alert(
+    const reason =
+      cancelReason.trim();
+
+    if (!reason) {
+      setCancelMessage(
+        "اكتب سبب إلغاء الفاتورة."
+      );
+      return;
+    }
+
+    setCancelling(
+      true
+    );
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "cancel_purchase_invoice",
+          {
+            target_company:
+              companyId,
+
+            target_invoice:
+              cancelTarget.id,
+
+            target_reason:
+              reason,
+          }
+        );
+
+      if (error) {
+        setCancelMessage(
+          friendlyError(
+            error,
+            "cancel"
+          )
+        );
+        return;
+      }
+
+      setInvoices(
+        (current) =>
+          current.map(
+            (row) =>
+              row.id ===
+              cancelTarget.id
+                ? {
+                    ...row,
+                    status:
+                      "cancelled",
+                    cancellation_reason:
+                      reason,
+                  }
+                : row
+          )
+      );
+
+      setCancelTarget(
+        null
+      );
+
+      setNotice({
+        type: "success",
+        text:
+          "تم إلغاء فاتورة الشراء.",
+      });
+
+      router.refresh();
+    } finally {
+      setCancelling(
+        false
+      );
+    }
+  }
+
+  // ==========================================================
+  // REVERSE PAYMENT
+  // ==========================================================
+
+  function openReverse(
+    payment: SupplierPaymentRow
+  ) {
+    if (
+      !canReversePayment
+    ) {
+      return;
+    }
+
+    setReverseTarget(
+      payment
+    );
+
+    setReverseReason(
+      ""
+    );
+
+    setReverseMessage(
+      ""
+    );
+  }
+
+  async function saveReverse(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !reverseTarget ||
+      !canReversePayment
+    ) {
+      return;
+    }
+
+    const reason =
+      reverseReason.trim();
+
+    if (!reason) {
+      setReverseMessage(
         "اكتب سبب عكس الدفعة."
       );
       return;
     }
 
-    const confirmed =
-      window.confirm(
-        `سيتم عكس دفعة بقيمة ${Number(
-          payment.amount
-        ).toFixed(2)} ${currency} وإرجاع أثرها المالي. متابعة؟`
+    setReversing(
+      true
+    );
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "reverse_supplier_payment",
+          {
+            target_company:
+              companyId,
+
+            target_payment:
+              reverseTarget.id,
+
+            target_reason:
+              reason,
+          }
+        );
+
+      if (error) {
+        setReverseMessage(
+          friendlyError(
+            error,
+            "reverse"
+          )
+        );
+        return;
+      }
+
+      setPayments(
+        (current) =>
+          current.map(
+            (row) =>
+              row.id ===
+              reverseTarget.id
+                ? {
+                    ...row,
+                    status:
+                      "reversed",
+                    reversal_reason:
+                      reason,
+                  }
+                : row
+          )
       );
 
-    if (!confirmed) {
-      return;
+      setReverseTarget(
+        null
+      );
+
+      setNotice({
+        type: "success",
+        text:
+          "تم عكس دفعة المورد وإرجاع أثرها المالي.",
+      });
+
+      router.refresh();
+    } finally {
+      setReversing(
+        false
+      );
     }
-
-    setBusyPayment(
-      payment.id
-    );
-
-    const { error } =
-      await supabase.rpc(
-        "reverse_supplier_payment",
-        {
-          target_company:
-            companyId,
-
-          target_payment:
-            payment.id,
-
-          target_reason:
-            reason.trim(),
-        }
-      );
-
-    setBusyPayment(null);
-
-    if (error) {
-      window.alert(
-        error.message
-      );
-      return;
-    }
-
-    setPayments(
-      (current) =>
-        current.map((row) =>
-          row.id ===
-          payment.id
-            ? {
-                ...row,
-                status:
-                  "reversed",
-                reversal_reason:
-                  reason.trim(),
-              }
-            : row
-        )
-    );
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
-    );
   }
-
-  async function cancelInvoice(
-    invoice: PurchaseInvoiceRow
-  ) {
-    const reason =
-      window.prompt(
-        `سبب إلغاء الفاتورة ${invoice.invoice_number}:`
-      );
-
-    if (reason === null) {
-      return;
-    }
-
-    if (!reason.trim()) {
-      window.alert(
-        "اكتب سبب الإلغاء."
-      );
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "سيتم إلغاء الفاتورة وإعادة احتياجات الشراء المرتبطة بها. متابعة؟"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setBusyInvoice(
-      invoice.id
-    );
-
-    const { error } =
-      await supabase.rpc(
-        "cancel_purchase_invoice",
-        {
-          target_company:
-            companyId,
-
-          target_invoice:
-            invoice.id,
-
-          target_reason:
-            reason.trim(),
-        }
-      );
-
-    setBusyInvoice(null);
-
-    if (error) {
-      window.alert(
-        error.message
-      );
-      return;
-    }
-
-    setInvoices(
-      (current) =>
-        current.map((row) =>
-          row.id ===
-          invoice.id
-            ? {
-                ...row,
-                status:
-                  "cancelled",
-              }
-            : row
-        )
-    );
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
-    );
-  }
-
-  // ======================================================
-  // UI
-  // ======================================================
 
   return (
     <div className="page">
@@ -1639,81 +2537,92 @@ export function PurchasesClient({
           </h2>
 
           <p className="muted">
-            احتياجات الشراء، فواتير
-            الموردين، الدفعات والرصيد
-            المستحق.
+            احتياجات الشراء، فواتير الموردين، الدفعات والرصيد المستحق.
           </p>
         </div>
 
         <div className="rowActions">
-          <button
-            type="button"
-            className="softButton"
-            onClick={() =>
-              startPayment()
-            }
-          >
-            <Icons.money
-              size={15}
-            />
-            دفع لمورد
-          </button>
+          {canPaySupplier ? (
+            <button
+              type="button"
+              className="softButton"
+              onClick={() =>
+                startPayment()
+              }
+            >
+              <Icons.money size={15} />
+              دفع لمورد
+            </button>
+          ) : null}
 
-          <button
-            type="button"
-            className="primaryButton"
-            onClick={startInvoice}
-          >
-            <Icons.plus
-              size={15}
-            />
-            فاتورة شراء جديدة
-          </button>
+          {canCreateInvoice ? (
+            <button
+              type="button"
+              className="primaryButton"
+              onClick={
+                startInvoice
+              }
+            >
+              <Icons.plus size={15} />
+              فاتورة شراء جديدة
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {notice ? (
+        <div
+          className={
+            notice.type ===
+            "error"
+              ? "toastError"
+              : "panel panelPad"
+          }
+          role={
+            notice.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {notice.text}
+        </div>
+      ) : null}
 
       <section className="statsGrid">
         <Mini
           title="بنود مطلوبة"
           value={String(
-            needs.length
+            initialStats.needCount
           )}
         />
 
         <Mini
           title="كميات متبقية"
-          value={remainingUnits.toFixed(
+          value={initialStats.remainingUnits.toFixed(
             3
           )}
         />
 
         <Mini
           title="مستحق للموردين"
-          value={`${unpaidTotal.toFixed(
-            2
-          )} ${currency}`}
+          value={money(
+            initialStats.outstandingTotal,
+            currency
+          )}
         />
 
         <Mini
           title="دفعات مقدمة"
-          value={`${supplierCreditTotal.toFixed(
-            2
-          )} ${currency}`}
+          value={money(
+            initialStats.supplierCreditTotal,
+            currency
+          )}
         />
       </section>
-
-      {message &&
-      !open &&
-      !paymentOpen ? (
-        <div
-          className="toastError"
-          style={{
-            marginTop: 14,
-          }}
-        >
-          {message}
-        </div>
-      ) : null}
 
       <section
         className="panel panelPad"
@@ -1728,26 +2637,18 @@ export function PurchasesClient({
             </h2>
 
             <p>
-              المطلوب والمتبقي من
-              طلبيات التجار.
+              المطلوب والمتبقي من طلبيات العملاء.
             </p>
           </div>
         </div>
 
         {!needs.length ? (
           <div className="empty">
-            <Icons.check
-              size={30}
-            />
+            <Icons.check size={30} />
 
             <h3>
-              ما في احتياجات شراء
+              لا توجد احتياجات شراء
             </h3>
-
-            <p>
-              كل البنود الحالية تم
-              شراؤها.
-            </p>
           </div>
         ) : (
           <div className="tableWrap">
@@ -1755,12 +2656,10 @@ export function PurchasesClient({
               <thead>
                 <tr>
                   <th>الصنف</th>
-                  <th>التاجر</th>
-                  <th>المورد</th>
+                  <th>العميل</th>
                   <th>المطلوب</th>
-                  <th>تم شراؤه</th>
+                  <th>مخصص للشراء</th>
                   <th>المتبقي</th>
-                  <th>الكلفة</th>
                 </tr>
               </thead>
 
@@ -1792,31 +2691,23 @@ export function PurchasesClient({
                       </td>
 
                       <td>
-                        {"يحدد عند الشراء"}
-                      </td>
-
-                      <td>
-                        {Number(
+                        {
                           need.required_quantity
-                        )}
+                        }
                       </td>
 
                       <td>
-                        {Number(
+                        {
                           need.allocated_quantity
-                        )}
+                        }
                       </td>
 
                       <td>
                         <strong>
-                          {Number(
+                          {
                             need.remaining_quantity
-                          )}
+                          }
                         </strong>
-                      </td>
-
-                      <td>
-                        <span className="muted">يحدد عند الشراء</span>
                       </td>
                     </tr>
                   )
@@ -1828,32 +2719,107 @@ export function PurchasesClient({
       </section>
 
       <section
-        className="panel panelPad"
+        className="panel"
         style={{
           marginTop: 14,
         }}
       >
-        <div className="panelHeader">
-          <div>
-            <h2>
-              فواتير الشراء
-            </h2>
+        <div className="panelPad">
+          <div className="panelHeader">
+            <div>
+              <h2>
+                فواتير الشراء
+              </h2>
 
-            <p>
-              الفواتير، المدفوع
-              والمتبقي لكل مورد.
-            </p>
+              <p>
+                إجمالي الفواتير المثبتة: {initialStats.invoiceCount}
+              </p>
+            </div>
           </div>
+
+          <form
+            className="filters"
+            onSubmit={(
+              event
+            ) => {
+              event.preventDefault();
+
+              navigateInvoices(
+                invoiceSearch,
+                invoiceFilter,
+                1
+              );
+            }}
+          >
+            <div className="searchBox">
+              <Icons.search size={16} />
+
+              <input
+                value={
+                  invoiceSearch
+                }
+                onChange={(
+                  event
+                ) =>
+                  setInvoiceSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="رقم الفاتورة أو رقم فاتورة المورد..."
+                aria-label="بحث في فواتير الشراء"
+              />
+
+              <button
+                className="softButton"
+                type="submit"
+              >
+                بحث
+              </button>
+            </div>
+
+            <select
+              value={
+                invoiceFilter
+              }
+              aria-label="حالة فاتورة الشراء"
+              onChange={(
+                event
+              ) => {
+                const value =
+                  event.target
+                    .value as InvoiceStatusFilter;
+
+                setInvoiceFilter(
+                  value
+                );
+
+                navigateInvoices(
+                  invoiceSearch,
+                  value,
+                  1
+                );
+              }}
+            >
+              <option value="all">
+                كل الحالات
+              </option>
+
+              <option value="posted">
+                مثبتة
+              </option>
+
+              <option value="cancelled">
+                ملغاة
+              </option>
+            </select>
+          </form>
         </div>
 
         {!invoices.length ? (
           <div className="empty">
-            <Icons.store
-              size={28}
-            />
-
+            <Icons.store size={28} />
             <h3>
-              ما في فواتير شراء
+              لا توجد فواتير شراء
             </h3>
           </div>
         ) : (
@@ -1861,7 +2827,7 @@ export function PurchasesClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>رقم الفاتورة</th>
+                  <th>الفاتورة</th>
                   <th>المورد</th>
                   <th>رقم المورد</th>
                   <th>التاريخ</th>
@@ -1869,7 +2835,7 @@ export function PurchasesClient({
                   <th>المدفوع</th>
                   <th>المتبقي</th>
                   <th>الحالة</th>
-                  <th>إجراءات</th>
+                  <th>إجراء</th>
                 </tr>
               </thead>
 
@@ -1912,42 +2878,44 @@ export function PurchasesClient({
                         </td>
 
                         <td>
-                          {Number(
-                            invoice.total
-                          ).toFixed(
-                            2
-                          )}{" "}
-                          {invoice.currency}
+                          {money(
+                            invoice.total,
+                            invoice.currency
+                          )}
                         </td>
 
                         <td>
-                          {Number(
-                            invoice.paid_total
-                          ).toFixed(
-                            2
-                          )}{" "}
-                          {invoice.currency}
+                          {money(
+                            invoice.paid_total,
+                            invoice.currency
+                          )}
                         </td>
 
                         <td>
                           <strong>
-                            {Number(
-                              invoice.balance_due
-                            ).toFixed(
-                              2
-                            )}{" "}
-                            {
+                            {money(
+                              invoice.balance_due,
                               invoice.currency
-                            }
+                            )}
                           </strong>
                         </td>
 
                         <td>
                           {invoice.status ===
                           "cancelled" ? (
-                            <span className="chip gray">
-                              ملغاة
-                            </span>
+                            <>
+                              <span className="chip gray">
+                                ملغاة
+                              </span>
+
+                              {invoice.cancellation_reason ? (
+                                <div className="muted">
+                                  {
+                                    invoice.cancellation_reason
+                                  }
+                                </div>
+                              ) : null}
+                            </>
                           ) : (
                             <span
                               className={`chip ${
@@ -1965,7 +2933,7 @@ export function PurchasesClient({
                                 ? "مدفوعة"
                                 : invoice.payment_status ===
                                     "partial"
-                                  ? "جزئي"
+                                  ? "جزئية"
                                   : "غير مدفوعة"}
                             </span>
                           )}
@@ -1973,8 +2941,9 @@ export function PurchasesClient({
 
                         <td>
                           <div className="rowActions">
-                            {invoice.status !==
-                              "cancelled" &&
+                            {canPaySupplier &&
+                            invoice.status ===
+                              "posted" &&
                             Number(
                               invoice.balance_due
                             ) > 0 ? (
@@ -1991,17 +2960,14 @@ export function PurchasesClient({
                               </button>
                             ) : null}
 
-                            {invoice.status !==
-                            "cancelled" ? (
+                            {canCancelInvoice &&
+                            invoice.status ===
+                              "posted" ? (
                               <button
                                 type="button"
                                 className="dangerButton"
-                                disabled={
-                                  busyInvoice ===
-                                  invoice.id
-                                }
                                 onClick={() =>
-                                  void cancelInvoice(
+                                  openCancel(
                                     invoice
                                   )
                                 }
@@ -2019,237 +2985,408 @@ export function PurchasesClient({
             </table>
           </div>
         )}
+
+        {invoicePageCount >
+        1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                invoicePage <=
+                1
+              }
+              onClick={() =>
+                navigateInvoices(
+                  invoiceSearchQuery,
+                  invoiceStatusFilter,
+                  invoicePage -
+                    1
+                )
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {invoicePage} من{" "}
+              {invoicePageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                invoicePage >=
+                invoicePageCount
+              }
+              onClick={() =>
+                navigateInvoices(
+                  invoiceSearchQuery,
+                  invoiceStatusFilter,
+                  invoicePage +
+                    1
+                )
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
       </section>
 
-      <section
-        className="panel panelPad"
-        style={{
-          marginTop: 14,
-        }}
-      >
-        <div className="panelHeader">
-          <div>
-            <h2>
-              دفعات الموردين
-            </h2>
-
-            <p>
-              كل دفعة محفوظة ويمكن
-              عكسها بدون حذف السجل.
-            </p>
-          </div>
-        </div>
-
-        {!payments.length ? (
-          <div className="empty">
-            <Icons.money
-              size={28}
-            />
-
-            <h3>
-              ما في دفعات موردين
-            </h3>
-          </div>
-        ) : (
-          <div className="tableWrap">
-            <table className="dataTable">
-              <thead>
-                <tr>
-                  <th>رقم الدفعة</th>
-                  <th>المورد</th>
-                  <th>المبلغ</th>
-                  <th>موزع</th>
-                  <th>رصيد مقدم</th>
-                  <th>الطريقة</th>
-                  <th>الصندوق</th>
-                  <th>التاريخ</th>
-                  <th>الحالة</th>
-                  <th>إجراء</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {payments.map(
-                  (payment) => {
-                    const supplier =
-                      oneRelation(
-                        payment.suppliers
-                      );
-
-                    const cashbox =
-                      oneRelation(
-                        payment.cashboxes
-                      );
-
-                    return (
-                      <tr
-                        key={
-                          payment.id
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              payment.payment_number
-                            }
-                          </strong>
-
-                          <div className="muted">
-                            {payment.reference_number ||
-                              ""}
-                          </div>
-                        </td>
-
-                        <td>
-                          {supplier?.name ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {Number(
-                            payment.amount
-                          ).toFixed(2)}{" "}
-                          {payment.payment_currency ||
-                            cashbox?.currency ||
-                            currency}
-
-                          {payment.payment_currency &&
-                          payment.payment_currency !== currency &&
-                          payment.base_amount != null ? (
-                            <div className="muted">
-                              ? {Number(
-                                payment.base_amount
-                              ).toFixed(2)}{" "}
-                              {currency}
-                            </div>
-                          ) : null}
-                        </td>
-
-                        <td>
-                          {Number(
-                            payment.allocated_total
-                          ).toFixed(2)}{" "}
-                          {payment.payment_currency ||
-                            cashbox?.currency ||
-                            currency}
-                        </td>
-
-                        <td>
-                          {Number(
-                            payment.unallocated_total
-                          ).toFixed(2)}{" "}
-                          {payment.payment_currency ||
-                            cashbox?.currency ||
-                            currency}
-                        </td>
-
-                        <td>
-                          {paymentMethodLabels[
-                            payment.payment_method as PaymentMethod
-                          ] ||
-                            payment.payment_method}
-                        </td>
-
-                        <td>
-                          {cashbox?.name ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {
-                            payment.payment_date
-                          }
-                        </td>
-
-                        <td>
-                          <span
-                            className={`chip ${
-                              payment.status ===
-                              "posted"
-                                ? "green"
-                                : "gray"
-                            }`}
-                          >
-                            {payment.status ===
-                            "posted"
-                              ? "مثبتة"
-                              : "معكوسة"}
-                          </span>
-                        </td>
-
-                        <td>
-                          {payment.status ===
-                          "posted" ? (
-                            <button
-                              type="button"
-                              className="dangerButton"
-                              disabled={
-                                busyPayment ===
-                                payment.id
-                              }
-                              onClick={() =>
-                                void reversePayment(
-                                  payment
-                                )
-                              }
-                            >
-                              عكس
-                            </button>
-                          ) : (
-                            <span className="muted">
-                              {payment.reversal_reason ||
-                                "—"}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {open ? (
-        <div
-          className="modalOverlay"
-          onMouseDown={(
-            event
-          ) => {
-            if (
-              event.target ===
-                event.currentTarget &&
-              !saving
-            ) {
-              setOpen(false);
-            }
+      {canViewPayments ? (
+        <section
+          className="panel"
+          style={{
+            marginTop: 14,
           }}
         >
+          <div className="panelPad">
+            <div className="panelHeader">
+              <div>
+                <h2>
+                  دفعات الموردين
+                </h2>
+
+                <p>
+                  الدفعات المثبتة والمعكوسة.
+                </p>
+              </div>
+            </div>
+
+            <form
+              className="filters"
+              onSubmit={(
+                event
+              ) => {
+                event.preventDefault();
+
+                navigatePayments(
+                  paymentSearch,
+                  paymentFilter,
+                  1
+                );
+              }}
+            >
+              <div className="searchBox">
+                <Icons.search size={16} />
+
+                <input
+                  value={
+                    paymentSearch
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setPaymentSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder="رقم الدفعة أو المرجع..."
+                  aria-label="بحث في دفعات الموردين"
+                />
+
+                <button
+                  className="softButton"
+                  type="submit"
+                >
+                  بحث
+                </button>
+              </div>
+
+              <select
+                value={
+                  paymentFilter
+                }
+                aria-label="حالة دفعة المورد"
+                onChange={(
+                  event
+                ) => {
+                  const value =
+                    event.target
+                      .value as PaymentStatusFilter;
+
+                  setPaymentFilter(
+                    value
+                  );
+
+                  navigatePayments(
+                    paymentSearch,
+                    value,
+                    1
+                  );
+                }}
+              >
+                <option value="all">
+                  كل الحالات
+                </option>
+
+                <option value="posted">
+                  مثبتة
+                </option>
+
+                <option value="reversed">
+                  معكوسة
+                </option>
+              </select>
+            </form>
+          </div>
+
+          {!payments.length ? (
+            <div className="empty">
+              <Icons.money size={28} />
+
+              <h3>
+                لا توجد دفعات موردين
+              </h3>
+            </div>
+          ) : (
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>الدفعة</th>
+                    <th>المورد</th>
+                    <th>المبلغ</th>
+                    <th>الموزع</th>
+                    <th>المقدم</th>
+                    <th>الصندوق</th>
+                    <th>التاريخ</th>
+                    <th>الحالة</th>
+                    <th>إجراء</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {payments.map(
+                    (payment) => {
+                      const supplier =
+                        oneRelation(
+                          payment.suppliers
+                        );
+
+                      const cashbox =
+                        oneRelation(
+                          payment.cashboxes
+                        );
+
+                      const paymentCurrency =
+                        payment.payment_currency ||
+                        cashbox?.currency ||
+                        currency;
+
+                      return (
+                        <tr
+                          key={
+                            payment.id
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {
+                                payment.payment_number
+                              }
+                            </strong>
+
+                            <div className="muted">
+                              {payment.reference_number ||
+                                ""}
+                            </div>
+                          </td>
+
+                          <td>
+                            {supplier?.name ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {money(
+                              payment.amount,
+                              paymentCurrency
+                            )}
+
+                            {payment.base_amount !=
+                              null &&
+                            paymentCurrency !==
+                              currency ? (
+                              <div className="muted">
+                                ≈{" "}
+                                {money(
+                                  payment.base_amount,
+                                  currency
+                                )}
+                              </div>
+                            ) : null}
+                          </td>
+
+                          <td>
+                            {money(
+                              payment.allocated_total,
+                              paymentCurrency
+                            )}
+                          </td>
+
+                          <td>
+                            {money(
+                              payment.unallocated_total,
+                              paymentCurrency
+                            )}
+                          </td>
+
+                          <td>
+                            {cashbox?.name ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {
+                              payment.payment_date
+                            }
+                          </td>
+
+                          <td>
+                            <span
+                              className={`chip ${
+                                payment.status ===
+                                "posted"
+                                  ? "green"
+                                  : "gray"
+                              }`}
+                            >
+                              {payment.status ===
+                              "posted"
+                                ? "مثبتة"
+                                : "معكوسة"}
+                            </span>
+
+                            {payment.status ===
+                              "reversed" &&
+                            payment.reversal_reason ? (
+                              <div className="muted">
+                                {
+                                  payment.reversal_reason
+                                }
+                              </div>
+                            ) : null}
+                          </td>
+
+                          <td>
+                            {canReversePayment &&
+                            payment.status ===
+                              "posted" ? (
+                              <button
+                                type="button"
+                                className="dangerButton"
+                                onClick={() =>
+                                  openReverse(
+                                    payment
+                                  )
+                                }
+                              >
+                                عكس
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {paymentPageCount >
+          1 ? (
+            <div
+              className="rowActions"
+              style={{
+                justifyContent:
+                  "center",
+                padding: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="softButton"
+                disabled={
+                  paymentPage <=
+                  1
+                }
+                onClick={() =>
+                  navigatePayments(
+                    paymentSearchQuery,
+                    paymentStatusFilter,
+                    paymentPage -
+                      1
+                  )
+                }
+              >
+                السابق
+              </button>
+
+              <span className="muted">
+                صفحة {paymentPage} من{" "}
+                {paymentPageCount}
+              </span>
+
+              <button
+                type="button"
+                className="softButton"
+                disabled={
+                  paymentPage >=
+                  paymentPageCount
+                }
+                onClick={() =>
+                  navigatePayments(
+                    paymentSearchQuery,
+                    paymentStatusFilter,
+                    paymentPage +
+                      1
+                  )
+                }
+              >
+                التالي
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {invoiceOpen ? (
+        <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
-              maxWidth: 1100,
+              maxWidth: 1050,
               width: "94vw",
             }}
           >
             <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  فاتورة مورد
-                </span>
-
-                <h2>
-                  فاتورة شراء جديدة
-                </h2>
-              </div>
+              <h2>
+                فاتورة شراء جديدة
+              </h2>
 
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  savingInvoice
+                }
                 onClick={() =>
-                  setOpen(false)
+                  setInvoiceOpen(
+                    false
+                  )
                 }
               >
                 ×
@@ -2257,7 +3394,9 @@ export function PurchasesClient({
             </div>
 
             <form
-              onSubmit={saveInvoice}
+              onSubmit={
+                saveInvoice
+              }
             >
               <div className="formGrid">
                 <label className="field">
@@ -2273,8 +3412,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       changeSupplier(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   >
@@ -2283,9 +3421,7 @@ export function PurchasesClient({
                     </option>
 
                     {suppliers.map(
-                      (
-                        supplier
-                      ) => (
+                      (supplier) => (
                         <option
                           key={
                             supplier.id
@@ -2316,8 +3452,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       setSupplierInvoiceNumber(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -2325,7 +3460,7 @@ export function PurchasesClient({
 
                 <label className="field">
                   <span>
-                    تاريخ الفاتورة
+                    تاريخ الفاتورة *
                   </span>
 
                   <input
@@ -2337,8 +3472,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       setInvoiceDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -2346,7 +3480,7 @@ export function PurchasesClient({
 
                 <label className="field">
                   <span>
-                    الاستحقاق
+                    تاريخ الاستحقاق
                   </span>
 
                   <input
@@ -2354,119 +3488,95 @@ export function PurchasesClient({
                     min={
                       invoiceDate
                     }
-                    value={dueDate}
+                    value={
+                      dueDate
+                    }
                     onChange={(
                       event
                     ) =>
                       setDueDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
                 </label>
               </div>
 
-              {supplierId ? (
+              {supplierId &&
+              needs.length ? (
                 <div
                   className="panel panelPad"
                   style={{
                     marginTop: 15,
                   }}
                 >
-                  <div className="panelHeader">
-                    <div>
-                      <h2>
-                        المطلوب من المورد
-                      </h2>
+                  <h3>
+                    احتياجات الشراء
+                  </h3>
 
-                      <p>
-                        أضف البنود المطلوبة
-                        من طلبيات التجار.
-                      </p>
-                    </div>
-                  </div>
+                  <div className="tableWrap">
+                    <table className="dataTable">
+                      <thead>
+                        <tr>
+                          <th>الصنف</th>
+                          <th>العميل</th>
+                          <th>المتبقي</th>
+                          <th>إضافة</th>
+                        </tr>
+                      </thead>
 
-                  {!eligibleNeeds.length ? (
-                    <p className="muted">
-                      ما في احتياجات شراء
-                      حالية.
-                    </p>
-                  ) : (
-                    <div className="tableWrap">
-                      <table className="dataTable">
-                        <thead>
-                          <tr>
-                            <th>
-                              الصنف
-                            </th>
-                            <th>
-                              التاجر
-                            </th>
-                            <th>
-                              المتبقي
-                            </th>
-                            <th>
-                              إضافة
-                            </th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {eligibleNeeds.map(
-                            (
-                              need
-                            ) => (
-                              <tr
-                                key={
-                                  need.sales_order_item_id
+                      <tbody>
+                        {needs.map(
+                          (need) => (
+                            <tr
+                              key={
+                                need.sales_order_item_id
+                              }
+                            >
+                              <td>
+                                {
+                                  need.product_name
                                 }
-                              >
-                                <td>
-                                  {
-                                    need.product_name
-                                  }
-                                </td>
+                              </td>
 
-                                <td>
-                                  {
-                                    need.trader_name
-                                  }
-                                </td>
+                              <td>
+                                {
+                                  need.trader_name
+                                }
+                              </td>
 
-                                <td>
-                                  {Number(
-                                    need.remaining_quantity
+                              <td>
+                                {
+                                  need.remaining_quantity
+                                }
+                              </td>
+
+                              <td>
+                                <button
+                                  type="button"
+                                  className="softButton"
+                                  disabled={selectedNeedIds.has(
+                                    need.sales_order_item_id
                                   )}
-                                </td>
-
-                                <td>
-                                  <button
-                                    type="button"
-                                    className="softButton"
-                                    disabled={selectedNeedIds.has(
-                                      need.sales_order_item_id
-                                    )}
-                                    onClick={() =>
-                                      addNeed(
-                                        need
-                                      )
-                                    }
-                                  >
-                                    {selectedNeedIds.has(
-                                      need.sales_order_item_id
+                                  onClick={() =>
+                                    addNeed(
+                                      need
                                     )
-                                      ? "مضاف"
-                                      : "إضافة"}
-                                  </button>
-                                </td>
-                              </tr>
-                            )
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                                  }
+                                >
+                                  {selectedNeedIds.has(
+                                    need.sales_order_item_id
+                                  )
+                                    ? "مضاف"
+                                    : "إضافة"}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : null}
 
@@ -2477,11 +3587,9 @@ export function PurchasesClient({
                 }}
               >
                 <div className="panelHeader">
-                  <div>
-                    <h2>
-                      بنود الفاتورة
-                    </h2>
-                  </div>
+                  <h3>
+                    بنود الفاتورة
+                  </h3>
 
                   <button
                     type="button"
@@ -2490,40 +3598,26 @@ export function PurchasesClient({
                       addManualLine
                     }
                   >
-                    <Icons.plus
-                      size={13}
-                    />
+                    <Icons.plus size={14} />
                     بند يدوي
                   </button>
                 </div>
 
                 {!lines.length ? (
                   <p className="muted">
-                    ما في بنود مضافة.
+                    لا توجد بنود مضافة.
                   </p>
                 ) : (
                   <div className="tableWrap">
                     <table className="dataTable">
                       <thead>
                         <tr>
-                          <th>
-                            الصنف
-                          </th>
-                          <th>
-                            الكمية
-                          </th>
-                          <th>
-                            الكلفة
-                          </th>
-                          <th>
-                            الخصم
-                          </th>
-                          <th>
-                            الضريبة
-                          </th>
-                          <th>
-                            الإجمالي
-                          </th>
+                          <th>الصنف</th>
+                          <th>الكمية</th>
+                          <th>الكلفة</th>
+                          <th>الخصم</th>
+                          <th>الضريبة</th>
+                          <th>الإجمالي</th>
                           <th />
                         </tr>
                       </thead>
@@ -2555,15 +3649,6 @@ export function PurchasesClient({
                                   0
                               );
 
-                            const total =
-                              Math.max(
-                                quantity *
-                                  cost -
-                                  discount +
-                                  tax,
-                                0
-                              );
-
                             return (
                               <tr
                                 key={
@@ -2576,9 +3661,7 @@ export function PurchasesClient({
                                       <strong>
                                         {
                                           products.find(
-                                            (
-                                              product
-                                            ) =>
+                                            (product) =>
                                               product.id ===
                                               line.productId
                                           )?.name
@@ -2587,7 +3670,7 @@ export function PurchasesClient({
 
                                       <div className="muted">
                                         {line.traderName
-                                          ? `للتاجر: ${line.traderName}`
+                                          ? `للعميل: ${line.traderName}`
                                           : ""}
                                       </div>
                                     </>
@@ -2599,23 +3682,18 @@ export function PurchasesClient({
                                       onChange={(
                                         event
                                       ) =>
-                                        chooseManualProduct(
+                                        chooseProduct(
                                           line,
-                                          event
-                                            .target
-                                            .value
+                                          event.target.value
                                         )
                                       }
                                     >
                                       <option value="">
-                                        اختر
-                                        الصنف
+                                        اختر الصنف
                                       </option>
 
                                       {products.map(
-                                        (
-                                          product
-                                        ) => (
+                                        (product) => (
                                           <option
                                             key={
                                               product.id
@@ -2639,10 +3717,6 @@ export function PurchasesClient({
                                     type="number"
                                     min="0.001"
                                     step="0.001"
-                                    max={
-                                      line.maxQuantity ??
-                                      undefined
-                                    }
                                     value={
                                       line.quantity
                                     }
@@ -2653,15 +3727,10 @@ export function PurchasesClient({
                                         line.key,
                                         {
                                           quantity:
-                                            event
-                                              .target
-                                              .value,
+                                            event.target.value,
                                         }
                                       )
                                     }
-                                    style={{
-                                      width: 95,
-                                    }}
                                   />
                                 </td>
 
@@ -2680,15 +3749,10 @@ export function PurchasesClient({
                                         line.key,
                                         {
                                           unitCost:
-                                            event
-                                              .target
-                                              .value,
+                                            event.target.value,
                                         }
                                       )
                                     }
-                                    style={{
-                                      width: 100,
-                                    }}
                                   />
                                 </td>
 
@@ -2707,15 +3771,10 @@ export function PurchasesClient({
                                         line.key,
                                         {
                                           discountAmount:
-                                            event
-                                              .target
-                                              .value,
+                                            event.target.value,
                                         }
                                       )
                                     }
-                                    style={{
-                                      width: 85,
-                                    }}
                                   />
                                 </td>
 
@@ -2734,23 +3793,24 @@ export function PurchasesClient({
                                         line.key,
                                         {
                                           taxAmount:
-                                            event
-                                              .target
-                                              .value,
+                                            event.target.value,
                                         }
                                       )
                                     }
-                                    style={{
-                                      width: 85,
-                                    }}
                                   />
                                 </td>
 
                                 <td>
-                                  {total.toFixed(
-                                    2
-                                  )}{" "}
-                                  {currency}
+                                  {money(
+                                    Math.max(
+                                      quantity *
+                                        cost -
+                                        discount +
+                                        tax,
+                                      0
+                                    ),
+                                    currency
+                                  )}
                                 </td>
 
                                 <td>
@@ -2758,8 +3818,13 @@ export function PurchasesClient({
                                     type="button"
                                     className="dangerButton"
                                     onClick={() =>
-                                      removeLine(
-                                        line.key
+                                      setLines(
+                                        (current) =>
+                                          current.filter(
+                                            (row) =>
+                                              row.key !==
+                                              line.key
+                                          )
                                       )
                                     }
                                   >
@@ -2774,6 +3839,20 @@ export function PurchasesClient({
                     </table>
                   </div>
                 )}
+
+                <div
+                  style={{
+                    marginTop: 14,
+                  }}
+                >
+                  <strong>
+                    الإجمالي:{" "}
+                    {money(
+                      invoiceTotals.total,
+                      currency
+                    )}
+                  </strong>
+                </div>
               </div>
 
               <label
@@ -2787,7 +3866,6 @@ export function PurchasesClient({
                 </span>
 
                 <textarea
-                  rows={3}
                   value={
                     invoiceNotes
                   }
@@ -2795,78 +3873,20 @@ export function PurchasesClient({
                     event
                   ) =>
                     setInvoiceNotes(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
               </label>
 
-              <div
-                className="panel panelPad"
-                style={{
-                  marginTop: 15,
-                }}
-              >
-                <div className="panelHeader">
-                  <div>
-                    <h2>
-                      إجمالي الفاتورة
-                    </h2>
-
-                    <p>
-                      قبل الدفعات.
-                    </p>
-                  </div>
-
-                  <div
-                    style={{
-                      textAlign: "end",
-                    }}
-                  >
-                    <div className="muted">
-                      الإجمالي قبل
-                      الخصم:{" "}
-                      {totals.subtotal.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-
-                    <div className="muted">
-                      الخصم:{" "}
-                      {totals.discount.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-
-                    <div className="muted">
-                      الضريبة:{" "}
-                      {totals.tax.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-
-                    <div className="statValue">
-                      {totals.total.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {message ? (
+              {invoiceMessage ? (
                 <div
                   className="toastError"
-                  style={{
-                    marginTop: 12,
-                  }}
+                  role="alert"
                 >
-                  {message}
+                  {
+                    invoiceMessage
+                  }
                 </div>
               ) : null}
 
@@ -2874,9 +3894,13 @@ export function PurchasesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={saving}
+                  disabled={
+                    savingInvoice
+                  }
                   onClick={() =>
-                    setOpen(false)
+                    setInvoiceOpen(
+                      false
+                    )
                   }
                 >
                   إلغاء
@@ -2884,11 +3908,13 @@ export function PurchasesClient({
 
                 <button
                   className="primaryButton"
-                  disabled={saving}
+                  disabled={
+                    savingInvoice
+                  }
                 >
-                  {saving
-                    ? "عم نثبت..."
-                    : "تثبيت الفاتورة"}
+                  {savingInvoice
+                    ? "جارٍ الحفظ..."
+                    : "حفظ الفاتورة"}
                 </button>
               </div>
             </form>
@@ -2897,43 +3923,27 @@ export function PurchasesClient({
       ) : null}
 
       {paymentOpen ? (
-        <div
-          className="modalOverlay"
-          onMouseDown={(
-            event
-          ) => {
-            if (
-              event.target ===
-                event.currentTarget &&
-              !saving
-            ) {
-              setPaymentOpen(
-                false
-              );
-            }
-          }}
-        >
+        <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
               maxWidth: 900,
               width: "94vw",
             }}
           >
             <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  حساب المورد
-                </span>
-
-                <h2>
-                  تسجيل دفعة مورد
-                </h2>
-              </div>
+              <h2>
+                دفع لمورد
+              </h2>
 
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  savingPayment
+                }
                 onClick={() =>
                   setPaymentOpen(
                     false
@@ -2963,8 +3973,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       changePaymentSupplier(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   >
@@ -2973,9 +3982,7 @@ export function PurchasesClient({
                     </option>
 
                     {suppliers.map(
-                      (
-                        supplier
-                      ) => (
+                      (supplier) => (
                         <option
                           key={
                             supplier.id
@@ -2995,49 +4002,7 @@ export function PurchasesClient({
 
                 <label className="field">
                   <span>
-                    الصندوق *
-                  </span>
-
-                  <select
-                    value={
-                      paymentCashboxId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentCashboxId(
-                        event.target
-                          .value
-                      )
-                    }
-                  >
-                    <option value="">
-                      اختر الصندوق
-                    </option>
-
-                    {cashboxes.map(
-                      (
-                        cashbox
-                      ) => (
-                        <option
-                          key={
-                            cashbox.id
-                          }
-                          value={
-                            cashbox.id
-                          }
-                        >
-                          {cashbox.name} - {cashbox.currency}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>
-                    مبلغ الدفعة ({currency})
-                    *
+                    المبلغ ({paymentInvoiceCurrency})
                   </span>
 
                   <input
@@ -3051,8 +4016,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       setPaymentAmount(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -3060,7 +4024,51 @@ export function PurchasesClient({
 
                 <label className="field">
                   <span>
-                    تاريخ الدفعة
+                    الصندوق *
+                  </span>
+
+                  <select
+                    value={
+                      paymentCashboxId
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setPaymentCashboxId(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="">
+                      اختر الصندوق
+                    </option>
+
+                    {cashboxes.map(
+                      (cashbox) => (
+                        <option
+                          key={
+                            cashbox.id
+                          }
+                          value={
+                            cashbox.id
+                          }
+                        >
+                          {
+                            cashbox.name
+                          }{" "}
+                          -{" "}
+                          {
+                            cashbox.currency
+                          }
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>
+                    التاريخ
                   </span>
 
                   <input
@@ -3072,8 +4080,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       setPaymentDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -3092,8 +4099,7 @@ export function PurchasesClient({
                       event
                     ) =>
                       setPaymentMethod(
-                        event.target
-                          .value as PaymentMethod
+                        event.target.value as PaymentMethod
                       )
                     }
                   >
@@ -3112,7 +4118,9 @@ export function PurchasesClient({
                             value
                           }
                         >
-                          {label}
+                          {
+                            label
+                          }
                         </option>
                       )
                     )}
@@ -3121,7 +4129,7 @@ export function PurchasesClient({
 
                 <label className="field">
                   <span>
-                    رقم المرجع
+                    المرجع
                   </span>
 
                   <input
@@ -3132,256 +4140,129 @@ export function PurchasesClient({
                       event
                     ) =>
                       setPaymentReference(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
-                    placeholder="رقم تحويل / شيك..."
                   />
                 </label>
               </div>
 
-                            {paymentCashboxId &&
-              Number(
-                paymentAmount || 0
-              ) > 0 ? (
-                <div
-                  className="panel panelPad"
-                  style={{
-                    marginTop: 15,
-                  }}
-                >
-                  {paymentQuoteError ? (
-                    <div className="toastError">
-                      {paymentQuoteError}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="muted">
-                        قيمة الدفعة على الفواتير:{" "}
-                        {Number(
-                          paymentAmount || 0
-                        ).toFixed(2)}{" "}
-                        {paymentInvoiceCurrency}
-                      </div>
-
-                      <div
-                        className="statValue"
-                        style={{
-                          marginTop: 5,
-                        }}
-                      >
-                        سيخرج من الصندوق:{" "}
-                        {paymentCashAmount ||
-                          "—"}{" "}
-                        {paymentCashCurrency}
-                      </div>
-
-                      {paymentCashCurrency !==
-                        paymentInvoiceCurrency &&
-                      paymentFxRate ? (
-                        <div
-                          className="muted"
-                          style={{
-                            marginTop: 5,
-                          }}
-                        >
-                          سعر العملية: 1{" "}
-                          {paymentCashCurrency}
-                          {" = "}
-                          {paymentFxRate.toFixed(
-                            10
-                          )}{" "}
-                          {currency}
-                        </div>
-                      ) : null}
-                    </>
-                  )}
+              {quoteLoading ? (
+                <p className="muted">
+                  جارٍ احتساب سعر الصرف...
+                </p>
+              ) : paymentQuoteError ? (
+                <div className="toastError">
+                  {
+                    paymentQuoteError
+                  }
                 </div>
+              ) : paymentCashAmount ? (
+                <p>
+                  سيخرج من الصندوق:{" "}
+                  <strong>
+                    {paymentCashAmount}{" "}
+                    {
+                      paymentCashCurrency
+                    }
+                  </strong>
+                </p>
               ) : null}
-{paymentSupplierId ? (
+
+              {paymentInvoices.length ? (
                 <div
                   className="panel panelPad"
                   style={{
                     marginTop: 15,
                   }}
                 >
-                  <div className="panelHeader">
-                    <div>
-                      <h2>
-                        توزيع الدفعة
-                      </h2>
+                  <h3>
+                    توزيع الدفعة
+                  </h3>
 
-                      <p>
-                        وزّع كامل المبلغ
-                        أو جزء منه على
-                        الفواتير المفتوحة.
-                      </p>
-                    </div>
-                  </div>
+                  <div className="tableWrap">
+                    <table className="dataTable">
+                      <thead>
+                        <tr>
+                          <th>الفاتورة</th>
+                          <th>الرصيد</th>
+                          <th>التوزيع</th>
+                          <th />
+                        </tr>
+                      </thead>
 
-                  {!paymentInvoices.length ? (
-                    <p className="muted">
-                      ما في فواتير مستحقة
-                      لهذا المورد. المبلغ
-                      سيُحفظ كدفعة مقدمة.
-                    </p>
-                  ) : (
-                    <div className="tableWrap">
-                      <table className="dataTable">
-                        <thead>
-                          <tr>
-                            <th>
-                              الفاتورة
-                            </th>
-                            <th>
-                              التاريخ
-                            </th>
-                            <th>
-                              الرصيد
-                            </th>
-                            <th>
-                              المبلغ
-                              الموزع
-                            </th>
-                            <th />
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {paymentInvoices.map(
-                            (
-                              invoice
-                            ) => (
-                              <tr
-                                key={
-                                  invoice.id
+                      <tbody>
+                        {paymentInvoices.map(
+                          (invoice) => (
+                            <tr
+                              key={
+                                invoice.id
+                              }
+                            >
+                              <td>
+                                {
+                                  invoice.invoice_number
                                 }
-                              >
-                                <td>
-                                  <strong>
-                                    {
-                                      invoice.invoice_number
-                                    }
-                                  </strong>
-                                </td>
+                              </td>
 
-                                <td>
-                                  {
-                                    invoice.invoice_date
+                              <td>
+                                {money(
+                                  invoice.balance_due,
+                                  invoice.currency
+                                )}
+                              </td>
+
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={
+                                    paymentAllocations[
+                                      invoice.id
+                                    ] ||
+                                    ""
                                   }
-                                </td>
-
-                                <td>
-                                  {Number(
-                                    invoice.balance_due
-                                  ).toFixed(
-                                    2
-                                  )}{" "}
-                                  {
-                                    currency
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    setAllocation(
+                                      invoice.id,
+                                      event.target.value
+                                    )
                                   }
-                                </td>
+                                />
+                              </td>
 
-                                <td>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    max={
-                                      invoice.balance_due
-                                    }
-                                    value={
-                                      paymentAllocations[
-                                        invoice
-                                          .id
-                                      ] ||
-                                      ""
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      setAllocation(
-                                        invoice.id,
-                                        event
-                                          .target
-                                          .value
-                                      )
-                                    }
-                                    style={{
-                                      width: 130,
-                                    }}
-                                  />
-                                </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="softButton"
+                                  onClick={() =>
+                                    allocateInvoice(
+                                      invoice
+                                    )
+                                  }
+                                >
+                                  توزيع
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-                                <td>
-                                  <button
-                                    type="button"
-                                    className="softButton"
-                                    onClick={() =>
-                                      allocateFullInvoice(
-                                        invoice
-                                      )
-                                    }
-                                  >
-                                    تعبئة
-                                  </button>
-                                </td>
-                              </tr>
-                            )
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  <p className="muted">
+                    موزع:{" "}
+                    {money(
+                      paymentAllocated,
+                      paymentInvoiceCurrency
+                    )}
+                  </p>
                 </div>
               ) : null}
-
-              <div
-                className="panel panelPad"
-                style={{
-                  marginTop: 15,
-                }}
-              >
-                <div className="panelHeader">
-                  <div>
-                    <h2>
-                      ملخص الدفعة
-                    </h2>
-                  </div>
-
-                  <div
-                    style={{
-                      textAlign: "end",
-                    }}
-                  >
-                    <div className="muted">
-                      مبلغ الدفعة:{" "}
-                      {paymentAmountNumber.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-
-                    <div className="muted">
-                      موزع على
-                      فواتير:{" "}
-                      {paymentAllocated.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-
-                    <div className="statValue">
-                      رصيد مقدم:{" "}
-                      {paymentUnallocated.toFixed(
-                        2
-                      )}{" "}
-                      {currency}
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               <label
                 className="field"
@@ -3390,11 +4271,10 @@ export function PurchasesClient({
                 }}
               >
                 <span>
-                  ملاحظات الدفعة
+                  ملاحظات
                 </span>
 
                 <textarea
-                  rows={3}
                   value={
                     paymentNotes
                   }
@@ -3402,21 +4282,20 @@ export function PurchasesClient({
                     event
                   ) =>
                     setPaymentNotes(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
               </label>
 
-              {message ? (
+              {paymentMessage ? (
                 <div
                   className="toastError"
-                  style={{
-                    marginTop: 12,
-                  }}
+                  role="alert"
                 >
-                  {message}
+                  {
+                    paymentMessage
+                  }
                 </div>
               ) : null}
 
@@ -3424,7 +4303,9 @@ export function PurchasesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={saving}
+                  disabled={
+                    savingPayment
+                  }
                   onClick={() =>
                     setPaymentOpen(
                       false
@@ -3436,11 +4317,189 @@ export function PurchasesClient({
 
                 <button
                   className="primaryButton"
-                  disabled={saving}
+                  disabled={
+                    savingPayment ||
+                    quoteLoading ||
+                    Boolean(
+                      paymentQuoteError
+                    )
+                  }
                 >
-                  {saving
-                    ? "عم نسجل الدفعة..."
+                  {savingPayment
+                    ? "جارٍ التسجيل..."
                     : "تسجيل الدفعة"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {cancelTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <h2>
+                إلغاء فاتورة شراء
+              </h2>
+            </div>
+
+            <form
+              onSubmit={
+                saveCancel
+              }
+            >
+              <p>
+                الفاتورة:{" "}
+                <strong>
+                  {
+                    cancelTarget.invoice_number
+                  }
+                </strong>
+              </p>
+
+              <label className="field">
+                <span>
+                  سبب الإلغاء *
+                </span>
+
+                <textarea
+                  value={
+                    cancelReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setCancelReason(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              {cancelMessage ? (
+                <div className="toastError">
+                  {
+                    cancelMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    cancelling
+                  }
+                  onClick={() =>
+                    setCancelTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  className="dangerButton"
+                  disabled={
+                    cancelling
+                  }
+                >
+                  {cancelling
+                    ? "جارٍ الإلغاء..."
+                    : "تأكيد الإلغاء"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {reverseTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <h2>
+                عكس دفعة مورد
+              </h2>
+            </div>
+
+            <form
+              onSubmit={
+                saveReverse
+              }
+            >
+              <p>
+                الدفعة:{" "}
+                <strong>
+                  {
+                    reverseTarget.payment_number
+                  }
+                </strong>
+              </p>
+
+              <label className="field">
+                <span>
+                  سبب العكس *
+                </span>
+
+                <textarea
+                  value={
+                    reverseReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setReverseReason(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              {reverseMessage ? (
+                <div className="toastError">
+                  {
+                    reverseMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    reversing
+                  }
+                  onClick={() =>
+                    setReverseTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  className="dangerButton"
+                  disabled={
+                    reversing
+                  }
+                >
+                  {reversing
+                    ? "جارٍ العكس..."
+                    : "تأكيد العكس"}
                 </button>
               </div>
             </form>
@@ -3470,6 +4529,3 @@ function Mini({
     </div>
   );
 }
-
-
-

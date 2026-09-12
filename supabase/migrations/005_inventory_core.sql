@@ -513,6 +513,7 @@ declare
   v_stock public.inventory_stock%rowtype;
   v_new_on_hand numeric(18,3);
   v_new_average numeric(18,4);
+  v_new_value numeric(24,4);
   v_movement uuid;
   v_existing uuid;
 begin
@@ -531,7 +532,6 @@ begin
     from public.products p
     where p.id = target_product
       and p.company_id = target_company
-      and p.active = true
   ) then
     raise exception 'Invalid product';
   end if;
@@ -605,32 +605,48 @@ begin
   v_new_average :=
     v_stock.average_cost;
 
-  if target_quantity > 0
-     and target_unit_cost is not null
-  then
-    if v_new_on_hand > 0 then
+  if target_unit_cost is not null then
+
+    v_new_value :=
+      round(
+        (
+          v_stock.on_hand *
+          v_stock.average_cost
+        ) +
+        (
+          target_quantity *
+          target_unit_cost
+        ),
+        4
+      );
+
+    if v_new_on_hand = 0 then
+
+      v_new_average := 0;
+
+    elsif v_new_value < -0.01 then
+
+      raise exception
+        'Inventory value would become negative';
+
+    else
+
       v_new_average :=
         round(
-          (
-            (
-              v_stock.on_hand *
-              v_stock.average_cost
-            ) +
-            (
-              target_quantity *
-              target_unit_cost
-            )
+          greatest(
+            v_new_value,
+            0
           ) /
           v_new_on_hand,
           4
         );
-    else
-      v_new_average :=
-        round(
-          target_unit_cost,
-          4
-        );
+
     end if;
+
+  elsif v_new_on_hand = 0 then
+
+    v_new_average := 0;
+
   end if;
 
   update public.inventory_stock

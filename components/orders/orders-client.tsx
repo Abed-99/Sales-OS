@@ -1,16 +1,18 @@
-﻿"use client";
+"use client";
 
 import {
   useEffect,
   useMemo,
   useState,
 } from "react";
+import type { FormEvent } from "react";
 import {
   useRouter,
   useSearchParams,
 } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+
 import { Icons } from "@/components/icons";
+import { createClient } from "@/lib/supabase/client";
 
 type OrderStatus =
   | "draft"
@@ -21,6 +23,10 @@ type OrderStatus =
   | "out_for_delivery"
   | "delivered"
   | "cancelled";
+
+export type OrderFilter =
+  | "all"
+  | OrderStatus;
 
 type PaymentStatus =
   | "unpaid"
@@ -57,15 +63,18 @@ export type OrderSalesInvoice = {
   order_id: string;
   trader_id: string;
   invoice_number: string;
-    currency: string;
-total: number;
+  invoice_date: string;
+  currency: string;
+  total: number;
   paid_total: number;
   balance_due: number;
   payment_status:
     | "unpaid"
     | "partial"
     | "paid";
-  status: "posted" | "cancelled";
+  status:
+    | "posted"
+    | "cancelled";
 };
 
 export type OrderCashbox = {
@@ -73,6 +82,14 @@ export type OrderCashbox = {
   name: string;
   currency: string;
   active: boolean;
+};
+
+export type OrderStats = {
+  total: number;
+  active: number;
+  new: number;
+  ready: number;
+  totalValue: number;
 };
 
 type TraderRelation = {
@@ -109,6 +126,8 @@ export type OrderRow = {
   notes: string | null;
   created_at: string;
   delivered_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
   traders:
     | TraderRelation
     | TraderRelation[]
@@ -117,7 +136,6 @@ export type OrderRow = {
 };
 
 type ItemDraft = {
-  key: string;
   product_id: string;
   quantity: string;
   sale_unit_price: string;
@@ -128,23 +146,39 @@ type CollectionState = {
   invoices: OrderSalesInvoice[];
 };
 
-const statusLabels: Record<
-  OrderStatus,
-  string
-> = {
-  draft: "Ù…Ø³ÙˆØ¯Ø©",
-  new: "Ø¬Ø¯ÙŠØ¯",
-  to_purchase: "Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØªÙˆÙÙŠØ±",
-  purchasing: "Ù‚ÙŠØ¯ Ø§Ù„ØªÙˆÙÙŠØ±",
-  ready: "Ø¬Ø§Ù‡Ø²",
-  out_for_delivery: "Ø¨Ø§Ù„ØªÙˆØµÙŠÙ„",
-  delivered: "ØªÙ… Ø§Ù„ØªØ³Ù„ÙŠÙ…",
-  cancelled: "Ù…Ù„ØºÙŠ",
+type Notice = {
+  type: "error" | "success";
+  text: string;
+};
+
+const statusLabels: Record<OrderStatus, string> = {
+  draft: "مسودة",
+  new: "جديد",
+  to_purchase: "بانتظار التوفير",
+  purchasing: "قيد التوفير",
+  ready: "جاهز",
+  out_for_delivery: "بالتوصيل",
+  delivered: "تم التسليم",
+  cancelled: "ملغي",
+};
+
+const paymentLabels: Record<PaymentStatus, string> = {
+  unpaid: "غير مدفوع",
+  partial: "مدفوع جزئياً",
+  paid: "مدفوع",
+  credit: "آجل",
+};
+
+const paymentMethodLabels: Record<PaymentMethod, string> = {
+  cash: "نقدي",
+  bank: "تحويل بنكي",
+  card: "بطاقة",
+  check: "شيك",
+  other: "أخرى",
 };
 
 function emptyItem(): ItemDraft {
   return {
-    key: crypto.randomUUID(),
     product_id: "",
     quantity: "1",
     sale_unit_price: "",
@@ -159,36 +193,148 @@ function oneRelation<T>(
     : value;
 }
 
-function localDateInput() {
-  const now = new Date();
+function businessDateInput() {
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(new Date());
 
-  const year = now.getFullYear();
-  const month = String(
-    now.getMonth() + 1
-  ).padStart(2, "0");
-  const day = String(
-    now.getDate()
-  ).padStart(2, "0");
+  const get = (type: string) =>
+    parts.find(
+      (part) => part.type === type
+    )?.value ?? "";
 
-  return `${year}-${month}-${day}`;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function paymentLabel(
-  status: PaymentStatus
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat(
+    "ar-SY",
+    {
+      timeZone: "Asia/Damascus",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(new Date(value));
+}
+
+function money(
+  value: number,
+  currency: string
 ) {
-  if (status === "paid") {
-    return "Ù…Ø¯ÙÙˆØ¹";
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(Number(value || 0))} ${currency}`;
+}
+
+function friendlyError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action:
+    | "create"
+    | "cancel"
+    | "payment"
+    | "quote"
+) {
+  const raw = error?.message ?? "";
+  const message = raw.toLowerCase();
+
+  if (
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (status === "partial") {
-    return "Ø¬Ø²Ø¦ÙŠ";
+  if (
+    message.includes("duplicate products")
+  ) {
+    return "لا يمكن تكرار نفس الصنف داخل الطلبية.";
   }
 
-  if (status === "credit") {
-    return "Ø¢Ø¬Ù„";
+  if (
+    message.includes("invalid trader")
+  ) {
+    return "العميل غير صالح أو مؤرشف.";
   }
 
-  return "ØºÙŠØ± Ù…Ø¯ÙÙˆØ¹";
+  if (
+    message.includes("inactive product") ||
+    message.includes("invalid product")
+  ) {
+    return "أحد الأصناف غير صالح أو مؤرشف.";
+  }
+
+  if (
+    message.includes("credit") ||
+    raw.includes("ائتمان")
+  ) {
+    return "لا يمكن إنشاء الطلبية لأن حد ائتمان العميل لا يسمح بهذه العملية.";
+  }
+
+  if (
+    message.includes(
+      "cancel sales invoice first"
+    )
+  ) {
+    return "يجب إلغاء فاتورة البيع المرتبطة أولاً.";
+  }
+
+  if (
+    message.includes(
+      "cannot be cancelled"
+    )
+  ) {
+    return "لا يمكن إلغاء الطلبية بعد بدء التوصيل أو التسليم.";
+  }
+
+  if (
+    message.includes(
+      "cancellation reason"
+    )
+  ) {
+    return "سبب الإلغاء مطلوب.";
+  }
+
+  if (
+    message.includes("exchange") ||
+    message.includes("currency") ||
+    message.includes("rate")
+  ) {
+    return "تعذر احتساب سعر الصرف لهذه العملية. تحقق من أسعار الصرف والتاريخ.";
+  }
+
+  if (action === "cancel") {
+    return "تعذر إلغاء الطلبية. حاول مرة ثانية.";
+  }
+
+  if (action === "payment") {
+    return "تعذر تسجيل القبض. تحقق من البيانات وحاول مرة ثانية.";
+  }
+
+  if (action === "quote") {
+    return "تعذر احتساب مبلغ القبض بعملة الصندوق.";
+  }
+
+  return "تعذر إنشاء الطلبية. تحقق من البيانات وحاول مرة ثانية.";
 }
 
 export function OrdersClient({
@@ -199,9 +345,17 @@ export function OrdersClient({
   products,
   invoices,
   cashboxes,
+  initialStats,
+  initialError,
+  totalCount,
+  page,
+  pageSize,
+  searchQuery,
+  statusFilter,
   canCreate,
   canCancel,
   canCollect,
+  canViewDeliveries,
 }: {
   companyId: string;
   currency: string;
@@ -210,19 +364,44 @@ export function OrdersClient({
   products: OrderProduct[];
   invoices: OrderSalesInvoice[];
   cashboxes: OrderCashbox[];
+  initialStats: OrderStats | null;
+  initialError: string | null;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  searchQuery: string;
+  statusFilter: OrderFilter;
   canCreate: boolean;
   canCancel: boolean;
   canCollect: boolean;
+  canViewDeliveries: boolean;
 }) {
-  const [supabase] = useState(
-    () => createClient()
-  );
+  const [supabase] =
+    useState(() => createClient());
 
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [orders, setOrders] =
-    useState<OrderRow[]>(initialOrders);
+    useState(initialOrders);
+
+  const [search, setSearch] =
+    useState(searchQuery);
+
+  const [filter, setFilter] =
+    useState<OrderFilter>(
+      statusFilter
+    );
+
+  const [notice, setNotice] =
+    useState<Notice | null>(
+      initialError
+        ? {
+            type: "error",
+            text: initialError,
+          }
+        : null
+    );
 
   const [open, setOpen] =
     useState(false);
@@ -245,256 +424,171 @@ export function OrdersClient({
     useState("");
 
   const [
+    cancelTarget,
+    setCancelTarget,
+  ] =
+    useState<OrderRow | null>(
+      null
+    );
+
+  const [
+    cancelReason,
+    setCancelReason,
+  ] =
+    useState("");
+
+  const [
+    cancelMessage,
+    setCancelMessage,
+  ] =
+    useState("");
+
+  const [
+    cancelling,
+    setCancelling,
+  ] =
+    useState(false);
+
+  const [
     collection,
     setCollection,
-  ] = useState<CollectionState | null>(
-    null
-  );
+  ] =
+    useState<CollectionState | null>(
+      null
+    );
 
   const [
     paymentAmount,
     setPaymentAmount,
-  ] = useState("");
+  ] =
+    useState("");
 
-  
   const [
     paymentCashAmount,
     setPaymentCashAmount,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     paymentCashCurrency,
     setPaymentCashCurrency,
-  ] = useState(currency);
+  ] =
+    useState(currency);
 
   const [
     paymentInvoiceCurrency,
     setPaymentInvoiceCurrency,
-  ] = useState(currency);
+  ] =
+    useState(currency);
 
   const [
     paymentFxRate,
     setPaymentFxRate,
-  ] = useState<number | null>(1);
+  ] =
+    useState<number | null>(1);
 
   const [
     paymentQuoteError,
     setPaymentQuoteError,
-  ] = useState("");const [
+  ] =
+    useState("");
+
+  const [
+    quoteLoading,
+    setQuoteLoading,
+  ] =
+    useState(false);
+
+  const [
     paymentDate,
     setPaymentDate,
-  ] = useState(localDateInput());
+  ] =
+    useState(
+      businessDateInput()
+    );
 
   const [
     paymentMethod,
     setPaymentMethod,
   ] =
-    useState<PaymentMethod>("cash");
+    useState<PaymentMethod>(
+      "cash"
+    );
 
   const [
     paymentCashbox,
     setPaymentCashbox,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     paymentReference,
     setPaymentReference,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     paymentNotes,
     setPaymentNotes,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     paymentMessage,
     setPaymentMessage,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     collecting,
     setCollecting,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   useEffect(() => {
     setOrders(initialOrders);
   }, [initialOrders]);
 
+  useEffect(() => {
+    setSearch(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
-    let cancelled = false;
+    setFilter(statusFilter);
+  }, [statusFilter]);
 
-    async function refreshPaymentCurrencyQuote() {
-      if (
-        !collection ||
-        !paymentCashbox ||
-        !paymentDate
-      ) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      const invoiceCurrency =
-        collection.invoices[0]
-          ?.currency ?? currency;
-
-      setPaymentInvoiceCurrency(
-        invoiceCurrency
-      );
-
-      if (
-        collection.invoices.some(
-          (invoice) =>
-            invoice.currency !==
-            invoiceCurrency
-        )
-      ) {
-        setPaymentCashAmount("");
-        setPaymentFxRate(null);
-        setPaymentQuoteError(
-          "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ù‚Ø¨Ø¶ ÙÙˆØ§ØªÙŠØ± Ø¨Ø¹Ù…Ù„Ø§Øª Ù…Ø®ØªÙ„ÙØ© Ø¶Ù…Ù† Ù†ÙØ³ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©."
-        );
-        return;
-      }
-
-      const selectedCashbox =
-        cashboxes.find(
-          (cashbox) =>
-            cashbox.id ===
-            paymentCashbox
-        );
-
-      if (!selectedCashbox) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      setPaymentCashCurrency(
-        selectedCashbox.currency
-      );
-
-      const invoiceAmount =
-        Number(paymentAmount || 0);
-
-      if (
-        !Number.isFinite(invoiceAmount) ||
-        invoiceAmount <= 0
-      ) {
-        setPaymentCashAmount("");
-        setPaymentQuoteError("");
-        return;
-      }
-
-      if (
-        selectedCashbox.currency ===
-        invoiceCurrency
-      ) {
-        setPaymentCashAmount(
-          invoiceAmount.toFixed(2)
-        );
-        setPaymentFxRate(1);
-        setPaymentQuoteError("");
-        return;
-      }
-
-      const { data, error } =
-        await supabase.rpc(
-          "payment_currency_quote",
-          {
-            target_company:
-              companyId,
-
-            target_invoice_currency:
-              invoiceCurrency,
-
-            target_payment_currency:
-              selectedCashbox.currency,
-
-            target_invoice_amount:
-              invoiceAmount,
-
-            target_payment_date:
-              paymentDate,
-          }
-        );
-
-      if (cancelled) return;
-
-      if (error) {
-        setPaymentCashAmount("");
-        setPaymentFxRate(null);
-        setPaymentQuoteError(
-          error.message
-        );
-        return;
-      }
-
-      const quote =
-        Array.isArray(data)
-          ? data[0]
-          : data;
-
-      const quotedAmount =
-        Number(
-          quote?.payment_amount ?? 0
-        );
-
-      const quotedRate =
-        Number(
-          quote?.payment_rate_to_base ??
-            0
-        );
-
-      if (
-        !Number.isFinite(
-          quotedAmount
-        ) ||
-        quotedAmount <= 0
-      ) {
-        setPaymentCashAmount("");
-        setPaymentFxRate(null);
-        setPaymentQuoteError(
-          "ØªØ¹Ø°Ø± Ø­Ø³Ø§Ø¨ Ù…Ø¨Ù„Øº Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚."
-        );
-        return;
-      }
-
-      setPaymentCashAmount(
-        quotedAmount.toFixed(2)
-      );
-
-      setPaymentFxRate(
-        Number.isFinite(
-          quotedRate
-        ) &&
-          quotedRate > 0
-          ? quotedRate
-          : null
-      );
-
-      setPaymentQuoteError("");
+  useEffect(() => {
+    if (initialError) {
+      setNotice({
+        type: "error",
+        text: initialError,
+      });
     }
-
-    void refreshPaymentCurrencyQuote();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    collection,
-    paymentCashbox,
-    paymentDate,
-    paymentAmount,
-    cashboxes,
-    companyId,
-    currency,
-    supabase,
-  ]);
+  }, [initialError]);
 
   const highlighted =
     searchParams.get("order");
+
+  const pageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        totalCount / pageSize
+      )
+    );
+
+  const visibleFrom =
+    totalCount === 0
+      ? 0
+      : (page - 1) *
+          pageSize +
+        1;
+
+  const visibleTo =
+    Math.min(
+      page * pageSize,
+      totalCount
+    );
 
   const invoicesByOrder =
     useMemo(() => {
@@ -505,42 +599,30 @@ export function OrdersClient({
         >();
 
       for (const invoice of invoices) {
-        const current =
+        const rows =
           map.get(
             invoice.order_id
           ) ?? [];
 
-        current.push(invoice);
+        rows.push(invoice);
 
         map.set(
           invoice.order_id,
-          current
+          rows
+        );
+      }
+
+      for (const rows of map.values()) {
+        rows.sort(
+          (a, b) =>
+            a.invoice_date.localeCompare(
+              b.invoice_date
+            )
         );
       }
 
       return map;
     }, [invoices]);
-
-const activeOrders =
-    useMemo(
-      () =>
-        orders.filter(
-          (order) =>
-            order.status !==
-            "cancelled"
-        ),
-      [orders]
-    );
-
-  const sales =
-    activeOrders.reduce(
-      (sum, order) =>
-        sum +
-        Number(
-          order.total || 0
-        ),
-      0
-    );
 
   const orderTotal =
     useMemo(
@@ -559,641 +641,6 @@ const activeOrders =
         ),
       [items]
     );
-
-  function resetForm() {
-    setTrader("");
-    setItems([
-      emptyItem(),
-    ]);
-    setNotes("");
-    setMessage("");
-  }
-
-  function startAdd() {
-    if (!canCreate) {
-      return;
-    }
-
-    resetForm();
-    setOpen(true);
-  }
-
-  function chooseProduct(
-    index: number,
-    productId: string
-  ) {
-    const product =
-      products.find(
-        (row) =>
-          row.id === productId
-      );
-
-    setItems((current) =>
-      current.map(
-        (item, currentIndex) =>
-          currentIndex === index
-            ? {
-                ...item,
-
-                product_id:
-                  productId,
-
-                sale_unit_price:
-                  product?.sale_price !=
-                  null
-                    ? String(
-                        product.sale_price
-                      )
-                    : "",
-              }
-            : item
-      )
-    );
-  }
-
-  function updateItem(
-    index: number,
-    changes: Partial<ItemDraft>
-  ) {
-    setItems((current) =>
-      current.map(
-        (item, currentIndex) =>
-          currentIndex === index
-            ? {
-                ...item,
-                ...changes,
-              }
-            : item
-      )
-    );
-  }
-
-  async function createOrder(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-    setMessage("");
-
-    if (!canCreate) {
-      setMessage(
-        "Ù…Ø§ Ø¹Ù†Ø¯Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ø¥Ù†Ø´Ø§Ø¡ Ø·Ù„Ø¨ÙŠØ©."
-      );
-      return;
-    }
-
-    if (!trader) {
-      setMessage(
-        "Ø§Ø®ØªØ§Ø± Ø§Ù„Ø²Ø¨ÙˆÙ†."
-      );
-      return;
-    }
-
-    if (
-      !items.length ||
-      items.some((item) => {
-        const quantity =
-          Number(
-            item.quantity
-          );
-
-        const salePrice =
-          Number(
-            item.sale_unit_price
-          );
-
-        return (
-          !item.product_id ||
-          !Number.isFinite(
-            quantity
-          ) ||
-          quantity <= 0 ||
-          !Number.isFinite(
-            salePrice
-          ) ||
-          salePrice < 0
-        );
-      })
-    ) {
-      setMessage(
-        "Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø£ØµÙ†Ø§Ù ÙˆØ§Ù„ÙƒÙ…ÙŠØ§Øª ÙˆØ£Ø³Ø¹Ø§Ø± Ø§Ù„Ø¨ÙŠØ¹."
-      );
-      return;
-    }
-
-    const payload =
-      items.map((item) => ({
-        product_id:
-          item.product_id,
-
-        quantity:
-          Number(
-            item.quantity
-          ),
-
-        sale_unit_price:
-          Number(
-            item.sale_unit_price
-          ),
-      }));
-
-    setSaving(true);
-
-    const { data, error } =
-      await supabase.rpc(
-        "create_sales_order_v2",
-        {
-          target_company:
-            companyId,
-
-          target_trader:
-            trader,
-
-          target_notes:
-            notes.trim() ||
-            null,
-
-          items_payload:
-            payload,
-
-          target_source_quote:
-            null,
-        }
-      );
-
-    setSaving(false);
-
-    if (error) {
-      setMessage(
-        error.message
-      );
-      return;
-    }
-
-    const result = data as
-      | {
-          status?: string;
-          order_id?: string | null;
-          approval_id?: string | null;
-        }
-      | null;
-
-    if (
-      result?.status ===
-      "pending_approval"
-    ) {
-      setOpen(false);
-      resetForm();
-      window.alert(
-        "Ø§Ù„Ø³Ø¹Ø± ØªØ­Øª Ø§Ù„ØªÙƒÙ„ÙØ© Ø£Ùˆ Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ø¯Ù†Ù‰. ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ù…ÙˆØ§ÙÙ‚Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹."
-      );
-      router.refresh();
-      return;
-    }
-
-    setOpen(false);
-    resetForm();
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
-    );
-  }
-
-  async function cancelOrder(
-    id: string
-  ) {
-    if (!canCancel) {
-      return;
-    }
-
-    const reason =
-      window.prompt(
-        "Ø³Ø¨Ø¨ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ÙŠØ©:"
-      );
-
-    if (reason === null) {
-      return;
-    }
-
-    if (!reason.trim()) {
-      window.alert(
-        "Ø§ÙƒØªØ¨ Ø³Ø¨Ø¨ Ø§Ù„Ø¥Ù„ØºØ§Ø¡."
-      );
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "ØªØ£ÙƒÙŠØ¯ Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ÙŠØ©ØŸ"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    const { error } =
-      await supabase.rpc(
-        "cancel_sales_order",
-        {
-          target_company:
-            companyId,
-
-          target_order:
-            id,
-
-          target_reason:
-            reason.trim(),
-        }
-      );
-
-    if (error) {
-      window.alert(
-        error.message
-      );
-      return;
-    }
-
-    setOrders((current) =>
-      current.map((order) =>
-        order.id === id
-          ? {
-              ...order,
-              status:
-                "cancelled",
-            }
-          : order
-      )
-    );
-
-    router.refresh();
-  }
-
-  function openCollection(
-    order: OrderRow
-  ) {
-    if (!canCollect) {
-      return;
-    }
-
-    if (
-      order.status !==
-      "delivered"
-    ) {
-      return;
-    }
-
-    const orderInvoices =
-      (
-        invoicesByOrder.get(
-          order.id
-        ) ?? []
-      )
-        .filter(
-          (invoice) =>
-            invoice.status ===
-              "posted" &&
-            Number(
-              invoice.balance_due ||
-                0
-            ) > 0
-        );
-
-    if (!orderInvoices.length) {
-      window.alert(
-        "Ù…Ø§ ÙÙŠ ÙØ§ØªÙˆØ±Ø© Ù…Ø³ØªØ­Ù‚Ø© Ù„Ù‡Ø§Ù„Ø·Ù„Ø¨ÙŠØ©."
-      );
-      return;
-    }
-
-    const invoiceCurrency =
-      orderInvoices[0]
-        ?.currency ?? currency;
-
-    if (
-      orderInvoices.some(
-        (invoice) =>
-          invoice.currency !==
-          invoiceCurrency
-      )
-    ) {
-      window.alert(
-        "ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ø·Ù„Ø¨ÙŠØ© ÙÙŠÙ‡Ø§ Ø£ÙƒØ«Ø± Ù…Ù† Ø¹Ù…Ù„Ø© ÙˆÙ„Ø§ ÙŠÙ…ÙƒÙ† Ù‚Ø¨Ø¶Ù‡Ø§ Ø¨Ø¹Ù…Ù„ÙŠØ© ÙˆØ§Ø­Ø¯Ø©."
-      );
-      return;
-    }
-
-    const balance =
-      orderInvoices.reduce(
-        (sum, invoice) =>
-          sum +
-          Number(
-            invoice.balance_due ||
-              0
-          ),
-        0
-      );
-
-    const matchingCashbox =
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.currency ===
-          invoiceCurrency
-      );
-
-    setCollection({
-      order,
-      invoices:
-        orderInvoices,
-    });
-
-    setPaymentAmount(
-      balance.toFixed(2)
-    );
-
-    setPaymentDate(
-      localDateInput()
-    );
-
-    setPaymentMethod(
-      "cash"
-    );
-
-    setPaymentCashbox(
-      matchingCashbox?.id ??
-        cashboxes[0]?.id ??
-        ""
-    );
-
-    setPaymentCashAmount(
-      balance.toFixed(2)
-    );
-
-    setPaymentCashCurrency(
-      matchingCashbox
-        ?.currency ??
-        cashboxes[0]
-          ?.currency ??
-        invoiceCurrency
-    );
-
-    setPaymentInvoiceCurrency(
-      invoiceCurrency
-    );
-
-    setPaymentFxRate(
-      matchingCashbox
-        ?.currency ===
-        invoiceCurrency
-        ? 1
-        : null
-    );
-
-    setPaymentQuoteError("");
-    setPaymentReference("");
-    setPaymentNotes("");
-    setPaymentMessage("");
-  }
-
-  async function saveCollection(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
-    if (!collection) {
-      return;
-    }
-
-    setPaymentMessage("");
-
-    const amount =
-      Number(
-        paymentAmount
-      );
-
-    const balance =
-      collection.invoices.reduce(
-        (sum, invoice) =>
-          sum +
-          Number(
-            invoice.balance_due ||
-              0
-          ),
-        0
-      );
-
-    if (
-      !Number.isFinite(
-        amount
-      ) ||
-      amount <= 0
-    ) {
-      setPaymentMessage(
-        "Ø§ÙƒØªØ¨ Ù…Ø¨Ù„Øº Ù‚Ø¨Ø¶ ØµØ­ÙŠØ­."
-      );
-      return;
-    }
-
-    if (
-      amount >
-      balance + 0.01
-    ) {
-      setPaymentMessage(
-        `Ø§Ù„Ù…Ø¨Ù„Øº Ø£ÙƒØ¨Ø± Ù…Ù† Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ù…Ø³ØªØ­Ù‚ ${balance.toFixed(
-          2
-        )} ${paymentInvoiceCurrency}.`
-      );
-      return;
-    }
-
-    if (!paymentCashbox) {
-      setPaymentMessage(
-        "Ø§Ø®ØªØ§Ø± Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚."
-      );
-      return;
-    }
-
-    if (!paymentDate) {
-      setPaymentMessage(
-        "Ø§Ø®ØªØ§Ø± ØªØ§Ø±ÙŠØ® Ø§Ù„Ù‚Ø¨Ø¶."
-      );
-      return;
-    }
-
-    const invoiceCurrency =
-      collection.invoices[0]
-        ?.currency ?? currency;
-
-    const selectedCashbox =
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.id ===
-          paymentCashbox
-      );
-
-    if (!selectedCashbox) {
-      setPaymentMessage(
-        "Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„Ù…Ø®ØªØ§Ø± ØºÙŠØ± ØµØ§Ù„Ø­."
-      );
-      return;
-    }
-
-    if (paymentQuoteError) {
-      setPaymentMessage(
-        paymentQuoteError
-      );
-      return;
-    }
-
-    const cashAmount =
-      selectedCashbox.currency ===
-      invoiceCurrency
-        ? amount
-        : Number(
-            paymentCashAmount
-          );
-
-    if (
-      !Number.isFinite(
-        cashAmount
-      ) ||
-      cashAmount <= 0
-    ) {
-      setPaymentMessage(
-        "ØªØ¹Ø°Ø± Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø¨Ù„Øº Ø¨Ø¹Ù…Ù„Ø© Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚."
-      );
-      return;
-    }
-
-    let remaining =
-      Number(
-        amount.toFixed(2)
-      );
-
-    const allocationsPayload:
-      Array<{
-        sales_invoice_id: string;
-        amount: number;
-      }> = [];
-
-    for (
-      const invoice of
-      collection.invoices
-    ) {
-      if (
-        remaining <= 0
-      ) {
-        break;
-      }
-
-      const invoiceBalance =
-        Number(
-          invoice.balance_due ||
-            0
-        );
-
-      if (
-        invoiceBalance <= 0
-      ) {
-        continue;
-      }
-
-      const applied =
-        Math.min(
-          remaining,
-          invoiceBalance
-        );
-
-      allocationsPayload.push({
-        sales_invoice_id:
-          invoice.id,
-
-        amount:
-          Number(
-            applied.toFixed(2)
-          ),
-      });
-
-      remaining =
-        Number(
-          (
-            remaining -
-            applied
-          ).toFixed(2)
-        );
-    }
-
-    if (
-      !allocationsPayload.length
-    ) {
-      setPaymentMessage(
-        "Ù…Ø§ ÙÙŠ Ø±ØµÙŠØ¯ Ù…Ø³ØªØ­Ù‚ Ù„Ù„Ù‚Ø¨Ø¶."
-      );
-      return;
-    }
-
-    setCollecting(true);
-
-    const { error } =
-      await supabase.rpc(
-        "record_customer_payment",
-        {
-          target_company:
-            companyId,
-
-          target_trader:
-            collection.order
-              .trader_id,
-
-          target_cashbox:
-            paymentCashbox,
-
-          target_amount:
-            cashAmount,
-
-          target_payment_date:
-            paymentDate,
-
-          target_method:
-            paymentMethod,
-
-          target_reference:
-            paymentReference.trim() ||
-            null,
-
-          target_notes:
-            paymentNotes.trim() ||
-            null,
-
-          allocations_payload:
-            allocationsPayload,
-        }
-      );
-
-    setCollecting(false);
-
-    if (error) {
-      setPaymentMessage(
-        error.message
-      );
-      return;
-    }
-
-    setCollection(null);
-    setPaymentAmount("");
-    setPaymentCashAmount("");
-    setPaymentQuoteError("");
-
-    router.refresh();
-
-    window.setTimeout(
-      () =>
-        window.location.reload(),
-      100
-    );
-  }
 
   const collectionTotal =
     collection
@@ -1232,76 +679,1107 @@ const activeOrders =
           0
         )
       : 0;
+
+  function navigate(
+    nextSearch: string,
+    nextFilter: OrderFilter,
+    nextPage = 1
+  ) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
+
+    const clean =
+      nextSearch.trim();
+
+    if (clean) {
+      params.set("q", clean);
+    } else {
+      params.delete("q");
+    }
+
+    if (
+      nextFilter !== "all"
+    ) {
+      params.set(
+        "status",
+        nextFilter
+      );
+    } else {
+      params.delete("status");
+    }
+
+    if (nextPage > 1) {
+      params.set(
+        "page",
+        String(nextPage)
+      );
+    } else {
+      params.delete("page");
+    }
+
+    const query =
+      params.toString();
+
+    router.push(
+      query
+        ? `/orders?${query}`
+        : "/orders"
+    );
+  }
+
+  function submitSearch(
+    event: FormEvent
+  ) {
+    event.preventDefault();
+
+    navigate(
+      search,
+      filter,
+      1
+    );
+  }
+
+  function resetForm() {
+    setTrader("");
+    setItems([
+      emptyItem(),
+    ]);
+    setNotes("");
+    setMessage("");
+  }
+
+  function startAdd() {
+    if (!canCreate) {
+      return;
+    }
+
+    resetForm();
+    setOpen(true);
+  }
+
+  function chooseProduct(
+    index: number,
+    productId: string
+  ) {
+    const product =
+      products.find(
+        (row) =>
+          row.id === productId
+      );
+
+    setItems(
+      (current) =>
+        current.map(
+          (
+            item,
+            currentIndex
+          ) =>
+            currentIndex ===
+            index
+              ? {
+                  ...item,
+                  product_id:
+                    productId,
+                  sale_unit_price:
+                    product?.sale_price !=
+                    null
+                      ? String(
+                          product.sale_price
+                        )
+                      : "",
+                }
+              : item
+        )
+    );
+  }
+
+  function updateItem(
+    index: number,
+    changes:
+      Partial<ItemDraft>
+  ) {
+    setItems(
+      (current) =>
+        current.map(
+          (
+            item,
+            currentIndex
+          ) =>
+            currentIndex ===
+            index
+              ? {
+                  ...item,
+                  ...changes,
+                }
+              : item
+        )
+    );
+  }
+
+  async function createOrder(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    setMessage("");
+
+    if (!canCreate) {
+      setMessage(
+        "ما عندك صلاحية إنشاء طلبية."
+      );
+      return;
+    }
+
+    if (!trader) {
+      setMessage(
+        "اختر العميل."
+      );
+      return;
+    }
+
+    const selectedIds =
+      items
+        .map(
+          (item) =>
+            item.product_id
+        )
+        .filter(Boolean);
+
+    if (
+      new Set(
+        selectedIds
+      ).size !==
+      selectedIds.length
+    ) {
+      setMessage(
+        "لا يمكن تكرار نفس الصنف داخل الطلبية."
+      );
+      return;
+    }
+
+    const invalid =
+      items.some(
+        (item) => {
+          const qty =
+            Number(
+              item.quantity
+            );
+
+          const price =
+            Number(
+              item.sale_unit_price
+            );
+
+          return (
+            !item.product_id ||
+            !Number.isFinite(qty) ||
+            qty <= 0 ||
+            !Number.isFinite(
+              price
+            ) ||
+            price < 0
+          );
+        }
+      );
+
+    if (invalid) {
+      setMessage(
+        "راجع الأصناف والكميات وأسعار البيع."
+      );
+      return;
+    }
+
+    const payload =
+      items.map(
+        (item) => ({
+          product_id:
+            item.product_id,
+          quantity:
+            Number(
+              item.quantity
+            ),
+          sale_unit_price:
+            Number(
+              item.sale_unit_price
+            ),
+        })
+      );
+
+    setSaving(true);
+
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          "create_sales_order_v2",
+          {
+            target_company:
+              companyId,
+            target_trader:
+              trader,
+            target_notes:
+              notes.trim() ||
+              null,
+            items_payload:
+              payload,
+            target_source_quote:
+              null,
+          }
+        );
+
+      if (error) {
+        setMessage(
+          friendlyError(
+            error,
+            "create"
+          )
+        );
+        return;
+      }
+
+      const result =
+        data as
+          | {
+              status?: string;
+              order_id?:
+                | string
+                | null;
+              approval_id?:
+                | string
+                | null;
+            }
+          | null;
+
+      setOpen(false);
+      resetForm();
+
+      if (
+        result?.status ===
+        "pending_approval"
+      ) {
+        setNotice({
+          type: "success",
+          text:
+            "السعر يحتاج موافقة. تم إنشاء طلب الموافقة بنجاح ولم تُنشأ الطلبية بعد.",
+        });
+      } else {
+        setNotice({
+          type: "success",
+          text:
+            "تم إنشاء الطلبية بنجاح.",
+        });
+      }
+
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openCancel(
+    order: OrderRow
+  ) {
+    if (!canCancel) {
+      return;
+    }
+
+    setCancelTarget(order);
+    setCancelReason("");
+    setCancelMessage("");
+  }
+
+  async function saveCancel(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !cancelTarget ||
+      !canCancel
+    ) {
+      return;
+    }
+
+    const reason =
+      cancelReason.trim();
+
+    if (!reason) {
+      setCancelMessage(
+        "اكتب سبب الإلغاء."
+      );
+      return;
+    }
+
+    setCancelling(true);
+    setCancelMessage("");
+
+    try {
+      const { error } =
+        await supabase.rpc(
+          "cancel_sales_order",
+          {
+            target_company:
+              companyId,
+            target_order:
+              cancelTarget.id,
+            target_reason:
+              reason,
+          }
+        );
+
+      if (error) {
+        setCancelMessage(
+          friendlyError(
+            error,
+            "cancel"
+          )
+        );
+        return;
+      }
+
+      setOrders(
+        (current) =>
+          current.map(
+            (order) =>
+              order.id ===
+              cancelTarget.id
+                ? {
+                    ...order,
+                    status:
+                      "cancelled",
+                    cancellation_reason:
+                      reason,
+                    cancelled_at:
+                      new Date().toISOString(),
+                  }
+                : order
+          )
+      );
+
+      setCancelTarget(null);
+      setCancelReason("");
+
+      setNotice({
+        type: "success",
+        text:
+          "تم إلغاء الطلبية وتحرير حجز المخزون.",
+      });
+
+      router.refresh();
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  function openCollection(
+    order: OrderRow
+  ) {
+    if (!canCollect) {
+      return;
+    }
+
+    if (
+      order.status !==
+      "delivered"
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          "القبض من هذه الشاشة متاح بعد تسليم الطلبية.",
+      });
+      return;
+    }
+
+    const orderInvoices =
+      (
+        invoicesByOrder.get(
+          order.id
+        ) ?? []
+      ).filter(
+        (invoice) =>
+          invoice.status ===
+            "posted" &&
+          Number(
+            invoice.balance_due ||
+              0
+          ) > 0
+      );
+
+    if (
+      !orderInvoices.length
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          "لا توجد فاتورة مستحقة لهذه الطلبية.",
+      });
+      return;
+    }
+
+    const invoiceCurrency =
+      orderInvoices[0]
+        .currency;
+
+    if (
+      orderInvoices.some(
+        (invoice) =>
+          invoice.currency !==
+          invoiceCurrency
+      )
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          "فواتير الطلبية تحتوي على أكثر من عملة ولا يمكن قبضها بعملية واحدة.",
+      });
+      return;
+    }
+
+    const balance =
+      orderInvoices.reduce(
+        (sum, invoice) =>
+          sum +
+          Number(
+            invoice.balance_due ||
+              0
+          ),
+        0
+      );
+
+    const matchingCashbox =
+      cashboxes.find(
+        (cashbox) =>
+          cashbox.currency ===
+          invoiceCurrency
+      );
+
+    const firstCashbox =
+      matchingCashbox ??
+      cashboxes[0];
+
+    setCollection({
+      order,
+      invoices:
+        orderInvoices,
+    });
+
+    setPaymentAmount(
+      balance.toFixed(2)
+    );
+
+    setPaymentDate(
+      businessDateInput()
+    );
+
+    setPaymentMethod(
+      "cash"
+    );
+
+    setPaymentCashbox(
+      firstCashbox?.id ??
+        ""
+    );
+
+    setPaymentCashAmount(
+      firstCashbox?.currency ===
+      invoiceCurrency
+        ? balance.toFixed(2)
+        : ""
+    );
+
+    setPaymentCashCurrency(
+      firstCashbox?.currency ??
+        invoiceCurrency
+    );
+
+    setPaymentInvoiceCurrency(
+      invoiceCurrency
+    );
+
+    setPaymentFxRate(
+      firstCashbox?.currency ===
+      invoiceCurrency
+        ? 1
+        : null
+    );
+
+    setPaymentQuoteError("");
+    setPaymentReference("");
+    setPaymentNotes("");
+    setPaymentMessage("");
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshQuote() {
+      if (
+        !collection ||
+        !paymentCashbox ||
+        !paymentDate
+      ) {
+        setPaymentCashAmount("");
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
+      const invoiceCurrency =
+        collection
+          .invoices[0]
+          ?.currency ??
+        currency;
+
+      setPaymentInvoiceCurrency(
+        invoiceCurrency
+      );
+
+      const selectedCashbox =
+        cashboxes.find(
+          (cashbox) =>
+            cashbox.id ===
+            paymentCashbox
+        );
+
+      if (!selectedCashbox) {
+        setPaymentCashAmount("");
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
+      setPaymentCashCurrency(
+        selectedCashbox.currency
+      );
+
+      const invoiceAmount =
+        Number(
+          paymentAmount || 0
+        );
+
+      if (
+        !Number.isFinite(
+          invoiceAmount
+        ) ||
+        invoiceAmount <= 0
+      ) {
+        setPaymentCashAmount("");
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
+      if (
+        selectedCashbox.currency ===
+        invoiceCurrency
+      ) {
+        setPaymentCashAmount(
+          invoiceAmount.toFixed(2)
+        );
+        setPaymentFxRate(1);
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
+      setQuoteLoading(true);
+      setPaymentCashAmount("");
+      setPaymentFxRate(null);
+
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          "payment_currency_quote",
+          {
+            target_company:
+              companyId,
+            target_invoice_currency:
+              invoiceCurrency,
+            target_payment_currency:
+              selectedCashbox.currency,
+            target_invoice_amount:
+              invoiceAmount,
+            target_payment_date:
+              paymentDate,
+          }
+        );
+
+      if (cancelled) {
+        return;
+      }
+
+      setQuoteLoading(false);
+
+      if (error) {
+        setPaymentQuoteError(
+          friendlyError(
+            error,
+            "quote"
+          )
+        );
+        return;
+      }
+
+      const quote =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      const quotedAmount =
+        Number(
+          quote?.payment_amount ??
+            0
+        );
+
+      const quotedRate =
+        Number(
+          quote?.payment_rate_to_base ??
+            0
+        );
+
+      if (
+        !Number.isFinite(
+          quotedAmount
+        ) ||
+        quotedAmount <= 0 ||
+        !Number.isFinite(
+          quotedRate
+        ) ||
+        quotedRate <= 0
+      ) {
+        setPaymentQuoteError(
+          "تعذر احتساب مبلغ القبض بعملة الصندوق."
+        );
+        return;
+      }
+
+      setPaymentCashAmount(
+        quotedAmount.toFixed(2)
+      );
+
+      setPaymentFxRate(
+        quotedRate
+      );
+
+      setPaymentQuoteError("");
+    }
+
+    void refreshQuote();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    collection,
+    paymentCashbox,
+    paymentDate,
+    paymentAmount,
+    cashboxes,
+    companyId,
+    currency,
+    supabase,
+  ]);
+
+  async function saveCollection(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !collection ||
+      !canCollect
+    ) {
+      return;
+    }
+
+    setPaymentMessage("");
+
+    const amount =
+      Number(paymentAmount);
+
+    const balance =
+      collection.invoices.reduce(
+        (sum, invoice) =>
+          sum +
+          Number(
+            invoice.balance_due ||
+              0
+          ),
+        0
+      );
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+      setPaymentMessage(
+        "اكتب مبلغ قبض صحيح."
+      );
+      return;
+    }
+
+    if (
+      amount >
+      balance + 0.01
+    ) {
+      setPaymentMessage(
+        `المبلغ أكبر من الرصيد المستحق ${money(
+          balance,
+          paymentInvoiceCurrency
+        )}.`
+      );
+      return;
+    }
+
+    if (!paymentCashbox) {
+      setPaymentMessage(
+        "اختر الصندوق."
+      );
+      return;
+    }
+
+    if (!paymentDate) {
+      setPaymentMessage(
+        "اختر تاريخ القبض."
+      );
+      return;
+    }
+
+    const selectedCashbox =
+      cashboxes.find(
+        (cashbox) =>
+          cashbox.id ===
+          paymentCashbox
+      );
+
+    if (!selectedCashbox) {
+      setPaymentMessage(
+        "الصندوق المختار غير صالح."
+      );
+      return;
+    }
+
+    const invoiceCurrency =
+      collection.invoices[0]
+        ?.currency ??
+      currency;
+
+    let remaining =
+      Number(
+        amount.toFixed(2)
+      );
+
+    const allocationsPayload:
+      Array<{
+        sales_invoice_id:
+          string;
+        amount: number;
+      }> = [];
+
+    for (
+      const invoice of
+        collection.invoices
+    ) {
+      if (remaining <= 0) {
+        break;
+      }
+
+      const invoiceBalance =
+        Number(
+          invoice.balance_due ||
+            0
+        );
+
+      if (
+        invoiceBalance <= 0
+      ) {
+        continue;
+      }
+
+      const applied =
+        Math.min(
+          remaining,
+          invoiceBalance
+        );
+
+      allocationsPayload.push({
+        sales_invoice_id:
+          invoice.id,
+        amount:
+          Number(
+            applied.toFixed(2)
+          ),
+      });
+
+      remaining =
+        Number(
+          (
+            remaining -
+            applied
+          ).toFixed(2)
+        );
+    }
+
+    if (
+      !allocationsPayload.length
+    ) {
+      setPaymentMessage(
+        "لا يوجد رصيد مستحق للقبض."
+      );
+      return;
+    }
+
+    setCollecting(true);
+
+    try {
+      let cashAmount =
+        amount;
+
+      if (
+        selectedCashbox.currency !==
+        invoiceCurrency
+      ) {
+        const {
+          data,
+          error,
+        } =
+          await supabase.rpc(
+            "payment_currency_quote",
+            {
+              target_company:
+                companyId,
+              target_invoice_currency:
+                invoiceCurrency,
+              target_payment_currency:
+                selectedCashbox.currency,
+              target_invoice_amount:
+                amount,
+              target_payment_date:
+                paymentDate,
+            }
+          );
+
+        if (error) {
+          setPaymentMessage(
+            friendlyError(
+              error,
+              "quote"
+            )
+          );
+          return;
+        }
+
+        const quote =
+          Array.isArray(data)
+            ? data[0]
+            : data;
+
+        const rate =
+          Number(
+            quote?.payment_rate_to_base ??
+              0
+          );
+
+        if (
+          !Number.isFinite(
+            rate
+          ) ||
+          rate <= 0
+        ) {
+          setPaymentMessage(
+            "تعذر تثبيت سعر الصرف لهذه العملية."
+          );
+          return;
+        }
+
+        cashAmount =
+          allocationsPayload.reduce(
+            (
+              total,
+              allocation
+            ) =>
+              total +
+              Number(
+                (
+                  allocation.amount /
+                  rate
+                ).toFixed(2)
+              ),
+            0
+          );
+
+        cashAmount =
+          Number(
+            cashAmount.toFixed(
+              2
+            )
+          );
+      }
+
+      const { error } =
+        await supabase.rpc(
+          "record_customer_payment",
+          {
+            target_company:
+              companyId,
+            target_trader:
+              collection.order
+                .trader_id,
+            target_cashbox:
+              paymentCashbox,
+            target_amount:
+              cashAmount,
+            target_payment_date:
+              paymentDate,
+            target_method:
+              paymentMethod,
+            target_reference:
+              paymentReference.trim() ||
+              null,
+            target_notes:
+              paymentNotes.trim() ||
+              null,
+            allocations_payload:
+              allocationsPayload,
+          }
+        );
+
+      if (error) {
+        setPaymentMessage(
+          friendlyError(
+            error,
+            "payment"
+          )
+        );
+        return;
+      }
+
+      setCollection(null);
+      setPaymentAmount("");
+      setPaymentCashAmount("");
+      setPaymentQuoteError("");
+
+      setNotice({
+        type: "success",
+        text:
+          "تم تسجيل القبض بنجاح.",
+      });
+
+      router.refresh();
+    } finally {
+      setCollecting(false);
+    }
+  }
+
   return (
     <div className="page">
       <div className="pageTitle">
         <div>
           <span className="eyebrow">
-            Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª
+            المبيعات
           </span>
 
           <h2>
-            Ø·Ù„Ø¨ÙŠØ§Øª Ø§Ù„Ø²Ø¨Ø§Ø¦Ù†
+            طلبيات العملاء
           </h2>
 
           <p className="muted">
-            Ø·Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ¹ ÙŠØ­ØªÙˆÙŠ Ø¹Ù„Ù‰
-            Ø§Ù„Ø²Ø¨ÙˆÙ† ÙˆØ§Ù„Ø£ØµÙ†Ø§Ù ÙˆØ§Ù„ÙƒÙ…ÙŠØ§Øª
-            ÙˆØ£Ø³Ø¹Ø§Ø± Ø§Ù„Ø¨ÙŠØ¹ ÙÙ‚Ø·.
+            الطلبات، حالة التوفير، التسليم والتحصيل.
           </p>
         </div>
 
-        {canCreate && (
+        {canCreate ? (
           <button
             type="button"
             className="primaryButton"
             onClick={startAdd}
           >
-            <Icons.plus size={15} />
-            Ø·Ù„Ø¨ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©
+            <Icons.plus
+              size={15}
+            />
+            طلبية جديدة
           </button>
-        )}
+        ) : null}
       </div>
+
+      {notice ? (
+        notice.type ===
+        "error" ? (
+          <div
+            className="toastError"
+            role="alert"
+            style={{
+              marginBottom: 14,
+            }}
+          >
+            {notice.text}
+          </div>
+        ) : (
+          <div
+            className="panel panelPad"
+            role="status"
+            aria-live="polite"
+            style={{
+              marginBottom: 14,
+            }}
+          >
+            {notice.text}
+          </div>
+        )
+      ) : null}
 
       <section className="statsGrid">
         <Mini
-          title="Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙØ¹Ø§Ù„Ø©"
-          value={String(
-            activeOrders.length
-          )}
-        />
-
-        <Mini
-          title="Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©"
-          value={String(
-            activeOrders.filter(
-              (order) =>
-                order.status ===
-                "new"
-            ).length
-          )}
-        />
-
-        <Mini
-          title="Ø¬Ø§Ù‡Ø²Ø© Ù„Ù„ØªÙˆØµÙŠÙ„"
-          value={String(
-            activeOrders.filter(
-              (order) =>
-                [
-                  "ready",
-                  "out_for_delivery",
-                ].includes(
-                  order.status
+          title="كل الطلبات"
+          value={
+            initialStats
+              ? String(
+                  initialStats.total
                 )
-            ).length
-          )}
+              : "—"
+          }
         />
 
         <Mini
-          title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨Ø§Øª"
-          value={`${sales.toFixed(
-            2
-          )} ${currency}`}
+          title="الطلبات الفعالة"
+          value={
+            initialStats
+              ? String(
+                  initialStats.active
+                )
+              : "—"
+          }
+        />
+
+        <Mini
+          title="جاهزة / بالتوصيل"
+          value={
+            initialStats
+              ? String(
+                  initialStats.ready
+                )
+              : "—"
+          }
+        />
+
+        <Mini
+          title="قيمة الطلبات الفعالة"
+          value={
+            initialStats
+              ? money(
+                  initialStats.totalValue,
+                  currency
+                )
+              : "—"
+          }
         />
       </section>
 
@@ -1311,16 +1789,104 @@ const activeOrders =
           marginTop: 14,
         }}
       >
+        <div className="filters">
+          <form
+            className="searchBox"
+            onSubmit={
+              submitSearch
+            }
+          >
+            <Icons.search
+              size={16}
+            />
+
+            <input
+              value={search}
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event.target.value
+                )
+              }
+              placeholder="ابحث باسم العميل..."
+              aria-label="بحث في الطلبات"
+            />
+
+            <button
+              type="submit"
+              className="softButton"
+            >
+              بحث
+            </button>
+          </form>
+
+          <select
+            value={filter}
+            aria-label="تصفية الطلبات حسب الحالة"
+            onChange={(
+              event
+            ) => {
+              const value =
+                event.target
+                  .value as OrderFilter;
+
+              setFilter(value);
+
+              navigate(
+                search,
+                value,
+                1
+              );
+            }}
+          >
+            <option value="all">
+              كل الحالات
+            </option>
+            <option value="new">
+              جديد
+            </option>
+            <option value="to_purchase">
+              بانتظار التوفير
+            </option>
+            <option value="purchasing">
+              قيد التوفير
+            </option>
+            <option value="ready">
+              جاهز
+            </option>
+            <option value="out_for_delivery">
+              بالتوصيل
+            </option>
+            <option value="delivered">
+              تم التسليم
+            </option>
+            <option value="cancelled">
+              ملغي
+            </option>
+          </select>
+
+          <div />
+
+          <div className="resultCount">
+            {totalCount === 0
+              ? "0 نتيجة"
+              : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+          </div>
+        </div>
+
         {!orders.length ? (
           <div className="empty">
-            <Icons.cart size={29} />
+            <Icons.box
+              size={29}
+            />
 
             <h3>
-              Ù…Ø§ ÙÙŠ Ø·Ù„Ø¨ÙŠØ§Øª
+              لا توجد طلبات
             </h3>
 
             <p>
-              Ø£Ø¶Ù Ø£ÙˆÙ„ Ø·Ù„Ø¨ÙŠØ© Ø²Ø¨ÙˆÙ†.
+              غيّر البحث أو التصفية أو أنشئ طلبية جديدة.
             </p>
           </div>
         ) : (
@@ -1328,14 +1894,14 @@ const activeOrders =
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>Ø§Ù„Ø·Ù„Ø¨</th>
-                  <th>Ø§Ù„Ø²Ø¨ÙˆÙ†</th>
-                  <th>Ø§Ù„Ø£ØµÙ†Ø§Ù</th>
-                  <th>Ø§Ù„Ø­Ø§Ù„Ø©</th>
-                  <th>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
-                  <th>Ø§Ù„Ø¯ÙØ¹</th>
-                  <th>Ø§Ù„ÙØ§ØªÙˆØ±Ø©</th>
-                  <th>Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
+                  <th>الطلب</th>
+                  <th>العميل</th>
+                  <th>الأصناف</th>
+                  <th>الحالة</th>
+                  <th>الإجمالي</th>
+                  <th>الدفع</th>
+                  <th>الفاتورة</th>
+                  <th>إجراءات</th>
                 </tr>
               </thead>
 
@@ -1354,45 +1920,36 @@ const activeOrders =
 
                     const dueInvoices =
                       orderInvoices.filter(
-                        (row) =>
+                        (invoice) =>
                           Number(
-                            row.balance_due ||
+                            invoice.balance_due ||
                               0
                           ) > 0
                       );
 
                     const outstandingBalance =
                       dueInvoices.reduce(
-                        (sum, row) =>
+                        (
+                          sum,
+                          invoice
+                        ) =>
                           sum +
                           Number(
-                            row.balance_due ||
+                            invoice.balance_due ||
                               0
                           ),
                         0
                       );
 
                     const firstInvoice =
-                      dueInvoices[0] ??
                       orderInvoices[0];
 
-                    const invoice =
+                    const invoiceCurrency =
+                      dueInvoices[0]
+                        ?.currency ??
                       firstInvoice
-                        ? {
-                            ...firstInvoice,
-                            invoice_number:
-                              orderInvoices.length >
-                              1
-                                ? `${orderInvoices.length} \u0641\u0648\u0627\u062a\u064a\u0631`
-                                : firstInvoice.invoice_number,
-
-                            balance_due:
-                              outstandingBalance,
-                          }
-                        : undefined;
-
-                    const paymentStatus =
-                      order.payment_status;
+                        ?.currency ??
+                      currency;
 
                     return (
                       <tr
@@ -1417,10 +1974,8 @@ const activeOrders =
                           </strong>
 
                           <div className="muted">
-                            {new Date(
+                            {formatDateTime(
                               order.created_at
-                            ).toLocaleString(
-                              "ar-LB"
                             )}
                           </div>
                         </td>
@@ -1428,16 +1983,16 @@ const activeOrders =
                         <td>
                           <strong>
                             {traderRow?.name ||
-                              "â€”"}
+                              "—"}
                           </strong>
 
-                          {traderRow?.area && (
+                          {traderRow?.area ? (
                             <div className="muted">
                               {
                                 traderRow.area
                               }
                             </div>
-                          )}
+                          ) : null}
                         </td>
 
                         <td>
@@ -1448,29 +2003,6 @@ const activeOrders =
                                 .length
                             }
                           </strong>
-
-                          <div className="muted">
-                            {order.sales_order_items
-                              .slice(0, 2)
-                              .map((item) => {
-                                const product =
-                                  oneRelation(
-                                    item.products
-                                  );
-
-                                return (
-                                  product?.name ??
-                                  "ØµÙ†Ù"
-                                );
-                              })
-                              .join("ØŒ ")}
-
-                            {order
-                              .sales_order_items
-                              .length >
-                              2 &&
-                              " ..."}
-                          </div>
                         </td>
 
                         <td>
@@ -1498,110 +2030,102 @@ const activeOrders =
                         </td>
 
                         <td>
-                          {Number(
-                            order.total ||
-                              0
-                          ).toFixed(2)}{" "}
-                          {currency}
+                          {money(
+                            Number(
+                              order.total ||
+                                0
+                            ),
+                            currency
+                          )}
                         </td>
 
                         <td>
-                          <span
-                            className={`chip ${
-                              paymentStatus ===
-                              "paid"
-                                ? "green"
-                                : paymentStatus ===
-                                    "partial"
-                                  ? "orange"
-                                  : "gray"
-                            }`}
-                          >
-                            {paymentLabel(
-                              paymentStatus
-                            )}
-                          </span>
+                          {
+                            paymentLabels[
+                              order.payment_status
+                            ]
+                          }
                         </td>
 
                         <td>
-                          {invoice ? (
+                          {firstInvoice ? (
                             <div>
                               <strong>
                                 {
-                                  invoice.invoice_number
+                                  firstInvoice.invoice_number
                                 }
                               </strong>
 
                               <div className="muted">
-                                Ù…ØªØ¨Ù‚ÙŠ{" "}
-                                {Number(
-                                  invoice.balance_due
-                                ).toFixed(
-                                  2
-                                )}{" "}
-                                {currency}
+                                {dueInvoices.length ===
+                                0
+                                  ? "مسددة"
+                                  : `متبقي ${money(
+                                      outstandingBalance,
+                                      invoiceCurrency
+                                    )}`}
                               </div>
                             </div>
                           ) : (
-                            <span className="muted">
-                              â€”
-                            </span>
+                            "—"
                           )}
                         </td>
 
                         <td>
                           <div className="rowActions">
-                            {[
+                            {canViewDeliveries &&
+                            [
                               "ready",
                               "out_for_delivery",
                             ].includes(
                               order.status
-                            ) && (
+                            ) ? (
                               <a
                                 className="softButton"
                                 href="/deliveries"
                               >
-                                ØªÙˆØµÙŠÙ„
+                                توصيل
                               </a>
-                            )}
+                            ) : null}
 
                             {canCollect &&
-                              invoice &&
-                              Number(
-                                invoice.balance_due
-                              ) > 0 && (
-                                <button
-                                  type="button"
-                                  className="primaryButton"
-                                  onClick={() =>
-                                    openCollection(
-                                      order
-                                    )
-                                  }
-                                >
-                                  Ù‚Ø¨Ø¶
-                                </button>
-                              )}
+                            order.status ===
+                              "delivered" &&
+                            dueInvoices.length >
+                              0 ? (
+                              <button
+                                type="button"
+                                className="primaryButton"
+                                onClick={() =>
+                                  openCollection(
+                                    order
+                                  )
+                                }
+                              >
+                                قبض
+                              </button>
+                            ) : null}
 
                             {canCancel &&
-                              ![
-                                "delivered",
-                                "cancelled",
-                              ].includes(
-                                order.status
-                              ) && (
-                                <button
-                                  type="button"
-                                  className="dangerButton"
-                                  onClick={() =>
-                                    void cancelOrder(
-                                      order.id
-                                    )
-                                  }
-                                >
-                                  Ø¥Ù„ØºØ§Ø¡
-                                </button>
-                              )}
+                            ![
+                              "out_for_delivery",
+                              "delivered",
+                              "cancelled",
+                            ].includes(
+                              order.status
+                            ) ? (
+                              <button
+                                type="button"
+                                className="dangerButton"
+                                onClick={() =>
+                                  openCancel(
+                                    order
+                                  )
+                                }
+                              >
+                                إلغاء
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -1612,59 +2136,108 @@ const activeOrders =
             </table>
           </div>
         )}
+
+        {pageCount > 1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page <= 1
+              }
+              onClick={() =>
+                navigate(
+                  searchQuery,
+                  statusFilter,
+                  Math.max(
+                    1,
+                    page - 1
+                  )
+                )
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {page} من{" "}
+              {pageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page >=
+                pageCount
+              }
+              onClick={() =>
+                navigate(
+                  searchQuery,
+                  statusFilter,
+                  Math.min(
+                    pageCount,
+                    page + 1
+                  )
+                )
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
       </section>
 
-      {open && (
+      {open ? (
         <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
               maxWidth: 900,
               width: "94vw",
             }}
           >
             <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª
-                </span>
-
-                <h2>
-                  Ø·Ù„Ø¨ÙŠØ© Ø²Ø¨ÙˆÙ† Ø¬Ø¯ÙŠØ¯Ø©
-                </h2>
-              </div>
+              <h2>
+                طلبية جديدة
+              </h2>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={saving}
                 onClick={() =>
                   setOpen(false)
                 }
               >
-                Ã—
+                ×
               </button>
             </div>
 
-            <form
-              onSubmit={createOrder}
-            >
+            <form onSubmit={createOrder}>
               <label className="field">
-                <span>
-                  Ø§Ù„Ø²Ø¨ÙˆÙ† *
-                </span>
+                <span>العميل *</span>
 
                 <select
                   value={trader}
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     setTrader(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 >
                   <option value="">
-                    Ø§Ø®ØªØ± Ø§Ù„Ø²Ø¨ÙˆÙ†
+                    اختر العميل
                   </option>
 
                   {traders.map(
@@ -1674,273 +2247,185 @@ const activeOrders =
                         value={row.id}
                       >
                         {row.name}
-                        {row.area
-                          ? ` - ${row.area}`
-                          : ""}
                       </option>
                     )
                   )}
                 </select>
               </label>
 
-              <div
-                className="panel panelPad"
-                style={{
-                  marginTop: 14,
-                }}
-              >
-                <div className="panelHeader">
-                  <div>
-                    <h2>
-                      Ø§Ù„Ø£ØµÙ†Ø§Ù
-                    </h2>
-
-                    <p>
-                      Ø§Ù„Ù…ÙˆØ±Ø¯ ÙˆØ³Ø¹Ø± Ø§Ù„Ø´Ø±Ø§Ø¡
-                      Ù„ÙŠØ³Ø§ Ø¬Ø²Ø¡Ù‹Ø§ Ù…Ù† Ø·Ù„Ø¨
-                      Ø§Ù„Ø²Ø¨ÙˆÙ†.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="softButton"
-                    onClick={() =>
-                      setItems(
-                        (
-                          current
-                        ) => [
-                          ...current,
-                          emptyItem(),
-                        ]
-                      )
-                    }
-                  >
-                    <Icons.plus
-                      size={13}
-                    />
-                    ØµÙ†Ù
-                  </button>
-                </div>
-
-                <div className="quickList">
-                  {items.map(
-                    (
-                      item,
-                      index
-                    ) => (
-                      <div
-                        key={
-                          item.key
+              <div className="quickList">
+                {items.map(
+                  (
+                    item,
+                    index
+                  ) => (
+                    <div
+                      className="quickItem"
+                      key={index}
+                    >
+                      <select
+                        value={
+                          item.product_id
                         }
-                        className="quickItem"
-                        style={{
-                          display:
-                            "grid",
-                          gridTemplateColumns:
-                            "2fr .8fr 1fr auto",
-                          alignItems:
-                            "end",
-                        }}
+                        onChange={(
+                          event
+                        ) =>
+                          chooseProduct(
+                            index,
+                            event.target
+                              .value
+                          )
+                        }
                       >
-                        <label className="field">
-                          <span>
-                            Ø§Ù„ØµÙ†Ù
-                          </span>
+                        <option value="">
+                          اختر الصنف
+                        </option>
 
-                          <select
-                            value={
-                              item.product_id
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              chooseProduct(
-                                index,
+                        {products.map(
+                          (product) => (
+                            <option
+                              key={
+                                product.id
+                              }
+                              value={
+                                product.id
+                              }
+                            >
+                              {
+                                product.name
+                              }
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      <input
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        value={
+                          item.quantity
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          updateItem(
+                            index,
+                            {
+                              quantity:
                                 event
                                   .target
-                                  .value
-                              )
+                                  .value,
                             }
-                          >
-                            <option value="">
-                              Ø§Ø®ØªØ±
-                            </option>
+                          )
+                        }
+                      />
 
-                            {products.map(
-                              (
-                                product
-                              ) => (
-                                <option
-                                  key={
-                                    product.id
-                                  }
-                                  value={
-                                    product.id
-                                  }
-                                >
-                                  {
-                                    product.name
-                                  }
-                                  {product.sku
-                                    ? ` - ${product.sku}`
-                                    : ""}
-                                </option>
-                              )
-                            )}
-                          </select>
-                        </label>
-
-                        <label className="field">
-                          <span>
-                            Ø§Ù„ÙƒÙ…ÙŠØ©
-                          </span>
-
-                          <input
-                            type="number"
-                            min="0.001"
-                            step="0.001"
-                            value={
-                              item.quantity
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={
+                          item.sale_unit_price
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          updateItem(
+                            index,
+                            {
+                              sale_unit_price:
+                                event
+                                  .target
+                                  .value,
                             }
-                            onChange={(
-                              event
+                          )
+                        }
+                      />
+
+                      <button
+                        type="button"
+                        className="dangerButton"
+                        disabled={
+                          items.length ===
+                          1
+                        }
+                        onClick={() =>
+                          setItems(
+                            (
+                              current
                             ) =>
-                              updateItem(
-                                index,
-                                {
-                                  quantity:
-                                    event
-                                      .target
-                                      .value,
-                                }
+                              current.filter(
+                                (
+                                  _,
+                                  rowIndex
+                                ) =>
+                                  rowIndex !==
+                                  index
                               )
-                            }
-                          />
-                        </label>
-
-                        <label className="field">
-                          <span>
-                            Ø³Ø¹Ø± Ø§Ù„Ø¨ÙŠØ¹
-                          </span>
-
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={
-                              item.sale_unit_price
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              updateItem(
-                                index,
-                                {
-                                  sale_unit_price:
-                                    event
-                                      .target
-                                      .value,
-                                }
-                              )
-                            }
-                          />
-                        </label>
-
-                        <button
-                          type="button"
-                          className="dangerButton"
-                          disabled={
-                            items.length ===
-                            1
-                          }
-                          onClick={() =>
-                            setItems(
-                              (
-                                current
-                              ) =>
-                                current.filter(
-                                  (
-                                    _,
-                                    rowIndex
-                                  ) =>
-                                    rowIndex !==
-                                    index
-                                )
-                            )
-                          }
-                        >
-                          Ã—
-                        </button>
-                      </div>
-                    )
-                  )}
-                </div>
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
 
-              <label
-                className="field"
-                style={{
-                  marginTop: 14,
-                }}
+              <button
+                type="button"
+                className="softButton"
+                onClick={() =>
+                  setItems(
+                    (current) => [
+                      ...current,
+                      emptyItem(),
+                    ]
+                  )
+                }
               >
-                <span>
-                  Ù…Ù„Ø§Ø­Ø¸Ø§Øª
-                </span>
+                إضافة صنف
+              </button>
+
+              <label className="field">
+                <span>ملاحظات</span>
 
                 <textarea
-                  rows={3}
                   value={notes}
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     setNotes(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
               </label>
 
-              <div
-                className="panel panelPad"
-                style={{
-                  marginTop: 14,
-                }}
-              >
-                <div className="panelHeader">
-                  <strong>
-                    Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨ÙŠØ©
-                  </strong>
-
-                  <div className="statValue">
-                    {orderTotal.toFixed(
-                      2
-                    )}{" "}
-                    {currency}
-                  </div>
-                </div>
+              <div className="statValue">
+                الإجمالي:{" "}
+                {money(
+                  orderTotal,
+                  currency
+                )}
               </div>
 
-              {message && (
-                <div
-                  className="toastError"
-                  style={{
-                    marginTop: 12,
-                  }}
-                >
+              {message ? (
+                <div className="toastError">
                   {message}
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
-                  disabled={saving}
                   onClick={() =>
                     setOpen(false)
                   }
                 >
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </button>
 
                 <button
@@ -1948,96 +2433,109 @@ const activeOrders =
                   disabled={saving}
                 >
                   {saving
-                    ? "Ø¹Ù… Ù†Ø­ÙØ¸..."
-                    : "Ø­ÙØ¸ Ø§Ù„Ø·Ù„Ø¨ÙŠØ©"}
+                    ? "جارٍ الحفظ..."
+                    : "حفظ الطلبية"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
 
-      {collection && (
+      {cancelTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            style={{
-              maxWidth: 680,
-              width: "94vw",
-            }}
-          >
+          <section className="modal">
             <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  Ø§Ù„ØªØ­ØµÙŠÙ„
-                </span>
-
-                <h2>
-                  Ù‚Ø¨Ø¶ Ù…Ù† Ø§Ù„Ø²Ø¨ÙˆÙ†
-                </h2>
-
-                <p className="muted">
-                  ÙØ§ØªÙˆØ±Ø©{" "}
-                  {
-                    collection.invoices.length === 1 ? collection.invoices[0].invoice_number : `${collection.invoices.length} \u0641\u0648\u0627\u062a\u064a\u0631`
-                  }
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="closeButton"
-                disabled={collecting}
-                onClick={() =>
-                  setCollection(null)
-                }
-              >
-                Ã—
-              </button>
+              <h2>
+                إلغاء الطلبية
+              </h2>
             </div>
 
-            <section className="statsGrid">
-              <Mini
-                title="Ø§Ù„ÙØ§ØªÙˆØ±Ø©"
-                value={`${collectionTotal.toFixed(2)} ${currency}`}
-              />
+            <form onSubmit={saveCancel}>
+              <label className="field">
+                <span>
+                  سبب الإلغاء *
+                </span>
 
-              <Mini
-                title="Ù…Ù‚Ø¨ÙˆØ¶"
-                value={`${collectionPaid.toFixed(2)} ${currency}`}
-              />
+                <textarea
+                  value={
+                    cancelReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setCancelReason(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
 
-              <Mini
-                title="Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ"
-                value={`${collectionBalance.toFixed(2)} ${currency}`}
-              />
-            </section>
+              {cancelMessage ? (
+                <div className="toastError">
+                  {
+                    cancelMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  onClick={() =>
+                    setCancelTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  className="dangerButton"
+                  disabled={cancelling}
+                >
+                  {cancelling
+                    ? "جارٍ الإلغاء..."
+                    : "تأكيد الإلغاء"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {collection ? (
+        <div className="modalOverlay">
+          <section className="modal">
+            <div className="modalHeader">
+              <h2>
+                قبض من العميل
+              </h2>
+            </div>
 
             <form
               onSubmit={
                 saveCollection
               }
             >
-              <div
-                className="formGrid"
-                style={{
-                  marginTop: 16,
-                }}
-              >
+              <div className="formGrid">
                 <label className="field">
                   <span>
-                    Ø§Ù„Ù…Ø¨Ù„Øº *
+                    المبلغ
                   </span>
 
                   <input
                     type="number"
                     min="0.01"
                     step="0.01"
-                    max={collectionBalance}
                     value={
                       paymentAmount
                     }
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       setPaymentAmount(
                         event.target
                           .value
@@ -2048,7 +2546,7 @@ const activeOrders =
 
                 <label className="field">
                   <span>
-                    Ø§Ù„ØªØ§Ø±ÙŠØ® *
+                    التاريخ
                   </span>
 
                   <input
@@ -2056,7 +2554,9 @@ const activeOrders =
                     value={
                       paymentDate
                     }
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       setPaymentDate(
                         event.target
                           .value
@@ -2067,14 +2567,16 @@ const activeOrders =
 
                 <label className="field">
                   <span>
-                    Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ *
+                    الصندوق
                   </span>
 
                   <select
                     value={
                       paymentCashbox
                     }
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       setPaymentCashbox(
                         event.target
                           .value
@@ -2082,7 +2584,7 @@ const activeOrders =
                     }
                   >
                     <option value="">
-                      Ø§Ø®ØªØ±
+                      اختر
                     </option>
 
                     {cashboxes.map(
@@ -2110,174 +2612,103 @@ const activeOrders =
 
                 <label className="field">
                   <span>
-                    Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹ *
+                    طريقة الدفع
                   </span>
 
                   <select
                     value={
                       paymentMethod
                     }
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       setPaymentMethod(
                         event.target
                           .value as PaymentMethod
                       )
                     }
                   >
-                    <option value="cash">
-                      Ù†Ù‚Ø¯ÙŠ
-                    </option>
-                    <option value="bank">
-                      ØªØ­ÙˆÙŠÙ„ Ø¨Ù†ÙƒÙŠ
-                    </option>
-                    <option value="card">
-                      Ø¨Ø·Ø§Ù‚Ø©
-                    </option>
-                    <option value="check">
-                      Ø´ÙŠÙƒ
-                    </option>
-                    <option value="other">
-                      Ø£Ø®Ø±Ù‰
-                    </option>
+                    {Object.entries(
+                      paymentMethodLabels
+                    ).map(
+                      ([
+                        value,
+                        label,
+                      ]) => (
+                        <option
+                          key={value}
+                          value={value}
+                        >
+                          {label}
+                        </option>
+                      )
+                    )}
                   </select>
-                </label>
-
-                <label className="field">
-                  <span>
-                    Ø§Ù„Ù…Ø±Ø¬Ø¹
-                  </span>
-
-                  <input
-                    value={
-                      paymentReference
-                    }
-                    onChange={(event) =>
-                      setPaymentReference(
-                        event.target
-                          .value
-                      )
-                    }
-                  />
-                </label>
-
-                <label className="field full">
-                  <span>
-                    Ù…Ù„Ø§Ø­Ø¸Ø§Øª
-                  </span>
-
-                  <textarea
-                    rows={3}
-                    value={
-                      paymentNotes
-                    }
-                    onChange={(event) =>
-                      setPaymentNotes(
-                        event.target
-                          .value
-                      )
-                    }
-                  />
                 </label>
               </div>
 
-                            {paymentCashbox &&
-              Number(
-                paymentAmount || 0
-              ) > 0 ? (
-                <div
-                  className="panel panelPad"
-                  style={{
-                    marginTop: 12,
-                  }}
-                >
-                  {paymentQuoteError ? (
-                    <div className="toastError">
-                      {paymentQuoteError}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="muted">
-                        ØªØ³Ø¯ÙŠØ¯ Ø§Ù„ÙÙˆØ§ØªÙŠØ±:{" "}
-                        {Number(
-                          paymentAmount || 0
-                        ).toFixed(2)}{" "}
-                        {paymentInvoiceCurrency}
-                      </div>
+              {quoteLoading ? (
+                <p className="muted">
+                  جارٍ احتساب سعر الصرف...
+                </p>
+              ) : paymentQuoteError ? (
+                <div className="toastError">
+                  {
+                    paymentQuoteError
+                  }
+                </div>
+              ) : paymentCashAmount ? (
+                <p>
+                  سيتم قبض{" "}
+                  {
+                    paymentCashAmount
+                  }{" "}
+                  {
+                    paymentCashCurrency
+                  }
+                </p>
+              ) : null}
 
-                      <div
-                        className="statValue"
-                        style={{
-                          marginTop: 5,
-                        }}
-                      >
-                        Ø³ÙŠØªÙ… Ù‚Ø¨Ø¶:{" "}
-                        {paymentCashAmount ||
-                          "â€”"}{" "}
-                        {paymentCashCurrency}
-                      </div>
-
-                      {paymentCashCurrency !==
-                        paymentInvoiceCurrency &&
-                      paymentFxRate ? (
-                        <div
-                          className="muted"
-                          style={{
-                            marginTop: 5,
-                          }}
-                        >
-                          Ø³Ø¹Ø± Ø§Ù„Ø¹Ù…Ù„ÙŠØ©: 1{" "}
-                          {paymentCashCurrency}
-                          {" = "}
-                          {paymentFxRate.toFixed(
-                            10
-                          )}{" "}
-                          {currency}
-                        </div>
-                      ) : null}
-                    </>
-                  )}
+              {paymentMessage ? (
+                <div className="toastError">
+                  {
+                    paymentMessage
+                  }
                 </div>
               ) : null}
-{paymentMessage && (
-                <div
-                  className="toastError"
-                  style={{
-                    marginTop: 12,
-                  }}
-                >
-                  {paymentMessage}
-                </div>
-              )}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    collecting
-                  }
                   onClick={() =>
-                    setCollection(null)
+                    setCollection(
+                      null
+                    )
                   }
                 >
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </button>
 
                 <button
                   className="primaryButton"
                   disabled={
-                    collecting
+                    collecting ||
+                    quoteLoading ||
+                    Boolean(
+                      paymentQuoteError
+                    )
                   }
                 >
                   {collecting
-                    ? "Ø¹Ù… Ù†Ø³Ø¬Ù„..."
-                    : "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù‚Ø¨Ø¶"}
+                    ? "جارٍ التسجيل..."
+                    : "تسجيل القبض"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2301,4 +2732,3 @@ function Mini({
     </div>
   );
 }
-

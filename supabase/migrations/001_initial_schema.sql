@@ -521,8 +521,15 @@ create table public.traders (
   whatsapp text,
   area text,
   address text,
-  latitude numeric(10,7),
-  longitude numeric(10,7),
+  latitude numeric(10,7)
+    check (latitude is null or latitude between -90 and 90),
+  longitude numeric(10,7)
+    check (longitude is null or longitude between -180 and 180),
+  check (
+    (latitude is null and longitude is null)
+    or
+    (latitude is not null and longitude is not null)
+  ),
   status text not null default 'new'
     check(status in ('new','contacted','interested','customer','inactive')),
   notes text,
@@ -570,6 +577,45 @@ create trigger traders_prevent_duplicate_contact
 before insert or update of phone, whatsapp on public.traders
 for each row execute function public.prevent_duplicate_trader_contact();
 
+
+create or replace function public.enforce_trader_archive_permission()
+returns trigger
+language plpgsql
+set search_path = public
+as $
+declare
+  v_requires_archive boolean := false;
+begin
+  if new.status = 'inactive' then
+    if tg_op = 'INSERT' then
+      v_requires_archive := true;
+    elsif old.status is distinct from 'inactive' then
+      v_requires_archive := true;
+    end if;
+  end if;
+
+  if v_requires_archive
+     and not public.has_permission(
+       new.company_id,
+       'traders.archive'
+     )
+  then
+    raise exception 'Not allowed';
+  end if;
+
+  return new;
+end;
+$;
+
+drop trigger if exists
+traders_archive_permission_guard
+on public.traders;
+
+create trigger traders_archive_permission_guard
+before insert or update
+on public.traders
+for each row
+execute function public.enforce_trader_archive_permission();
 create table public.trader_visits (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
@@ -583,6 +629,30 @@ create table public.trader_visits (
   created_at timestamptz not null default now()
 );
 
+create or replace function public.enforce_trader_visit_company()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.traders t
+    where t.id = new.trader_id
+      and t.company_id = new.company_id
+  ) then
+    raise exception 'Trader does not belong to this company';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trader_visits_company_guard
+before insert or update of company_id, trader_id
+on public.trader_visits
+for each row
+execute function public.enforce_trader_visit_company();
 create index trader_visits_company_idx
 on public.trader_visits(company_id);
 
@@ -607,6 +677,48 @@ create trigger suppliers_updated_at
 before update on public.suppliers
 for each row execute function public.set_updated_at();
 
+
+create or replace function public.enforce_supplier_active_permission()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.active = false
+       and not public.has_permission(
+         new.company_id,
+         'suppliers.archive'
+       )
+    then
+      raise exception 'Not allowed';
+    end if;
+
+    return new;
+  end if;
+
+  if new.active is distinct from old.active
+     and not public.has_permission(
+       new.company_id,
+       'suppliers.archive'
+     )
+  then
+    raise exception 'Not allowed';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists
+suppliers_active_permission_guard
+on public.suppliers;
+
+create trigger suppliers_active_permission_guard
+before insert or update of active
+on public.suppliers
+for each row
+execute function public.enforce_supplier_active_permission();
 create table public.categories (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
@@ -641,6 +753,92 @@ create trigger products_updated_at
 before update on public.products
 for each row execute function public.set_updated_at();
 
+
+create or replace function public.enforce_product_active_permission()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.active = false
+       and not public.has_permission(
+         new.company_id,
+         'products.archive'
+       )
+    then
+      raise exception 'Not allowed';
+    end if;
+
+    return new;
+  end if;
+
+  if new.active
+     is distinct from old.active
+     and not public.has_permission(
+       new.company_id,
+       'products.archive'
+     )
+  then
+    raise exception 'Not allowed';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all
+on function public.enforce_product_active_permission()
+from public, authenticated;
+
+drop trigger if exists
+products_active_permission_guard
+on public.products;
+
+create trigger products_active_permission_guard
+before insert or update of active
+on public.products
+for each row
+execute function public.enforce_product_active_permission();
+
+create or replace function public.enforce_product_category_company()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.category_id is not null
+     and not exists (
+       select 1
+       from public.categories c
+       where c.id = new.category_id
+         and c.company_id = new.company_id
+     )
+  then
+    raise exception 'Category does not belong to this company';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all
+on function public.enforce_product_category_company()
+from public, authenticated;
+
+drop trigger if exists
+products_category_company_guard
+on public.products;
+
+create trigger products_category_company_guard
+before insert or update of
+  company_id,
+  category_id
+on public.products
+for each row
+execute function public.enforce_product_category_company();
 create table public.supplier_prices (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
@@ -659,6 +857,47 @@ create trigger supplier_prices_updated_at
 before update on public.supplier_prices
 for each row execute function public.set_updated_at();
 
+
+create or replace function public.enforce_supplier_price_company()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.suppliers s
+    where s.id = new.supplier_id
+      and s.company_id = new.company_id
+  ) then
+    raise exception 'Supplier does not belong to this company';
+  end if;
+
+  if not exists (
+    select 1
+    from public.products p
+    where p.id = new.product_id
+      and p.company_id = new.company_id
+  ) then
+    raise exception 'Product does not belong to this company';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists
+supplier_prices_company_guard
+on public.supplier_prices;
+
+create trigger supplier_prices_company_guard
+before insert or update of
+  company_id,
+  supplier_id,
+  product_id
+on public.supplier_prices
+for each row
+execute function public.enforce_supplier_price_company();
 create table public.supplier_price_history (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,
@@ -863,6 +1102,11 @@ create table public.deliveries (
     check (status in ('pending','out_for_delivery','delivered','failed')),
   scheduled_for timestamptz,
   delivered_at timestamptz,
+  failed_at timestamptz,
+  failed_by uuid
+    references auth.users(id)
+    on delete set null,
+  failure_reason text,
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -913,7 +1157,7 @@ as $$
     where o.id = target_order
       and public.has_any_permission(
         o.company_id,
-        array['orders.create','orders.update']::text[]
+        array['orders.update']::text[]
       )
   );
 $$;
@@ -1389,13 +1633,24 @@ begin
       raise exception 'Invalid discount or tax';
     end if;
 
+    if v_discount >
+       round(
+         v_quantity * v_unit_cost,
+         2
+       )
+    then
+      raise exception
+        'Discount exceeds purchase line subtotal';
+    end if;
+
     if not exists (
       select 1
       from public.products
       where id = v_product
         and company_id = target_company
+        and active = true
     ) then
-      raise exception 'Invalid product';
+      raise exception 'Invalid or archived product';
     end if;
 
     v_line_total :=
@@ -2464,6 +2719,29 @@ begin
     return;
   end if;
 
+  if nullif(
+       trim(target_reason),
+       ''
+     ) is null
+  then
+    raise exception
+      'Cancellation reason required';
+  end if;
+
+  if exists (
+    select 1
+    from public.goods_receipts gr
+    where gr.company_id =
+          target_company
+      and gr.purchase_invoice_id =
+          target_invoice
+      and gr.status =
+          'posted'
+  ) then
+    raise exception
+      'Reverse goods receipts before cancelling invoice';
+  end if;
+
   if exists (
     select 1
     from public.supplier_payment_allocations a
@@ -2483,10 +2761,7 @@ begin
     cancelled_at = now(),
     cancelled_by = auth.uid(),
     cancellation_reason =
-      coalesce(
-        nullif(trim(target_reason),''),
-        'Cancelled'
-      )
+      trim(target_reason)
   where id = target_invoice;
 
   for v_order in
@@ -5229,7 +5504,7 @@ using (
   public.has_any_permission(
     company_id,
     array[
-      'traders.view','map.view',
+      'traders.view','orders.view','orders.create','map.view',
       'reports.sales','reports.profit','reports.team'
     ]::text[]
   )
@@ -5244,23 +5519,50 @@ create policy traders_update
 on public.traders
 for update to authenticated
 using (
-  public.has_any_permission(
-    company_id,
-    array['traders.update','traders.archive','traders.assign_rep']::text[]
-  )
+  public.has_permission(company_id,'traders.update')
 )
 with check (
-  public.has_any_permission(
-    company_id,
-    array['traders.update','traders.archive','traders.assign_rep']::text[]
-  )
+  public.has_permission(company_id,'traders.update')
 );
 
-create policy traders_delete
-on public.traders
-for delete to authenticated
-using (public.has_permission(company_id,'traders.archive'));
+-- Archiving is a controlled status change, never a physical DELETE.
+revoke delete on public.traders from authenticated;
 
+create or replace function public.archive_trader(
+  target_company uuid,
+  target_trader uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $
+begin
+  if not public.has_permission(
+    target_company,
+    'traders.archive'
+  ) then
+    raise exception 'Not allowed';
+  end if;
+
+  update public.traders
+  set status = 'inactive'
+  where id = target_trader
+    and company_id = target_company;
+
+  if not found then
+    raise exception 'Trader not found';
+  end if;
+end;
+$;
+
+revoke all
+on function public.archive_trader(uuid,uuid)
+from public;
+
+grant execute
+on function public.archive_trader(uuid,uuid)
+to authenticated;
 -- Visits.
 create policy trader_visits_read
 on public.trader_visits
@@ -5311,18 +5613,17 @@ create policy suppliers_update
 on public.suppliers
 for update to authenticated
 using (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['suppliers.update','suppliers.archive']::text[]
+    'suppliers.update'
   )
 )
 with check (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['suppliers.update','suppliers.archive']::text[]
+    'suppliers.update'
   )
 );
-
 -- Categories.
 create policy categories_read
 on public.categories
@@ -5358,7 +5659,7 @@ using (
   public.has_any_permission(
     company_id,
     array[
-      'products.view','orders.view','purchases.view','inventory.view',
+      'products.view','orders.view','orders.create','purchases.view','inventory.view',
       'reports.sales','reports.profit'
     ]::text[]
   )
@@ -5373,18 +5674,17 @@ create policy products_update
 on public.products
 for update to authenticated
 using (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['products.update','products.archive']::text[]
+    'products.update'
   )
 )
 with check (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['products.update','products.archive']::text[]
+    'products.update'
   )
 );
-
 -- Supplier prices: cost is intentionally hidden from plain products/orders viewers.
 create policy supplier_prices_read
 on public.supplier_prices
@@ -5455,70 +5755,37 @@ create policy sales_orders_update
 on public.sales_orders
 for update to authenticated
 using (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['orders.update','orders.cancel','deliveries.update']::text[]
+    'orders.update'
   )
 )
 with check (
-  public.has_any_permission(
+  public.has_permission(
     company_id,
-    array['orders.update','orders.cancel','deliveries.update']::text[]
+    'orders.update'
   )
 );
-
-create policy sales_orders_delete
-on public.sales_orders
-for delete to authenticated
-using (
-  public.has_any_permission(
-    company_id,
-    array['orders.create','orders.cancel']::text[]
-  )
-);
-
 create policy sales_order_items_read
 on public.sales_order_items
 for select to authenticated
 using (public.can_access_order(order_id));
 
-create policy sales_order_items_create
-on public.sales_order_items
-for insert to authenticated
-with check (public.can_write_order(order_id));
-
-create policy sales_order_items_update
-on public.sales_order_items
-for update to authenticated
-using (public.can_write_order(order_id))
-with check (public.can_write_order(order_id));
-
-create policy sales_order_items_delete
-on public.sales_order_items
-for delete to authenticated
-using (public.can_write_order(order_id));
-
 -- Deliveries.
+-- Operational state changes are RPC-only.
 create policy deliveries_read
 on public.deliveries
 for select to authenticated
-using (public.has_permission(company_id,'deliveries.view'));
+using (
+  public.has_any_permission(
+    company_id,
+    array[
+      'deliveries.view',
+      'deliveries.update'
+    ]::text[]
+  )
+);
 
-create policy deliveries_create
-on public.deliveries
-for insert to authenticated
-with check (public.has_permission(company_id,'deliveries.update'));
-
-create policy deliveries_update
-on public.deliveries
-for update to authenticated
-using (public.has_permission(company_id,'deliveries.update'))
-with check (public.has_permission(company_id,'deliveries.update'));
-
-create policy deliveries_delete
-on public.deliveries
-for delete to authenticated
-using (public.has_permission(company_id,'deliveries.update'));
 
 -- Finance.
 create policy cashboxes_read
@@ -5759,9 +6026,15 @@ grant select,insert,update on public.products to authenticated;
 grant select,insert,update on public.supplier_prices to authenticated;
 grant select on public.supplier_price_history to authenticated;
 
-grant select,insert,update,delete on public.sales_orders to authenticated;
-grant select,insert,update,delete on public.sales_order_items to authenticated;
-grant select,insert,update,delete on public.deliveries to authenticated;
+grant select on public.sales_orders to authenticated;
+grant select on public.sales_order_items to authenticated;
+revoke insert,update,delete
+on public.deliveries
+from authenticated;
+
+grant select
+on public.deliveries
+to authenticated;
 
 grant select,insert,update,delete on public.cashboxes to authenticated;
 grant select,insert,update,delete on public.expenses to authenticated;

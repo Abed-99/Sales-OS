@@ -1153,6 +1153,11 @@ declare
 
   v_trader uuid;
   v_currency text;
+
+  v_invoice_date date;
+  v_return_date date;
+  v_today date;
+
   v_invoice_total numeric(18,2);
   v_invoice_subtotal numeric(18,2);
   v_invoice_discount numeric(18,2);
@@ -1218,12 +1223,14 @@ begin
   select
     trader_id,
     currency,
+    invoice_date,
     total,
     subtotal,
     discount_total
   into
     v_trader,
     v_currency,
+    v_invoice_date,
     v_invoice_total,
     v_invoice_subtotal,
     v_invoice_discount
@@ -1243,6 +1250,33 @@ begin
       'Posted sales invoice not found';
   end if;
 
+  v_today :=
+    (
+      now()
+      at time zone
+      'Asia/Damascus'
+    )::date;
+
+  v_return_date :=
+    coalesce(
+      target_date,
+      v_today
+    );
+
+  if v_return_date <
+     v_invoice_date
+  then
+    raise exception
+      'Return date cannot be before invoice date';
+  end if;
+
+  if v_return_date >
+     v_today
+  then
+    raise exception
+      'Return date cannot be in the future';
+  end if;
+
   if not exists(
     select 1
     from public.warehouses
@@ -1259,19 +1293,13 @@ begin
   perform
     public.assert_finance_period_open(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_return_date
     );
 
   v_number :=
     public.next_sales_return_number(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_return_date
     );
 
   insert into public.sales_returns(
@@ -1291,10 +1319,7 @@ begin
     target_invoice,
     v_trader,
     target_warehouse,
-    coalesce(
-      target_date,
-      current_date
-    ),
+    v_return_date,
     'posted',
     v_currency,
     nullif(
@@ -1494,10 +1519,7 @@ begin
         v_return_item,
         v_number,
         target_notes,
-        coalesce(
-          target_date,
-          current_date
-        )::timestamptz
+        (v_return_date::timestamp at time zone 'Asia/Damascus')
       );
 
     perform
@@ -1721,10 +1743,7 @@ begin
   v_entry :=
     public.post_system_journal(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      ),
+      v_return_date,
       'مرتجع مبيعات ' ||
       v_number,
       v_currency,
@@ -1852,6 +1871,7 @@ declare
 
   v_on_hand numeric(18,3);
   v_reserved numeric(18,3);
+  v_stock_cost numeric(18,4);
 
   v_return_item uuid;
 
@@ -1867,8 +1887,7 @@ begin
     target_company,
     array[
       'returns.create',
-      'inventory.returns',
-      'purchase_invoices.cancel'
+      'inventory.returns'
     ]::text[]
   ) then
     raise exception 'Not allowed';
@@ -2114,7 +2133,7 @@ begin
 
     v_inventory_cost :=
       round(
-        v_unit_cost *
+        v_stock_cost *
         v_qty,
         2
       );
@@ -2166,7 +2185,7 @@ begin
         v_product,
         'purchase_return',
         -v_qty,
-        v_unit_cost,
+        v_stock_cost,
         'purchase_returns',
         v_return,
         v_return_item,
@@ -2582,9 +2601,47 @@ from authenticated;
 grant select
 on public.approval_requests,
    public.sales_returns,
-   public.sales_return_items,
-   public.purchase_returns,
+   public.sales_return_items
+to authenticated;
+
+-- Purchase-return inventory cost is sensitive.
+-- Returns users may read the operational fields only.
+revoke select
+on public.purchase_returns,
    public.purchase_return_items
+from authenticated;
+
+grant select (
+  id,
+  company_id,
+  return_number,
+  purchase_invoice_id,
+  supplier_id,
+  warehouse_id,
+  return_date,
+  status,
+  currency,
+  total,
+  notes,
+  journal_entry_id,
+  created_by,
+  created_at
+)
+on public.purchase_returns
+to authenticated;
+
+grant select (
+  id,
+  company_id,
+  purchase_return_id,
+  purchase_invoice_item_id,
+  product_id,
+  description,
+  quantity,
+  line_total,
+  created_at
+)
+on public.purchase_return_items
 to authenticated;
 
 

@@ -23,21 +23,44 @@ set search_path = public
 as $$
 declare
   v_id uuid;
+
+  v_is_system boolean;
+  v_old_type text;
+  v_old_group text;
+  v_old_normal_balance text;
+  v_old_allow_posting boolean;
+
+  v_target_group text;
 begin
+
   if not public.has_permission(
     target_company,
     'finance.accounts_write'
   ) then
-    raise exception 'Not allowed';
+    raise exception
+      'Not allowed';
   end if;
 
-  if nullif(trim(target_code),'') is null then
-    raise exception 'Account code is required';
+
+  if nullif(
+       trim(target_code),
+       ''
+     ) is null
+  then
+    raise exception
+      'Account code is required';
   end if;
 
-  if nullif(trim(target_name),'') is null then
-    raise exception 'Account name is required';
+
+  if nullif(
+       trim(target_name),
+       ''
+     ) is null
+  then
+    raise exception
+      'Account name is required';
   end if;
+
 
   if target_type not in (
     'asset',
@@ -46,26 +69,42 @@ begin
     'revenue',
     'expense'
   ) then
-    raise exception 'Invalid account type';
+    raise exception
+      'Invalid account type';
   end if;
+
 
   if target_normal_balance not in (
     'debit',
     'credit'
   ) then
-    raise exception 'Invalid normal balance';
+    raise exception
+      'Invalid normal balance';
   end if;
 
+
+  v_target_group :=
+    nullif(
+      trim(target_group),
+      ''
+    );
+
+
+  -- Parent must belong to this company.
   if target_parent is not null
      and not exists (
        select 1
        from public.finance_accounts
-       where id = target_parent
-         and company_id = target_company
+       where id =
+             target_parent
+         and company_id =
+             target_company
      )
   then
-    raise exception 'Invalid parent account';
+    raise exception
+      'Invalid parent account';
   end if;
+
 
   if target_account is null then
 
@@ -87,63 +126,182 @@ begin
       trim(target_code),
       trim(target_name),
       target_type,
-      nullif(trim(target_group),''),
+      v_target_group,
       target_normal_balance,
-      coalesce(target_allow_posting,true),
+      coalesce(
+        target_allow_posting,
+        true
+      ),
       false,
-      coalesce(target_active,true)
+      coalesce(
+        target_active,
+        true
+      )
     )
     returning id
     into v_id;
 
+
   else
 
-    if exists (
-      select 1
-      from public.finance_accounts
-      where id = target_account
-        and company_id = target_company
-        and is_system = true
-    ) then
+    -- Lock the account while validating structural changes.
+    select
+      is_system,
+      account_type,
+      account_group,
+      normal_balance,
+      allow_posting
+    into
+      v_is_system,
+      v_old_type,
+      v_old_group,
+      v_old_normal_balance,
+      v_old_allow_posting
+    from public.finance_accounts
+    where id =
+          target_account
+      and company_id =
+          target_company
+    for update;
+
+
+    if not found then
+      raise exception
+        'Account not found';
+    end if;
+
+
+    if v_is_system then
       raise exception
         'System account cannot be structurally modified';
     end if;
 
+
+    if target_parent =
+       target_account
+    then
+      raise exception
+        'Account cannot be its own parent';
+    end if;
+
+
+    -- Prevent A -> B -> C -> A style cycles.
+    if target_parent is not null
+       and exists (
+         with recursive descendants(id)
+         as (
+           select
+             a.id
+           from public.finance_accounts a
+           where a.company_id =
+                 target_company
+             and a.parent_id =
+                 target_account
+
+           union
+
+           select
+             a.id
+           from public.finance_accounts a
+
+           join descendants d
+             on a.parent_id =
+                d.id
+
+           where a.company_id =
+                 target_company
+         )
+
+         select 1
+         from descendants
+         where id =
+               target_parent
+       )
+    then
+      raise exception
+        'Account hierarchy cycle is not allowed';
+    end if;
+
+
+    -- Once accounting history exists, classification must remain
+    -- immutable. Changing it would rewrite historical reports.
+    if exists (
+         select 1
+         from public.journal_lines jl
+         where jl.company_id =
+               target_company
+           and jl.account_id =
+               target_account
+       )
+       and (
+         target_type
+           is distinct from
+           v_old_type
+
+         or v_target_group
+           is distinct from
+           v_old_group
+
+         or target_normal_balance
+           is distinct from
+           v_old_normal_balance
+
+         or coalesce(
+              target_allow_posting,
+              true
+            )
+            is distinct from
+            v_old_allow_posting
+       )
+    then
+      raise exception
+        'Posted account classification cannot be changed';
+    end if;
+
+
     update public.finance_accounts
     set
-      parent_id = target_parent,
-      code = trim(target_code),
-      name = trim(target_name),
-      account_type = target_type,
+      parent_id =
+        target_parent,
+
+      code =
+        trim(target_code),
+
+      name =
+        trim(target_name),
+
+      account_type =
+        target_type,
+
       account_group =
-        nullif(
-          trim(target_group),
-          ''
-        ),
+        v_target_group,
+
       normal_balance =
         target_normal_balance,
+
       allow_posting =
         coalesce(
           target_allow_posting,
           true
         ),
+
       active =
         coalesce(
           target_active,
           true
         )
-    where id = target_account
+
+    where id =
+          target_account
+
       and company_id =
           target_company
+
     returning id
     into v_id;
 
-    if v_id is null then
-      raise exception
-        'Account not found';
-    end if;
-
   end if;
+
 
   return v_id;
 end;

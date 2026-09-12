@@ -1,32 +1,70 @@
-﻿import { Topbar } from "@/components/topbar";
-import { InventoryReversalPanel } from "@/components/inventory/inventory-reversal-panel";
+import { Topbar } from "@/components/topbar";
 
 import {
   InventoryClient,
   type InventoryCountRow,
   type InventoryProduct,
-  type InventoryPurchaseInvoice,
-  type InventoryReceiptItem,
+  type InventoryReceivableItem,
   type InventoryReceiptRow,
   type InventoryStockRow,
   type InventoryTransferRow,
   type InventoryWarehouse,
 } from "@/components/inventory/inventory-client";
 
-import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/current-context";
-
 import {
   hasAnyPermission,
   hasPermission,
 } from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
-export default async function InventoryPage() {
+function firstParam(
+  value:
+    | string
+    | string[]
+    | undefined
+) {
+  return Array.isArray(value)
+    ? value[0] ?? ""
+    : value ?? "";
+}
+
+function cleanSearch(
+  value: string
+) {
+  return value
+    .replace(
+      /[%_(),"'\\]/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim()
+    .slice(
+      0,
+      100
+    );
+}
+
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<
+    Record<
+      string,
+      | string
+      | string[]
+      | undefined
+    >
+  >;
+}) {
   const context =
     await getCurrentContext();
 
-  const supabase =
-    await createClient();
+  const params =
+    await searchParams;
 
   const canView =
     hasPermission(
@@ -34,6 +72,34 @@ export default async function InventoryPage() {
       "inventory.view",
       context.isOwner
     );
+
+  if (!canView) {
+    return (
+      <>
+        <Topbar
+          title="المخزون"
+          subtitle="المستودعات وحركة البضاعة"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <h3>
+                لا تملك صلاحية عرض المخزون
+              </h3>
+
+              <p>
+                تحتاج إلى صلاحية عرض المخزون للوصول لهذه الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
 
   const canAdjust =
     hasPermission(
@@ -48,10 +114,12 @@ export default async function InventoryPage() {
       [
         "inventory.adjust",
         "purchases.update",
-        "purchase_invoices.create",
       ],
       context.isOwner
     );
+
+  const canReverseReceipt =
+    canAdjust;
 
   const canViewCost =
     hasAnyPermission(
@@ -59,49 +127,128 @@ export default async function InventoryPage() {
       [
         "products.view_cost",
         "suppliers.view_finance",
+        "reports.finance",
         "reports.profit",
-        "purchase_invoices.view",
       ],
       context.isOwner
     );
 
-  if (
-    !canView &&
-    !canReceive &&
-    !canAdjust
-  ) {
-    return (
-      <>
-        <Topbar
-          title="Ø§Ù„Ù…Ø®Ø²ÙˆÙ†"
-          subtitle="Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹Ø§Øª ÙˆØ­Ø±ÙƒØ© Ø§Ù„Ø¨Ø¶Ø§Ø¹Ø©"
-          companyName={
-            context.companyName
-          }
-        />
-
-        <div className="page">
-          <section className="panel panelPad">
-            Ù…Ø§ Ø¹Ù†Ø¯Ùƒ ØµÙ„Ø§Ø­ÙŠØ© Ù„Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø®Ø²ÙˆÙ†.
-          </section>
-        </div>
-      </>
+  const searchQuery =
+    cleanSearch(
+      firstParam(
+        params.q
+      )
     );
+
+  const warehouseFilter =
+    firstParam(
+      params.warehouse
+    ) || "all";
+
+  const page =
+    Math.max(
+      1,
+      Number.parseInt(
+        firstParam(
+          params.page
+        ),
+        10
+      ) || 1
+    );
+
+  const pageSize =
+    50;
+
+  const from =
+    (page - 1) *
+    pageSize;
+
+  const to =
+    from +
+    pageSize -
+    1;
+
+  const supabase =
+    await createClient();
+
+  let stockQuery =
+    supabase
+      .from(
+        "inventory_summary"
+      )
+      .select(
+        `
+          company_id,
+          warehouse_id,
+          warehouse_name,
+          product_id,
+          sku,
+          product_name,
+          unit,
+          on_hand,
+          reserved,
+          available,
+          average_cost,
+          stock_value,
+          updated_at
+        `,
+        {
+          count: "exact",
+        }
+      )
+      .eq(
+        "company_id",
+        context.companyId
+      )
+      .order(
+        "product_name"
+      )
+      .order(
+        "warehouse_name"
+      )
+      .range(
+        from,
+        to
+      );
+
+  if (
+    warehouseFilter !==
+    "all"
+  ) {
+    stockQuery =
+      stockQuery.eq(
+        "warehouse_id",
+        warehouseFilter
+      );
+  }
+
+  if (searchQuery) {
+    const pattern =
+      `%${searchQuery}%`;
+
+    stockQuery =
+      stockQuery.or(
+        [
+          `product_name.ilike.${pattern}`,
+          `sku.ilike.${pattern}`,
+          `warehouse_name.ilike.${pattern}`,
+        ].join(",")
+      );
   }
 
   const [
     warehousesResult,
     stockResult,
-    productsResult,
-    invoicesResult,
-    receiptItemsResult,
+    stockStatsResult,
     receiptsResult,
     transfersResult,
     countsResult,
   ] =
     await Promise.all([
       supabase
-        .from("warehouses")
+        .from(
+          "warehouses"
+        )
         .select(
           "id,code,name,address,is_default,active"
         )
@@ -116,28 +263,153 @@ export default async function InventoryPage() {
         .order(
           "is_default",
           {
-            ascending: false,
+            ascending:
+              false,
           }
         )
-        .order("name"),
+        .order(
+          "name"
+        ),
+
+      stockQuery,
 
       supabase
         .from(
           "inventory_summary"
         )
         .select(
-          "company_id,warehouse_id,warehouse_name,product_id,sku,product_name,unit,on_hand,reserved,available,average_cost,stock_value,updated_at"
+          "on_hand,reserved,available,stock_value"
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        ),
+
+      supabase
+        .from(
+          "goods_receipts"
+        )
+        .select(
+          `
+            id,
+            receipt_number,
+            warehouse_id,
+            purchase_invoice_id,
+            status,
+            receipt_date,
+            notes,
+            cancellation_reason,
+            created_at
+          `
         )
         .eq(
           "company_id",
           context.companyId
         )
         .order(
-          "product_name"
-        ),
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(50),
 
       supabase
-        .from("products")
+        .from(
+          "inventory_transfers"
+        )
+        .select(
+          `
+            id,
+            transfer_number,
+            source_warehouse_id,
+            destination_warehouse_id,
+            status,
+            transfer_date,
+            notes,
+            reversal_reason,
+            created_at
+          `
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(50),
+
+      supabase
+        .from(
+          "inventory_counts"
+        )
+        .select(
+          `
+            id,
+            warehouse_id,
+            count_number,
+            count_date,
+            status,
+            notes,
+            reversal_reason,
+            created_at
+          `
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(50),
+    ]);
+
+  let initialError:
+    string | null =
+      null;
+
+  const baseResults = [
+    warehousesResult,
+    stockResult,
+    stockStatsResult,
+    receiptsResult,
+    transfersResult,
+    countsResult,
+  ];
+
+  if (
+    baseResults.some(
+      (result) =>
+        Boolean(
+          result.error
+        )
+    )
+  ) {
+    initialError =
+      "تعذر تحميل بعض بيانات المخزون.";
+  }
+
+  let products:
+    InventoryProduct[] =
+      [];
+
+  if (canAdjust) {
+    const result =
+      await supabase
+        .from(
+          "products"
+        )
         .select(
           "id,name,sku,unit,active"
         )
@@ -149,158 +421,113 @@ export default async function InventoryPage() {
           "active",
           true
         )
-        .order("name"),
-
-      supabase
-        .from(
-          "purchase_invoices"
-        )
-        .select(`
-          id,
-          supplier_id,
-          invoice_number,
-          supplier_invoice_number,
-          currency,
-          invoice_date,
-          total,
-          status,
-          suppliers(
-            id,
-            name
-          ),
-          purchase_invoice_items(
-            id,
-            product_id,
-            description,
-            quantity,
-            unit_cost,
-            products(
-              name,
-              sku,
-              unit
-            )
-          )
-        `)
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .eq(
-          "status",
-          "posted"
-        )
         .order(
-          "invoice_date",
-          {
-            ascending: false,
-          }
-        )
-        .limit(100),
+          "name"
+        );
 
-      supabase
-        .from(
-          "goods_receipt_items"
-        )
-        .select(`
-          id,
-          purchase_invoice_item_id,
-          quantity,
-          goods_receipts(
-            id,
-            status
-          )
-        `)
-        .eq(
-          "company_id",
-          context.companyId
-        ),
-
-      supabase
-        .from(
-          "goods_receipts"
-        )
-        .select(
-          "id,receipt_number,warehouse_id,purchase_invoice_id,status,receipt_date,notes,created_at"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        )
-        .limit(30),
-
-      
-
-      supabase
-        .from(
-          "inventory_transfers"
-        )
-        .select(
-          "id,transfer_number,source_warehouse_id,destination_warehouse_id,status,transfer_date,notes,created_at"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        )
-        .limit(30),
-
-      supabase
-        .from(
-          "inventory_counts"
-        )
-        .select(
-          "id,warehouse_id,count_number,count_date,status,notes,created_at"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        )
-        .limit(30),
-    ]);
-
-  const results = [
-    warehousesResult,
-    stockResult,
-    productsResult,
-    invoicesResult,
-    receiptItemsResult,
-    receiptsResult,
-    transfersResult,
-    countsResult,
-  ];
-
-  for (
-    const result of results
-  ) {
     if (result.error) {
-      throw new Error(
-        result.error.message
-      );
+      initialError ??=
+        "تعذر تحميل أصناف المخزون.";
+    } else {
+      products =
+        (result.data ??
+          []) as InventoryProduct[];
     }
   }
+
+  let receivableItems:
+    InventoryReceivableItem[] =
+      [];
+
+  if (canReceive) {
+    const result =
+      await supabase.rpc(
+        "get_receivable_purchase_items",
+        {
+          target_company:
+            context.companyId,
+        }
+      );
+
+    if (result.error) {
+      initialError ??=
+        "تعذر تحميل المشتريات بانتظار الاستلام.";
+    } else {
+      receivableItems =
+        (result.data ??
+          []) as InventoryReceivableItem[];
+    }
+  }
+
+  const stockStats =
+    (
+      stockStatsResult.data ??
+      []
+    ).reduce(
+      (
+        result,
+        row
+      ) => {
+        const reserved =
+          Number(
+            row.reserved ??
+              0
+          );
+
+        const available =
+          Number(
+            row.available ??
+              0
+          );
+
+        const stockValue =
+          Number(
+            row.stock_value ??
+              0
+          );
+
+        return {
+          reservedLines:
+            result.reservedLines +
+            (
+              reserved >
+              0
+                ? 1
+                : 0
+            ),
+
+          outOfStock:
+            result.outOfStock +
+            (
+              available <=
+              0
+                ? 1
+                : 0
+            ),
+
+          stockValue:
+            result.stockValue +
+            (
+              Number.isFinite(
+                stockValue
+              )
+                ? stockValue
+                : 0
+            ),
+        };
+      },
+      {
+        reservedLines: 0,
+        outOfStock: 0,
+        stockValue: 0,
+      }
+    );
 
   return (
     <>
       <Topbar
-        title="Ø§Ù„Ù…Ø®Ø²ÙˆÙ†"
-        subtitle="Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹Ø§ØªØŒ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…ØŒ Ø§Ù„ØªØ­ÙˆÙŠÙ„Ø§Øª ÙˆØ§Ù„Ø¬Ø±Ø¯"
+        title="المخزون"
+        subtitle="المستودعات، الاستلام، التحويلات والجرد"
         companyName={
           context.companyName
         }
@@ -315,85 +542,84 @@ export default async function InventoryPage() {
         }
         warehouses={
           (warehousesResult.data ??
-            []) as unknown as InventoryWarehouse[]
+            []) as InventoryWarehouse[]
         }
         stock={
           (stockResult.data ??
-            []) as unknown as InventoryStockRow[]
+            []) as InventoryStockRow[]
         }
+        stockTotalCount={
+          stockResult.count ??
+          0
+        }
+        stockPage={
+          page
+        }
+        pageSize={
+          pageSize
+        }
+        searchQuery={
+          searchQuery
+        }
+        warehouseFilter={
+          warehouseFilter
+        }
+        stockStats={{
+          warehouseCount:
+            (
+              warehousesResult.data ??
+              []
+            ).length,
+
+          reservedLines:
+            stockStats.reservedLines,
+
+          outOfStock:
+            stockStats.outOfStock,
+
+          stockValue:
+            stockStats.stockValue,
+
+          pendingReceiptInvoices:
+            new Set(
+              receivableItems.map(
+                (row) =>
+                  row.invoice_id
+              )
+            ).size,
+        }}
         products={
-          (productsResult.data ??
-            []) as unknown as InventoryProduct[]
+          products
         }
-        purchaseInvoices={
-          (invoicesResult.data ??
-            []) as unknown as InventoryPurchaseInvoice[]
-        }
-        receiptItems={
-          (receiptItemsResult.data ??
-            []) as unknown as InventoryReceiptItem[]
+        receivableItems={
+          receivableItems
         }
         receipts={
           (receiptsResult.data ??
-            []) as unknown as InventoryReceiptRow[]
+            []) as InventoryReceiptRow[]
         }
         transfers={
           (transfersResult.data ??
-            []) as unknown as InventoryTransferRow[]
+            []) as InventoryTransferRow[]
         }
         counts={
           (countsResult.data ??
-            []) as unknown as InventoryCountRow[]
+            []) as InventoryCountRow[]
+        }
+        initialError={
+          initialError
         }
         canReceive={
           canReceive
         }
         canReverseReceipt={
-          hasAnyPermission(
-            context.permissions,
-            [
-              "inventory.adjust",
-              "purchase_invoices.cancel",
-            ],
-            context.isOwner
-          )
+          canReverseReceipt
         }
         canAdjust={
           canAdjust
         }
         canViewCost={
           canViewCost
-        }
-      />
-
-      <InventoryReversalPanel
-        companyId={
-          context.companyId
-        }
-        warehouses={
-          (warehousesResult.data ?? []) as unknown as InventoryWarehouse[]
-        }
-        receipts={
-          (receiptsResult.data ?? []) as unknown as InventoryReceiptRow[]
-        }
-        transfers={
-          (transfersResult.data ?? []) as unknown as InventoryTransferRow[]
-        }
-        counts={
-          (countsResult.data ?? []) as unknown as InventoryCountRow[]
-        }
-        canReverseReceipt={
-          hasAnyPermission(
-            context.permissions,
-            [
-              "inventory.adjust",
-              "purchase_invoices.cancel",
-            ],
-            context.isOwner
-          )
-        }
-        canAdjust={
-          canAdjust
         }
       />
     </>

@@ -1,31 +1,52 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+
+function safeNext(value: string | null) {
+  const requested = value || "/";
+
+  if (
+    !requested.startsWith("/") ||
+    requested.startsWith("//")
+  ) {
+    return "/";
+  }
+
+  return requested;
+}
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
 
   const code = url.searchParams.get("code");
-  const requestedNext = url.searchParams.get("next") || "/";
 
-  const next =
-    requestedNext.startsWith("/") &&
-    !requestedNext.startsWith("//")
-      ? requestedNext
-      : "/";
+  const next = safeNext(
+    url.searchParams.get("next")
+  );
 
-  if (code) {
-    const supabase = await createClient();
-    const { error } =
-      await supabase.auth.exchangeCodeForSession(code);
+  if (!code) {
+    return NextResponse.redirect(
+      new URL(
+        "/login?error=auth_callback",
+        request.nextUrl.origin
+      )
+    );
+  }
 
-    if (!error) {
-      return NextResponse.redirect(
-        new URL(next, request.nextUrl.origin)
-      );
-    }
+  const supabase = await createClient();
+
+  const { error } =
+    await supabase.auth.exchangeCodeForSession(code);
+
+  if (error) {
+    return NextResponse.redirect(
+      new URL(
+        "/login?error=auth_callback",
+        request.nextUrl.origin
+      )
+    );
   }
 
   return NextResponse.redirect(
-    new URL("/login?error=auth_callback", request.nextUrl.origin)
+    new URL(next, request.nextUrl.origin)
   );
 }

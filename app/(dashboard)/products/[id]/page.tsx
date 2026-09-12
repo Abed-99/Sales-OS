@@ -1,20 +1,33 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { Icons } from "@/components/icons";
 import { Topbar } from "@/components/topbar";
-import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasAnyPermission } from "@/lib/permissions";
+import {
+  hasAnyPermission,
+  hasPermission,
+} from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
 type ProductRow = {
   id: string;
-  category_id: string | null;
+  category_id:
+    | string
+    | null;
   sku: string | null;
   name: string;
   brand: string | null;
   unit: string;
-  sale_price: number | null;
-  minimum_sale_price: number | null;
-  image_url: string | null;
+  sale_price:
+    | number
+    | null;
+  minimum_sale_price:
+    | number
+    | null;
+  image_url:
+    | string
+    | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -22,8 +35,13 @@ type ProductRow = {
 
 type StockRow = {
   warehouse_id: string;
+  warehouse_name: string;
   on_hand: number;
-  average_cost: number;
+  reserved: number;
+  available: number;
+  average_cost:
+    | number
+    | null;
 };
 
 type PriceRow = {
@@ -35,172 +53,498 @@ type PriceRow = {
   last_checked_at: string;
 };
 
+function money(
+  value: number,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits:
+        2,
+      maximumFractionDigits:
+        2,
+    }
+  ).format(Number(value || 0))} ${currency}`;
+}
+
+function quantity(
+  value: number
+) {
+  return new Intl.NumberFormat(
+    "en-US",
+    {
+      maximumFractionDigits:
+        3,
+    }
+  ).format(
+    Number(value || 0)
+  );
+}
+
+function formatDateTime(
+  value: string | null
+) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ar-SY",
+    {
+      timeZone:
+        "Asia/Damascus",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(
+    new Date(value)
+  );
+}
+
 export default async function ProductDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{
+    id: string;
+  }>;
 }) {
-  const { id } = await params;
-  const context = await getCurrentContext();
-  const supabase = await createClient();
+  const { id } =
+    await params;
 
-  const canViewCost = hasAnyPermission(
-    context.permissions,
-    [
-      "products.view_cost",
-      "products.update",
-      "purchases.view",
-      "purchases.create",
-      "purchases.update",
-      "purchase_invoices.view",
-      "purchase_invoices.create",
-      "suppliers.view_finance",
-      "reports.profit",
-      "reports.finance",
-    ],
-    context.isOwner
-  );
+  const context =
+    await getCurrentContext();
 
-  const canViewInventory = hasAnyPermission(
-    context.permissions,
-    [
-      "inventory.view",
-      "inventory.manage",
-      "inventory.count",
-      "inventory.transfer",
-      "purchases.view",
-      "products.update",
-    ],
-    context.isOwner
-  );
+  const canView =
+    hasPermission(
+      context.permissions,
+      "products.view",
+      context.isOwner
+    );
 
-  const productResult = await supabase
-    .from("products")
-    .select(
-      "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,image_url,active,created_at,updated_at"
-    )
-    .eq("company_id", context.companyId)
-    .eq("id", id)
-    .maybeSingle();
+  if (!canView) {
+    return (
+      <>
+        <Topbar
+          title="الصنف"
+          subtitle="تفاصيل الصنف"
+          companyName={
+            context.companyName
+          }
+        />
 
-  if (productResult.error) {
-    throw new Error(productResult.error.message);
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.shield
+                size={32}
+              />
+
+              <h3>
+                لا تملك صلاحية عرض الأصناف
+              </h3>
+            </div>
+          </section>
+        </div>
+      </>
+    );
   }
 
-  if (!productResult.data) {
+  const canViewSupplierCost =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "products.view_cost",
+        "products.update",
+        "purchases.view",
+        "purchases.create",
+        "purchases.update",
+        "purchase_invoices.view",
+        "purchase_invoices.create",
+        "suppliers.view_finance",
+        "reports.profit",
+        "reports.finance",
+      ],
+      context.isOwner
+    );
+
+  const canViewInventory =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "inventory.view",
+        "inventory.adjust",
+        "inventory.returns",
+        "purchases.view",
+        "purchase_invoices.view",
+        "reports.finance",
+        "reports.profit",
+      ],
+      context.isOwner
+    );
+
+  const canViewInventoryCost =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "products.view_cost",
+        "suppliers.view_finance",
+        "reports.finance",
+        "reports.profit",
+      ],
+      context.isOwner
+    );
+
+  const supabase =
+    await createClient();
+
+  const productResult =
+    await supabase
+      .from("products")
+      .select(
+        "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,image_url,active,created_at,updated_at"
+      )
+      .eq(
+        "company_id",
+        context.companyId
+      )
+      .eq("id", id)
+      .maybeSingle();
+
+  if (
+    productResult.error
+  ) {
+    return (
+      <>
+        <Topbar
+          title="الصنف"
+          subtitle="تفاصيل الصنف"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.box
+                size={30}
+              />
+
+              <h3>
+                تعذر تحميل بيانات الصنف
+              </h3>
+
+              <p>
+                حاول تحديث الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  if (
+    !productResult.data
+  ) {
     notFound();
   }
 
-  const product = productResult.data as ProductRow;
+  const product =
+    productResult.data as ProductRow;
 
-  const [categoryResult, stockResult, pricesResult] = await Promise.all([
+  let categoryName =
+    "—";
+
+  let stock:
+    StockRow[] = [];
+
+  let prices:
+    PriceRow[] = [];
+
+  const warnings:
+    string[] = [];
+
+  if (
     product.category_id
-      ? supabase
-          .from("categories")
-          .select("id,name")
-          .eq("company_id", context.companyId)
-          .eq("id", product.category_id)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+  ) {
+    const result =
+      await supabase
+        .from("categories")
+        .select("name")
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "id",
+          product.category_id
+        )
+        .maybeSingle();
 
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل فئة الصنف."
+      );
+    } else if (
+      result.data
+    ) {
+      categoryName =
+        result.data.name;
+    }
+  }
+
+  if (
     canViewInventory
-      ? supabase
-          .from("inventory_stock")
-          .select("warehouse_id,on_hand,average_cost")
-          .eq("company_id", context.companyId)
-          .eq("product_id", product.id)
-      : Promise.resolve({ data: [], error: null }),
+  ) {
+    const result =
+      await supabase
+        .from(
+          "inventory_summary"
+        )
+        .select(
+          "warehouse_id,warehouse_name,on_hand,reserved,available,average_cost"
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "product_id",
+          product.id
+        )
+        .order(
+          "warehouse_name"
+        );
 
-    canViewCost
-      ? supabase
-          .from("supplier_prices")
-          .select(
-            "id,supplier_id,purchase_price,available,notes,last_checked_at"
-          )
-          .eq("company_id", context.companyId)
-          .eq("product_id", product.id)
-          .order("purchase_price", { ascending: true })
-      : Promise.resolve({ data: [], error: null }),
-  ]);
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل المخزون."
+      );
+    } else {
+      stock =
+        (
+          result.data ??
+          []
+        ).map(
+          (row) => ({
+            warehouse_id:
+              String(
+                row.warehouse_id
+              ),
 
-  if (categoryResult.error) {
-    throw new Error(categoryResult.error.message);
+            warehouse_name:
+              String(
+                row.warehouse_name ??
+                  "مستودع"
+              ),
+
+            on_hand:
+              Number(
+                row.on_hand ??
+                  0
+              ),
+
+            reserved:
+              Number(
+                row.reserved ??
+                  0
+              ),
+
+            available:
+              Number(
+                row.available ??
+                  0
+              ),
+
+            average_cost:
+              row.average_cost ==
+              null
+                ? null
+                : Number(
+                    row.average_cost
+                  ),
+          })
+        );
+    }
   }
 
-  if (stockResult.error) {
-    throw new Error(stockResult.error.message);
+  if (
+    canViewSupplierCost
+  ) {
+    const result =
+      await supabase
+        .from(
+          "supplier_prices"
+        )
+        .select(
+          "id,supplier_id,purchase_price,available,notes,last_checked_at"
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "product_id",
+          product.id
+        )
+        .order(
+          "purchase_price",
+          {
+            ascending: true,
+          }
+        );
+
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل أسعار الموردين."
+      );
+    } else {
+      prices =
+        (result.data ??
+          []) as PriceRow[];
+    }
   }
 
-  if (pricesResult.error) {
-    throw new Error(pricesResult.error.message);
-  }
+  const supplierIds =
+    [
+      ...new Set(
+        prices.map(
+          (row) =>
+            row.supplier_id
+        )
+      ),
+    ];
 
-  const stock = (stockResult.data ?? []) as StockRow[];
-  const prices = (pricesResult.data ?? []) as PriceRow[];
+  const supplierNames =
+    new Map<
+      string,
+      string
+    >();
 
-  const warehouseIds = stock.map((row) => row.warehouse_id);
-  const supplierIds = prices.map((row) => row.supplier_id);
-
-  const [warehousesResult, suppliersResult] = await Promise.all([
-    warehouseIds.length
-      ? supabase
-          .from("warehouses")
-          .select("id,name")
-          .eq("company_id", context.companyId)
-          .in("id", warehouseIds)
-      : Promise.resolve({ data: [], error: null }),
-
+  if (
     supplierIds.length
-      ? supabase
-          .from("suppliers")
-          .select("id,name")
-          .eq("company_id", context.companyId)
-          .in("id", supplierIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
+  ) {
+    const result =
+      await supabase
+        .from("suppliers")
+        .select("id,name")
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .in(
+          "id",
+          supplierIds
+        );
 
-  if (warehousesResult.error) {
-    throw new Error(warehousesResult.error.message);
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل أسماء الموردين."
+      );
+    } else {
+      for (
+        const row of
+          result.data ?? []
+      ) {
+        supplierNames.set(
+          row.id,
+          row.name
+        );
+      }
+    }
   }
 
-  if (suppliersResult.error) {
-    throw new Error(suppliersResult.error.message);
-  }
+  const totalStock =
+    stock.reduce(
+      (sum, row) =>
+        sum +
+        row.on_hand,
+      0
+    );
 
-  const warehouseNames = new Map(
-    (warehousesResult.data ?? []).map((row) => [row.id, row.name])
-  );
+  const totalReserved =
+    stock.reduce(
+      (sum, row) =>
+        sum +
+        row.reserved,
+      0
+    );
 
-  const supplierNames = new Map(
-    (suppliersResult.data ?? []).map((row) => [row.id, row.name])
-  );
+  const totalAvailable =
+    stock.reduce(
+      (sum, row) =>
+        sum +
+        row.available,
+      0
+    );
 
-  const totalStock = stock.reduce(
-    (sum, row) => sum + Number(row.on_hand || 0),
-    0
-  );
-
-  const cheapestPrice = prices.find((row) => row.available) ?? null;
+  const cheapestPrice =
+    prices.find(
+      (row) =>
+        row.available
+    ) ?? null;
 
   return (
     <>
       <Topbar
-        title={product.name}
+        title={
+          product.name
+        }
         subtitle="تفاصيل الصنف، المخزون وأسعار الموردين"
-        companyName={context.companyName}
+        companyName={
+          context.companyName
+        }
       />
 
       <div className="page">
+        {warnings.length ? (
+          <div
+            className="toastError"
+            role="alert"
+            style={{
+              marginBottom: 14,
+            }}
+          >
+            {[
+              ...new Set(
+                warnings
+              ),
+            ].join(" ")}
+          </div>
+        ) : null}
+
         <div className="pageTitle">
           <div>
-            <span className="eyebrow">ملف الصنف</span>
-            <h2>{product.name}</h2>
+            <span className="eyebrow">
+              ملف الصنف
+            </span>
+
+            <h2>
+              {product.name}
+            </h2>
+
             <p className="muted">
-              {[product.brand, product.sku].filter(Boolean).join(" • ") || "بدون كود أو ماركة"}
+              {[
+                product.brand,
+                product.sku,
+              ]
+                .filter(
+                  Boolean
+                )
+                .join(" • ") ||
+                "بدون كود أو ماركة"}
             </p>
           </div>
 
-          <Link className="softButton" href="/products">
+          <Link
+            className="softButton"
+            href="/products"
+          >
             رجوع للأصناف
           </Link>
         </div>
@@ -209,31 +553,49 @@ export default async function ProductDetailPage({
           <Mini
             title="سعر البيع"
             value={
-              product.sale_price == null
+              product.sale_price ==
+              null
                 ? "—"
-                : `${Number(product.sale_price).toFixed(2)} ${context.currency}`
+                : money(
+                    product.sale_price,
+                    context.currency
+                  )
             }
           />
 
           <Mini
             title="الحد الأدنى للبيع"
             value={
-              product.minimum_sale_price == null
+              product.minimum_sale_price ==
+              null
                 ? "—"
-                : `${Number(product.minimum_sale_price).toFixed(2)} ${context.currency}`
+                : money(
+                    product.minimum_sale_price,
+                    context.currency
+                  )
             }
           />
 
           <Mini
             title="المخزون"
-            value={canViewInventory ? `${totalStock} ${product.unit}` : "—"}
+            value={
+              canViewInventory
+                ? `${quantity(
+                    totalStock
+                  )} ${product.unit}`
+                : "—"
+            }
           />
 
           <Mini
             title="أرخص شراء"
             value={
-              canViewCost && cheapestPrice
-                ? `${Number(cheapestPrice.purchase_price).toFixed(2)} ${context.currency}`
+              canViewSupplierCost &&
+              cheapestPrice
+                ? money(
+                    cheapestPrice.purchase_price,
+                    context.currency
+                  )
                 : "—"
             }
           />
@@ -243,94 +605,260 @@ export default async function ProductDetailPage({
           <section className="panel panelPad">
             <div className="panelHeader">
               <div>
-                <h2>معلومات الصنف</h2>
-                <p>البيانات الأساسية للكتالوج</p>
+                <h2>
+                  معلومات الصنف
+                </h2>
+
+                <p>
+                  البيانات الأساسية للكتالوج
+                </p>
               </div>
             </div>
 
             <div className="quickList">
-              <Info title="الاسم" value={product.name} />
-              <Info title="الكود" value={product.sku || "—"} />
-              <Info title="الماركة" value={product.brand || "—"} />
+              <Info
+                title="الاسم"
+                value={
+                  product.name
+                }
+              />
+
+              <Info
+                title="الكود"
+                value={
+                  product.sku ||
+                  "—"
+                }
+              />
+
+              <Info
+                title="الماركة"
+                value={
+                  product.brand ||
+                  "—"
+                }
+              />
+
               <Info
                 title="الفئة"
                 value={
-                  (categoryResult.data as { name?: string } | null)?.name || "—"
+                  categoryName
                 }
               />
-              <Info title="الوحدة" value={product.unit} />
+
+              <Info
+                title="الوحدة"
+                value={
+                  product.unit
+                }
+              />
+
               <Info
                 title="الحالة"
-                value={product.active ? "نشط" : "مؤرشف"}
+                value={
+                  product.active
+                    ? "نشط"
+                    : "مؤرشف"
+                }
+              />
+
+              <Info
+                title="آخر تحديث"
+                value={
+                  formatDateTime(
+                    product.updated_at
+                  )
+                }
               />
             </div>
 
-            {canViewInventory && (
+            {canViewInventory ? (
               <>
-                <div className="panelHeader" style={{ marginTop: 22 }}>
+                <div
+                  className="panelHeader"
+                  style={{
+                    marginTop: 22,
+                  }}
+                >
                   <div>
-                    <h2>المخزون حسب المستودع</h2>
-                    <p>الرصيد الفعلي الحالي</p>
+                    <h2>
+                      المخزون حسب المستودع
+                    </h2>
+
+                    <p>
+                      الرصيد الحالي والمحجوز والمتاح
+                    </p>
                   </div>
                 </div>
 
+                <section className="statsGrid">
+                  <Mini
+                    title="على اليد"
+                    value={`${quantity(
+                      totalStock
+                    )} ${product.unit}`}
+                  />
+
+                  <Mini
+                    title="محجوز"
+                    value={`${quantity(
+                      totalReserved
+                    )} ${product.unit}`}
+                  />
+
+                  <Mini
+                    title="متاح"
+                    value={`${quantity(
+                      totalAvailable
+                    )} ${product.unit}`}
+                  />
+                </section>
+
                 {!stock.length ? (
-                  <p className="muted">ما في رصيد مخزون مسجل لهالصنف.</p>
+                  <p className="muted">
+                    لا يوجد رصيد مخزون مسجل لهذا الصنف.
+                  </p>
                 ) : (
                   <div className="quickList">
-                    {stock.map((row) => (
-                      <div className="quickItem" key={row.warehouse_id}>
-                        <div>
-                          <strong>
-                            {warehouseNames.get(row.warehouse_id) || "مستودع"}
-                          </strong>
-                          <span>
-                            {canViewCost
-                              ? `متوسط الكلفة ${Number(row.average_cost).toFixed(2)} ${context.currency}`
-                              : "رصيد المخزون"}
-                          </span>
+                    {stock.map(
+                      (row) => (
+                        <div
+                          className="quickItem"
+                          key={
+                            row.warehouse_id
+                          }
+                        >
+                          <div>
+                            <strong>
+                              {
+                                row.warehouse_name
+                              }
+                            </strong>
+
+                            <span>
+                              محجوز{" "}
+                              {quantity(
+                                row.reserved
+                              )}
+                              {" • "}
+                              متاح{" "}
+                              {quantity(
+                                row.available
+                              )}
+
+                              {canViewInventoryCost &&
+                              row.average_cost !=
+                                null
+                                ? ` • متوسط الكلفة ${money(
+                                    row.average_cost,
+                                    context.currency
+                                  )}`
+                                : ""}
+                            </span>
+                          </div>
+
+                          <div className="count">
+                            {quantity(
+                              row.on_hand
+                            )}{" "}
+                            {
+                              product.unit
+                            }
+                          </div>
                         </div>
-                        <div className="count">
-                          {Number(row.on_hand)} {product.unit}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    )}
                   </div>
                 )}
               </>
+            ) : (
+              <div
+                className="empty"
+                style={{
+                  marginTop: 22,
+                }}
+              >
+                <Icons.shield
+                  size={26}
+                />
+
+                <p>
+                  لا تملك صلاحية عرض المخزون.
+                </p>
+              </div>
             )}
           </section>
 
           <aside className="panel panelPad">
             <div className="panelHeader">
               <div>
-                <h2>أسعار الموردين</h2>
-                <p>آخر أسعار الشراء المسجلة</p>
+                <h2>
+                  أسعار الموردين
+                </h2>
+
+                <p>
+                  آخر أسعار الشراء المسجلة
+                </p>
               </div>
             </div>
 
-            {!canViewCost ? (
-              <p className="muted">ما عندك صلاحية عرض أسعار التكلفة.</p>
+            {!canViewSupplierCost ? (
+              <div className="empty">
+                <Icons.shield
+                  size={26}
+                />
+
+                <p>
+                  لا تملك صلاحية عرض أسعار التكلفة.
+                </p>
+              </div>
             ) : !prices.length ? (
-              <p className="muted">ما في أسعار موردين مسجلة لهالصنف.</p>
+              <p className="muted">
+                لا توجد أسعار موردين مسجلة لهذا الصنف.
+              </p>
             ) : (
               <div className="quickList">
-                {prices.map((price) => (
-                  <div className="quickItem" key={price.id}>
-                    <div>
-                      <strong>
-                        {supplierNames.get(price.supplier_id) || "مورد"}
-                      </strong>
-                      <span>
-                        {price.available ? "متوفر" : "غير متوفر"}
-                        {price.notes ? ` • ${price.notes}` : ""}
-                      </span>
+                {prices.map(
+                  (price) => (
+                    <div
+                      className="quickItem"
+                      key={
+                        price.id
+                      }
+                    >
+                      <div>
+                        <strong>
+                          {supplierNames.get(
+                            price.supplier_id
+                          ) ||
+                            "مورد"}
+                        </strong>
+
+                        <span>
+                          {price.available
+                            ? "متوفر"
+                            : "غير متوفر"}
+
+                          {price.notes
+                            ? ` • ${price.notes}`
+                            : ""}
+
+                          {" • "}
+                          {formatDateTime(
+                            price.last_checked_at
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="count">
+                        {money(
+                          price.purchase_price,
+                          context.currency
+                        )}
+                      </div>
                     </div>
-                    <div className="count">
-                      {Number(price.purchase_price).toFixed(2)} {context.currency}
-                    </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
             )}
           </aside>
@@ -349,8 +877,13 @@ function Mini({
 }) {
   return (
     <div className="statCard">
-      <div className="statLabel">{title}</div>
-      <div className="statValue">{value}</div>
+      <div className="statLabel">
+        {title}
+      </div>
+
+      <div className="statValue">
+        {value}
+      </div>
     </div>
   );
 }
@@ -365,8 +898,13 @@ function Info({
   return (
     <div className="quickItem">
       <div>
-        <strong>{title}</strong>
-        <span>{value}</span>
+        <strong>
+          {title}
+        </strong>
+
+        <span>
+          {value}
+        </span>
       </div>
     </div>
   );

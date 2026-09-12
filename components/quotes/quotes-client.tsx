@@ -1,12 +1,23 @@
-﻿"use client";
+"use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type {
+  FormEvent,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 
-type QuoteStatus =
+export type QuoteStatus =
   | "draft"
   | "sent"
   | "accepted"
@@ -14,18 +25,10 @@ type QuoteStatus =
   | "cancelled"
   | "converted";
 
-type Relation<T> = T | T[] | null;
-
-type QuoteTraderRelation = {
-  name: string;
-  area: string | null;
-};
-
-type QuoteProductRelation = {
-  name: string;
-  sku: string | null;
-  unit: string;
-};
+export type QuoteStatusFilter =
+  | "all"
+  | QuoteStatus
+  | "expired";
 
 export type QuoteTrader = {
   id: string;
@@ -39,7 +42,6 @@ export type QuoteProduct = {
   name: string;
   sku: string | null;
   sale_price: number | null;
-  minimum_sale_price: number | null;
   unit: string;
   active: boolean;
 };
@@ -50,9 +52,9 @@ export type QuoteItem = {
   quantity: number;
   sale_unit_price: number;
   line_total: number;
-  minimum_sale_price_snapshot: number | null;
-  reference_cost_snapshot: number | null;
-  products: Relation<QuoteProductRelation>;
+  product_name: string;
+  sku: string | null;
+  unit: string | null;
 };
 
 export type QuoteRow = {
@@ -69,8 +71,23 @@ export type QuoteRow = {
   accepted_at: string | null;
   converted_order_id: string | null;
   created_at: string;
-  traders: Relation<QuoteTraderRelation>;
-  sales_quote_items: QuoteItem[];
+  expired: boolean;
+
+  trader: {
+    id: string;
+    name: string;
+    area: string | null;
+  } | null;
+
+  items: QuoteItem[];
+};
+
+export type QuotesStats = {
+  allCount: number;
+  openCount: number;
+  acceptedCount: number;
+  convertedCount: number;
+  expiredOpenCount: number;
 };
 
 type DraftItem = {
@@ -80,408 +97,2563 @@ type DraftItem = {
   sale_unit_price: string;
 };
 
-function one<T>(value: Relation<T>): T | null {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
+type Notice = {
+  type: "success" | "error";
+  text: string;
+};
+
+type LifecycleAction =
+  | "sent"
+  | "accepted"
+  | "rejected"
+  | "cancelled";
+
+function numberValue(
+  value: unknown
+) {
+  const result =
+    Number(value ?? 0);
+
+  return Number.isFinite(result)
+    ? result
+    : 0;
+}
+
+function money(
+  value: unknown,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(
+    numberValue(value)
+  )} ${currency}`;
+}
+
+function businessDateInput(
+  days = 0
+) {
+  const date =
+    new Date(
+      Date.now() +
+        days *
+          24 *
+          60 *
+          60 *
+          1000
+    );
+
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(date);
+
+  const year =
+    parts.find(
+      (part) =>
+        part.type ===
+        "year"
+    )?.value;
+
+  const month =
+    parts.find(
+      (part) =>
+        part.type ===
+        "month"
+    )?.value;
+
+  const day =
+    parts.find(
+      (part) =>
+        part.type ===
+        "day"
+    )?.value;
+
+  return `${year}-${month}-${day}`;
 }
 
 function emptyItem(): DraftItem {
   return {
-    key: crypto.randomUUID(),
+    key:
+      crypto.randomUUID(),
     product_id: "",
     quantity: "1",
     sale_unit_price: "",
   };
 }
 
-function datePlusDays(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+const statusLabels:
+  Record<
+    QuoteStatus,
+    string
+  > = {
+    draft: "مسودة",
+    sent: "مرسل",
+    accepted: "مقبول",
+    rejected: "مرفوض",
+    cancelled: "ملغي",
+    converted:
+      "تحوّل لطلبية",
+  };
+
+function statusColor(
+  status: QuoteStatus
+) {
+  if (
+    status ===
+      "accepted" ||
+    status ===
+      "converted"
+  ) {
+    return "green";
+  }
+
+  if (
+    status ===
+      "rejected" ||
+    status ===
+      "cancelled"
+  ) {
+    return "gray";
+  }
+
+  if (
+    status === "sent"
+  ) {
+    return "blue";
+  }
+
+  return "orange";
 }
 
-const labels: Record<QuoteStatus, string> = {
-  draft: "مسودة",
-  sent: "مرسل",
-  accepted: "مقبول",
-  rejected: "مرفوض",
-  cancelled: "ملغي",
-  converted: "تحوّل لطلبية",
-};
+function friendlyError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action:
+    | "create"
+    | "status"
+    | "convert"
+) {
+  const raw =
+    error?.message ?? "";
 
-function statusColor(status: QuoteStatus) {
-  if (status === "accepted" || status === "converted") return "green";
-  if (status === "rejected" || status === "cancelled") return "gray";
-  if (status === "sent") return "blue";
-  return "orange";
+  const message =
+    raw.toLowerCase();
+
+  if (
+    error?.code ===
+      "42501" ||
+    message.includes(
+      "not allowed"
+    ) ||
+    message.includes(
+      "permission"
+    )
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
+  }
+
+  if (
+    message.includes(
+      "invalid trader"
+    )
+  ) {
+    return "العميل غير صالح أو أصبح غير نشط.";
+  }
+
+  if (
+    message.includes(
+      "invalid or inactive product"
+    )
+  ) {
+    return "أحد الأصناف غير صالح أو أصبح غير نشط.";
+  }
+
+  if (
+    message.includes(
+      "duplicate products"
+    )
+  ) {
+    return "لا يمكن إضافة نفس الصنف أكثر من مرة.";
+  }
+
+  if (
+    message.includes(
+      "validity date cannot be in the past"
+    )
+  ) {
+    return "تاريخ صلاحية العرض لا يمكن أن يكون بالماضي.";
+  }
+
+  if (
+    message.includes(
+      "quote not found"
+    )
+  ) {
+    return "عرض السعر غير موجود أو لم يعد متاحاً.";
+  }
+
+  if (
+    message.includes(
+      "quote has expired"
+    )
+  ) {
+    return "انتهت صلاحية عرض السعر.";
+  }
+
+  if (
+    message.includes(
+      "quote must be accepted first"
+    )
+  ) {
+    return "يجب قبول عرض السعر قبل تحويله إلى طلبية.";
+  }
+
+  if (
+    message.includes(
+      "quote already converted"
+    )
+  ) {
+    return "تم تحويل هذا العرض إلى طلبية مسبقاً.";
+  }
+
+  if (
+    message.includes(
+      "invalid quote status transition"
+    ) ||
+    message.includes(
+      "quote status cannot be changed"
+    )
+  ) {
+    return "لا يمكن تغيير حالة العرض بهذه الطريقة.";
+  }
+
+  if (
+    message.includes(
+      "order payload does not match quote"
+    ) ||
+    message.includes(
+      "quote trader mismatch"
+    )
+  ) {
+    return "بيانات العرض تغيّرت أو لم تعد متطابقة. حدّث الصفحة وحاول مجدداً.";
+  }
+
+  if (
+    action === "create"
+  ) {
+    return "تعذر إنشاء عرض السعر. راجع البيانات وحاول مرة ثانية.";
+  }
+
+  if (
+    action === "convert"
+  ) {
+    return "تعذر تحويل عرض السعر إلى طلبية.";
+  }
+
+  return "تعذر تحديث حالة عرض السعر.";
+}
+
+function lifecycleTitle(
+  action:
+    LifecycleAction
+) {
+  if (
+    action === "sent"
+  ) {
+    return "إرسال عرض السعر";
+  }
+
+  if (
+    action ===
+    "accepted"
+  ) {
+    return "قبول عرض السعر";
+  }
+
+  if (
+    action ===
+    "rejected"
+  ) {
+    return "رفض عرض السعر";
+  }
+
+  return "إلغاء عرض السعر";
+}
+
+function lifecycleDescription(
+  action:
+    LifecycleAction
+) {
+  if (
+    action === "sent"
+  ) {
+    return "سيتم تحويل العرض من مسودة إلى عرض مرسل للعميل.";
+  }
+
+  if (
+    action ===
+    "accepted"
+  ) {
+    return "سيتم اعتماد العرض، وبعدها يصبح قابلاً للتحويل إلى طلبية.";
+  }
+
+  if (
+    action ===
+    "rejected"
+  ) {
+    return "سيتم تسجيل أن العميل رفض العرض، ولن يمكن إعادة فتحه.";
+  }
+
+  return "سيتم إلغاء العرض ولن يمكن تحويله إلى طلبية.";
 }
 
 export function QuotesClient({
   companyId,
   currency,
   initialQuotes,
+  initialStats,
+  totalCount,
+  page,
+  pageSize,
+  searchQuery,
+  statusFilter,
   traders,
   products,
   canCreate,
   canUpdate,
+  initialError,
 }: {
   companyId: string;
   currency: string;
-  initialQuotes: QuoteRow[];
-  traders: QuoteTrader[];
-  products: QuoteProduct[];
+
+  initialQuotes:
+    QuoteRow[];
+
+  initialStats:
+    QuotesStats;
+
+  totalCount: number;
+  page: number;
+  pageSize: number;
+
+  searchQuery: string;
+
+  statusFilter:
+    QuoteStatusFilter;
+
+  traders:
+    QuoteTrader[];
+
+  products:
+    QuoteProduct[];
+
   canCreate: boolean;
   canUpdate: boolean;
+
+  initialError:
+    string | null;
 }) {
-  const [supabase] = useState(() => createClient());
-  const router = useRouter();
-  const [quotes, setQuotes] = useState(initialQuotes);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<QuoteRow | null>(null);
-  const [trader, setTrader] = useState("");
-  const [validUntil, setValidUntil] = useState(datePlusDays(7));
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<DraftItem[]>([emptyItem()]);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [busyId, setBusyId] = useState("");
+  const [supabase] =
+    useState(
+      () =>
+        createClient()
+    );
 
-  const stats = useMemo(() => ({
-    all: quotes.length,
-    open: quotes.filter((q) => q.status === "draft" || q.status === "sent").length,
-    accepted: quotes.filter((q) => q.status === "accepted").length,
-    converted: quotes.filter((q) => q.status === "converted").length,
-  }), [quotes]);
+  const router =
+    useRouter();
 
-  const draftTotal = useMemo(
-    () => items.reduce((sum, item) => {
-      const q = Number(item.quantity || 0);
-      const p = Number(item.sale_unit_price || 0);
-      return sum + (Number.isFinite(q * p) ? q * p : 0);
-    }, 0),
-    [items]
-  );
+  const searchParams =
+    useSearchParams();
+
+  const [
+    quotes,
+    setQuotes,
+  ] =
+    useState(
+      initialQuotes
+    );
+
+  const [
+    notice,
+    setNotice,
+  ] =
+    useState<
+      Notice | null
+    >(
+      initialError
+        ? {
+            type:
+              "error",
+            text:
+              initialError,
+          }
+        : null
+    );
+
+  const [
+    search,
+    setSearch,
+  ] =
+    useState(
+      searchQuery
+    );
+
+  const [
+    filter,
+    setFilter,
+  ] =
+    useState<
+      QuoteStatusFilter
+    >(
+      statusFilter
+    );
+
+  const [
+    createOpen,
+    setCreateOpen,
+  ] =
+    useState(false);
+
+  const [
+    selected,
+    setSelected,
+  ] =
+    useState<
+      QuoteRow | null
+    >(null);
+
+  const [
+    lifecycleTarget,
+    setLifecycleTarget,
+  ] =
+    useState<{
+      row: QuoteRow;
+      action:
+        LifecycleAction;
+    } | null>(
+      null
+    );
+
+  const [
+    lifecycleMessage,
+    setLifecycleMessage,
+  ] =
+    useState("");
+
+  const [
+    convertTarget,
+    setConvertTarget,
+  ] =
+    useState<
+      QuoteRow | null
+    >(null);
+
+  const [
+    convertMessage,
+    setConvertMessage,
+  ] =
+    useState("");
+
+  const [
+    trader,
+    setTrader,
+  ] =
+    useState("");
+
+  const [
+    validUntil,
+    setValidUntil,
+  ] =
+    useState(
+      businessDateInput(7)
+    );
+
+  const [
+    notes,
+    setNotes,
+  ] =
+    useState("");
+
+  const [
+    items,
+    setItems,
+  ] =
+    useState<
+      DraftItem[]
+    >([
+      emptyItem(),
+    ]);
+
+  const [
+    createMessage,
+    setCreateMessage,
+  ] =
+    useState("");
+
+  const [
+    saving,
+    setSaving,
+  ] =
+    useState(false);
+
+  const [
+    busyId,
+    setBusyId,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  useEffect(() => {
+    setQuotes(
+      initialQuotes
+    );
+  }, [
+    initialQuotes,
+  ]);
+
+  useEffect(() => {
+    setSearch(
+      searchQuery
+    );
+
+    setFilter(
+      statusFilter
+    );
+  }, [
+    searchQuery,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    if (
+      initialError
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          initialError,
+      });
+    }
+  }, [
+    initialError,
+  ]);
+
+  const draftTotal =
+    useMemo(
+      () =>
+        items.reduce(
+          (
+            sum,
+            item
+          ) => {
+            const quantity =
+              numberValue(
+                item.quantity
+              );
+
+            const price =
+              numberValue(
+                item.sale_unit_price
+              );
+
+            return (
+              sum +
+              quantity *
+                price
+            );
+          },
+          0
+        ),
+      [
+        items,
+      ]
+    );
+
+  const pageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        totalCount /
+          pageSize
+      )
+    );
+
+  function navigate(
+    nextSearch:
+      string,
+    nextFilter:
+      QuoteStatusFilter,
+    nextPage = 1
+  ) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
+
+    const clean =
+      nextSearch.trim();
+
+    if (clean) {
+      params.set(
+        "q",
+        clean
+      );
+    } else {
+      params.delete(
+        "q"
+      );
+    }
+
+    if (
+      nextFilter !==
+      "all"
+    ) {
+      params.set(
+        "status",
+        nextFilter
+      );
+    } else {
+      params.delete(
+        "status"
+      );
+    }
+
+    if (
+      nextPage > 1
+    ) {
+      params.set(
+        "page",
+        String(
+          nextPage
+        )
+      );
+    } else {
+      params.delete(
+        "page"
+      );
+    }
+
+    const query =
+      params.toString();
+
+    router.push(
+      query
+        ? `/quotes?${query}`
+        : "/quotes"
+    );
+  }
 
   function startAdd() {
-    setTrader("");
-    setValidUntil(datePlusDays(7));
-    setNotes("");
-    setItems([emptyItem()]);
-    setMessage("");
-    setOpen(true);
-  }
-
-  function chooseProduct(index: number, productId: string) {
-    const product = products.find((p) => p.id === productId);
-    setItems((current) => current.map((item, i) =>
-      i === index
-        ? {
-            ...item,
-            product_id: productId,
-            sale_unit_price: product?.sale_price != null ? String(product.sale_price) : "",
-          }
-        : item
-    ));
-  }
-
-  function updateItem(index: number, changes: Partial<DraftItem>) {
-    setItems((current) => current.map((item, i) =>
-      i === index ? { ...item, ...changes } : item
-    ));
-  }
-
-  async function createQuote(event: React.FormEvent) {
-    event.preventDefault();
-    setMessage("");
-
-    if (!trader) {
-      setMessage("اختار العميل.");
+    if (!canCreate) {
       return;
     }
 
-    if (!items.length || items.some((item) => {
-      const qty = Number(item.quantity);
-      const price = Number(item.sale_unit_price);
-      return !item.product_id || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0;
-    })) {
-      setMessage("راجع الأصناف والكميات والأسعار.");
+    setTrader("");
+    setValidUntil(
+      businessDateInput(7)
+    );
+    setNotes("");
+    setItems([
+      emptyItem(),
+    ]);
+    setCreateMessage("");
+    setCreateOpen(true);
+  }
+
+  function chooseProduct(
+    index: number,
+    productId: string
+  ) {
+    const product =
+      products.find(
+        (row) =>
+          row.id ===
+          productId
+      );
+
+    setItems(
+      (current) =>
+        current.map(
+          (
+            item,
+            itemIndex
+          ) =>
+            itemIndex ===
+            index
+              ? {
+                  ...item,
+                  product_id:
+                    productId,
+
+                  sale_unit_price:
+                    product?.sale_price !=
+                    null
+                      ? String(
+                          product.sale_price
+                        )
+                      : "",
+                }
+              : item
+        )
+    );
+  }
+
+  function updateItem(
+    index: number,
+    changes:
+      Partial<DraftItem>
+  ) {
+    setItems(
+      (current) =>
+        current.map(
+          (
+            item,
+            itemIndex
+          ) =>
+            itemIndex ===
+            index
+              ? {
+                  ...item,
+                  ...changes,
+                }
+              : item
+        )
+    );
+  }
+
+  async function createQuote(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !canCreate ||
+      saving
+    ) {
       return;
+    }
+
+    setCreateMessage(
+      ""
+    );
+
+    if (!trader) {
+      setCreateMessage(
+        "اختر العميل."
+      );
+      return;
+    }
+
+    if (
+      validUntil &&
+      validUntil <
+        businessDateInput()
+    ) {
+      setCreateMessage(
+        "تاريخ صلاحية العرض لا يمكن أن يكون بالماضي."
+      );
+      return;
+    }
+
+    if (
+      !items.length
+    ) {
+      setCreateMessage(
+        "أضف صنفاً واحداً على الأقل."
+      );
+      return;
+    }
+
+    const productIds =
+      items
+        .map(
+          (item) =>
+            item.product_id
+        )
+        .filter(Boolean);
+
+    if (
+      new Set(
+        productIds
+      ).size !==
+      productIds.length
+    ) {
+      setCreateMessage(
+        "لا يمكن إضافة نفس الصنف أكثر من مرة."
+      );
+      return;
+    }
+
+    for (
+      const item of
+      items
+    ) {
+      const quantity =
+        Number(
+          item.quantity
+        );
+
+      const price =
+        Number(
+          item.sale_unit_price
+        );
+
+      if (
+        !item.product_id ||
+        !Number.isFinite(
+          quantity
+        ) ||
+        quantity <= 0 ||
+        !Number.isFinite(
+          price
+        ) ||
+        price < 0
+      ) {
+        setCreateMessage(
+          "راجع الأصناف والكميات والأسعار."
+        );
+        return;
+      }
     }
 
     setSaving(true);
-    const { error } = await supabase.rpc("create_sales_quote", {
-      target_company: companyId,
-      target_trader: trader,
-      target_valid_until: validUntil || null,
-      target_notes: notes.trim() || null,
-      items_payload: items.map((item) => ({
-        product_id: item.product_id,
-        quantity: Number(item.quantity),
-        sale_unit_price: Number(item.sale_unit_price),
-      })),
-    });
-    setSaving(false);
 
-    if (error) {
-      setMessage(error.message);
-      return;
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "create_sales_quote",
+          {
+            target_company:
+              companyId,
+
+            target_trader:
+              trader,
+
+            target_valid_until:
+              validUntil ||
+              null,
+
+            target_notes:
+              notes.trim() ||
+              null,
+
+            items_payload:
+              items.map(
+                (item) => ({
+                  product_id:
+                    item.product_id,
+
+                  quantity:
+                    Number(
+                      Number(
+                        item.quantity
+                      ).toFixed(
+                        3
+                      )
+                    ),
+
+                  sale_unit_price:
+                    Number(
+                      Number(
+                        item.sale_unit_price
+                      ).toFixed(
+                        2
+                      )
+                    ),
+                })
+              ),
+          }
+        );
+
+      if (error) {
+        setCreateMessage(
+          friendlyError(
+            error,
+            "create"
+          )
+        );
+        return;
+      }
+
+      setCreateOpen(
+        false
+      );
+
+      setNotice({
+        type:
+          "success",
+        text:
+          "تم إنشاء عرض السعر بنجاح.",
+      });
+
+      router.refresh();
+
+    } finally {
+      setSaving(false);
     }
-
-    setOpen(false);
-    router.refresh();
-    window.setTimeout(() => window.location.reload(), 100);
   }
 
-  async function setStatus(row: QuoteRow, status: Exclude<QuoteStatus, "draft" | "converted">) {
-    setBusyId(row.id);
-    const { error } = await supabase.rpc("set_sales_quote_status", {
-      target_company: companyId,
-      target_quote: row.id,
-      target_status: status,
-    });
-    setBusyId("");
-
-    if (error) {
-      window.alert(error.message);
+  function openLifecycle(
+    row: QuoteRow,
+    action:
+      LifecycleAction
+  ) {
+    if (!canUpdate) {
       return;
     }
 
-    setQuotes((current) => current.map((q) =>
-      q.id === row.id ? { ...q, status } : q
-    ));
-    setSelected((current) => current?.id === row.id ? { ...current, status } : current);
-    router.refresh();
+    if (
+      action ===
+        "accepted" &&
+      row.expired
+    ) {
+      setNotice({
+        type: "error",
+        text:
+          "انتهت صلاحية عرض السعر ولا يمكن قبوله.",
+      });
+      return;
+    }
+
+    setLifecycleMessage(
+      ""
+    );
+
+    setLifecycleTarget({
+      row,
+      action,
+    });
   }
 
-  async function convert(row: QuoteRow) {
-    setBusyId(row.id);
-    const { data, error } = await supabase.rpc("convert_sales_quote_to_order", {
-      target_company: companyId,
-      target_quote: row.id,
-    });
-    setBusyId("");
+  async function saveLifecycle(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
 
-    if (error) {
-      window.alert(error.message);
+    if (
+      !lifecycleTarget ||
+      !canUpdate
+    ) {
       return;
     }
 
-    const result = data as { status?: string; order_id?: string | null } | null;
+    const {
+      row,
+      action,
+    } =
+      lifecycleTarget;
 
-    if (result?.status === "pending_approval") {
-      window.alert("السعر تحت التكلفة أو الحد الأدنى. تم إرسال طلب موافقة تلقائياً.");
+    setBusyId(
+      row.id
+    );
+
+    setLifecycleMessage(
+      ""
+    );
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "set_sales_quote_status",
+          {
+            target_company:
+              companyId,
+
+            target_quote:
+              row.id,
+
+            target_status:
+              action,
+          }
+        );
+
+      if (error) {
+        setLifecycleMessage(
+          friendlyError(
+            error,
+            "status"
+          )
+        );
+        return;
+      }
+
+      setQuotes(
+        (current) =>
+          current.map(
+            (quote) =>
+              quote.id ===
+              row.id
+                ? {
+                    ...quote,
+                    status:
+                      action,
+                    accepted_at:
+                      action ===
+                      "accepted"
+                        ? new Date().toISOString()
+                        : quote.accepted_at,
+                  }
+                : quote
+          )
+      );
+
+      setSelected(
+        (current) =>
+          current?.id ===
+          row.id
+            ? {
+                ...current,
+                status:
+                  action,
+                accepted_at:
+                  action ===
+                  "accepted"
+                    ? new Date().toISOString()
+                    : current.accepted_at,
+              }
+            : current
+      );
+
+      setLifecycleTarget(
+        null
+      );
+
+      setNotice({
+        type:
+          "success",
+        text:
+          "تم تحديث حالة عرض السعر.",
+      });
+
       router.refresh();
+
+    } finally {
+      setBusyId(
+        null
+      );
+    }
+  }
+
+  function openConvert(
+    row: QuoteRow
+  ) {
+    if (!canCreate) {
       return;
     }
 
-    if (result?.order_id) {
-      router.push(`/orders?order=${result.order_id}`);
-      router.refresh();
+    if (row.expired) {
+      setNotice({
+        type: "error",
+        text:
+          "انتهت صلاحية عرض السعر ولا يمكن تحويله إلى طلبية.",
+      });
       return;
     }
 
-    router.refresh();
+    setConvertMessage(
+      ""
+    );
+
+    setConvertTarget(
+      row
+    );
+  }
+
+  async function saveConvert(
+    event:
+      FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !convertTarget ||
+      !canCreate
+    ) {
+      return;
+    }
+
+    setBusyId(
+      convertTarget.id
+    );
+
+    setConvertMessage(
+      ""
+    );
+
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          "convert_sales_quote_to_order",
+          {
+            target_company:
+              companyId,
+
+            target_quote:
+              convertTarget.id,
+          }
+        );
+
+      if (error) {
+        setConvertMessage(
+          friendlyError(
+            error,
+            "convert"
+          )
+        );
+        return;
+      }
+
+      const result =
+        data as {
+          status?: string;
+          order_id?:
+            string | null;
+          approval_id?:
+            string | null;
+        } | null;
+
+      if (
+        result?.status ===
+        "pending_approval"
+      ) {
+        setConvertTarget(
+          null
+        );
+
+        setNotice({
+          type:
+            "success",
+          text:
+            "السعر يحتاج موافقة. تم إنشاء طلب موافقة تلقائياً.",
+        });
+
+        router.refresh();
+        return;
+      }
+
+      if (
+        result?.order_id
+      ) {
+        setConvertTarget(
+          null
+        );
+
+        router.push(
+          `/orders?order=${result.order_id}`
+        );
+
+        router.refresh();
+        return;
+      }
+
+      setConvertMessage(
+        "لم يتم إنشاء الطلبية. حدّث الصفحة وحاول مرة ثانية."
+      );
+
+    } finally {
+      setBusyId(
+        null
+      );
+    }
   }
 
   return (
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">عروض الأسعار</span>
-          <h2>عروض الأسعار</h2>
-          <p className="muted">من العرض للطلبية بدون إعادة إدخال الأصناف.</p>
+          <span className="eyebrow">
+            عروض الأسعار
+          </span>
+
+          <h2>
+            عروض الأسعار
+          </h2>
+
+          <p className="muted">
+            أنشئ العرض، تابع حالته وحوّله لطلبية بدون إعادة إدخال الأصناف.
+          </p>
         </div>
-        {canCreate && (
-          <button className="primaryButton" onClick={startAdd}>
-            <Icons.plus size={15} /> عرض سعر جديد
+
+        {canCreate ? (
+          <button
+            type="button"
+            className="primaryButton"
+            onClick={
+              startAdd
+            }
+          >
+            <Icons.plus
+              size={15}
+            />
+            عرض سعر جديد
           </button>
-        )}
+        ) : null}
       </div>
 
+      {notice ? (
+        <div
+          className={
+            notice.type ===
+            "error"
+              ? "toastError"
+              : "panel panelPad"
+          }
+          role={
+            notice.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={{
+            marginBottom:
+              14,
+          }}
+        >
+          {notice.text}
+        </div>
+      ) : null}
+
       <section className="statsGrid">
-        <Mini title="كل العروض" value={String(stats.all)} />
-        <Mini title="مفتوحة" value={String(stats.open)} />
-        <Mini title="مقبولة" value={String(stats.accepted)} />
-        <Mini title="تحولت لطلب" value={String(stats.converted)} />
+        <Mini
+          title="كل العروض"
+          value={String(
+            initialStats.allCount
+          )}
+        />
+
+        <Mini
+          title="مفتوحة"
+          value={String(
+            initialStats.openCount
+          )}
+        />
+
+        <Mini
+          title="مقبولة"
+          value={String(
+            initialStats.acceptedCount
+          )}
+        />
+
+        <Mini
+          title="تحولت لطلب"
+          value={String(
+            initialStats.convertedCount
+          )}
+        />
+
+        <Mini
+          title="منتهية"
+          value={String(
+            initialStats.expiredOpenCount
+          )}
+        />
       </section>
 
-      <section className="panel" style={{ marginTop: 14 }}>
+      <section
+        className="panel"
+        style={{
+          marginTop: 14,
+        }}
+      >
+        <form
+          className="filters"
+          onSubmit={(
+            event
+          ) => {
+            event.preventDefault();
+
+            navigate(
+              search,
+              filter,
+              1
+            );
+          }}
+        >
+          <div className="searchBox">
+            <Icons.search
+              size={16}
+            />
+
+            <input
+              value={search}
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event.target.value
+                )
+              }
+              placeholder="رقم العرض، اسم العميل أو المنطقة..."
+              aria-label="بحث في عروض الأسعار"
+            />
+
+            <button
+              type="submit"
+              className="softButton"
+            >
+              بحث
+            </button>
+          </div>
+
+          <select
+            value={filter}
+            aria-label="حالة عرض السعر"
+            onChange={(
+              event
+            ) => {
+              const value =
+                event.target
+                  .value as QuoteStatusFilter;
+
+              setFilter(
+                value
+              );
+
+              navigate(
+                search,
+                value,
+                1
+              );
+            }}
+          >
+            <option value="all">
+              كل الحالات
+            </option>
+
+            <option value="draft">
+              مسودة
+            </option>
+
+            <option value="sent">
+              مرسل
+            </option>
+
+            <option value="accepted">
+              مقبول
+            </option>
+
+            <option value="rejected">
+              مرفوض
+            </option>
+
+            <option value="cancelled">
+              ملغي
+            </option>
+
+            <option value="converted">
+              تحوّل لطلب
+            </option>
+
+            <option value="expired">
+              منتهي الصلاحية
+            </option>
+          </select>
+
+          <div />
+
+          <div className="resultCount">
+            {totalCount} نتيجة
+          </div>
+        </form>
+
         {!quotes.length ? (
           <div className="empty">
-            <Icons.money size={28} />
-            <h3>ما في عروض أسعار بعد</h3>
-            <p>أنشئ أول عرض سعر للعميل.</p>
+            <Icons.money
+              size={28}
+            />
+
+            <h3>
+              لا توجد عروض أسعار
+            </h3>
+
+            <p>
+              غيّر البحث أو الفلتر، أو أنشئ عرض سعر جديد.
+            </p>
           </div>
         ) : (
           <div className="tableWrap">
-            <table>
+            <table className="dataTable">
               <thead>
                 <tr>
-                  <th>الرقم</th>
-                  <th>العميل</th>
-                  <th>التاريخ</th>
-                  <th>الصلاحية</th>
-                  <th>الإجمالي</th>
-                  <th>الحالة</th>
-                  <th>إجراءات</th>
+                  <th>
+                    الرقم
+                  </th>
+                  <th>
+                    العميل
+                  </th>
+                  <th>
+                    التاريخ
+                  </th>
+                  <th>
+                    الصلاحية
+                  </th>
+                  <th>
+                    الإجمالي
+                  </th>
+                  <th>
+                    الحالة
+                  </th>
+                  <th>
+                    الإجراءات
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
-                {quotes.map((row) => {
-                  const traderRow = one(row.traders);
-                  const expired = !!row.valid_until && row.valid_until < new Date().toISOString().slice(0, 10) && !["converted", "rejected", "cancelled"].includes(row.status);
-                  return (
-                    <tr key={row.id}>
-                      <td><strong>{row.quote_number}</strong></td>
-                      <td>{traderRow?.name ?? "—"}<span className="muted" style={{ display: "block" }}>{traderRow?.area ?? ""}</span></td>
-                      <td>{row.quote_date}</td>
-                      <td>{row.valid_until ?? "بدون"}{expired ? <span className="chip orange" style={{ marginInlineStart: 6 }}>منتهي</span> : null}</td>
-                      <td><strong>{Number(row.total).toFixed(2)} {row.currency}</strong></td>
-                      <td><span className={`chip ${statusColor(row.status)}`}>{labels[row.status]}</span></td>
+                {quotes.map(
+                  (row) => (
+                    <tr
+                      key={
+                        row.id
+                      }
+                    >
+                      <td>
+                        <strong>
+                          {
+                            row.quote_number
+                          }
+                        </strong>
+                      </td>
+
+                      <td>
+                        <strong>
+                          {row.trader?.name ||
+                            "—"}
+                        </strong>
+
+                        <span
+                          className="muted"
+                          style={{
+                            display:
+                              "block",
+                          }}
+                        >
+                          {row.trader?.area ||
+                            ""}
+                        </span>
+                      </td>
+
+                      <td>
+                        {
+                          row.quote_date
+                        }
+                      </td>
+
+                      <td>
+                        {row.valid_until ||
+                          "بدون"}
+
+                        {row.expired ? (
+                          <span
+                            className="chip orange"
+                            style={{
+                              marginInlineStart:
+                                6,
+                            }}
+                          >
+                            منتهي
+                          </span>
+                        ) : null}
+                      </td>
+
+                      <td>
+                        <strong>
+                          {money(
+                            row.total,
+                            row.currency ||
+                              currency
+                          )}
+                        </strong>
+                      </td>
+
+                      <td>
+                        <span
+                          className={`chip ${statusColor(
+                            row.status
+                          )}`}
+                        >
+                          {
+                            statusLabels[
+                              row.status
+                            ]
+                          }
+                        </span>
+                      </td>
+
                       <td>
                         <div className="rowActions">
-                          <button type="button" className="softButton" onClick={() => setSelected(row)}>تفاصيل</button>
-                          {canUpdate && row.status === "draft" && (
-                            <button type="button" className="softButton" disabled={busyId === row.id} onClick={() => void setStatus(row, "sent")}>إرسال</button>
-                          )}
-                          {canUpdate && row.status === "sent" && !expired && (
-                            <button type="button" className="softButton" disabled={busyId === row.id} onClick={() => void setStatus(row, "accepted")}>قبول</button>
-                          )}
-                          {canCreate && row.status === "accepted" && !expired && (
-                            <button type="button" className="primaryButton" disabled={busyId === row.id} onClick={() => void convert(row)}>تحويل لطلب</button>
-                          )}
-                          {row.converted_order_id && (
-                            <Link className="softButton" href={`/orders?order=${row.converted_order_id}`}>الطلبية</Link>
-                          )}
+                          <button
+                            type="button"
+                            className="softButton"
+                            onClick={() =>
+                              setSelected(
+                                row
+                              )
+                            }
+                          >
+                            تفاصيل
+                          </button>
+
+                          {canUpdate &&
+                          row.status ===
+                            "draft" ? (
+                            <>
+                              <button
+                                type="button"
+                                className="softButton"
+                                disabled={
+                                  busyId ===
+                                  row.id
+                                }
+                                onClick={() =>
+                                  openLifecycle(
+                                    row,
+                                    "sent"
+                                  )
+                                }
+                              >
+                                إرسال
+                              </button>
+
+                              <button
+                                type="button"
+                                className="dangerButton"
+                                disabled={
+                                  busyId ===
+                                  row.id
+                                }
+                                onClick={() =>
+                                  openLifecycle(
+                                    row,
+                                    "cancelled"
+                                  )
+                                }
+                              >
+                                إلغاء
+                              </button>
+                            </>
+                          ) : null}
+
+                          {canUpdate &&
+                          row.status ===
+                            "sent" ? (
+                            <>
+                              {!row.expired ? (
+                                <button
+                                  type="button"
+                                  className="primaryButton"
+                                  disabled={
+                                    busyId ===
+                                    row.id
+                                  }
+                                  onClick={() =>
+                                    openLifecycle(
+                                      row,
+                                      "accepted"
+                                    )
+                                  }
+                                >
+                                  قبول
+                                </button>
+                              ) : null}
+
+                              <button
+                                type="button"
+                                className="softButton"
+                                disabled={
+                                  busyId ===
+                                  row.id
+                                }
+                                onClick={() =>
+                                  openLifecycle(
+                                    row,
+                                    "rejected"
+                                  )
+                                }
+                              >
+                                رفض
+                              </button>
+
+                              <button
+                                type="button"
+                                className="dangerButton"
+                                disabled={
+                                  busyId ===
+                                  row.id
+                                }
+                                onClick={() =>
+                                  openLifecycle(
+                                    row,
+                                    "cancelled"
+                                  )
+                                }
+                              >
+                                إلغاء
+                              </button>
+                            </>
+                          ) : null}
+
+                          {canCreate &&
+                          row.status ===
+                            "accepted" &&
+                          !row.expired ? (
+                            <button
+                              type="button"
+                              className="primaryButton"
+                              disabled={
+                                busyId ===
+                                row.id
+                              }
+                              onClick={() =>
+                                openConvert(
+                                  row
+                                )
+                              }
+                            >
+                              تحويل لطلب
+                            </button>
+                          ) : null}
+
+                          {canUpdate &&
+                          row.status ===
+                            "accepted" ? (
+                            <button
+                              type="button"
+                              className="dangerButton"
+                              disabled={
+                                busyId ===
+                                row.id
+                              }
+                              onClick={() =>
+                                openLifecycle(
+                                  row,
+                                  "cancelled"
+                                )
+                              }
+                            >
+                              إلغاء
+                            </button>
+                          ) : null}
+
+                          {row.converted_order_id ? (
+                            <Link
+                              className="softButton"
+                              href={`/orders?order=${row.converted_order_id}`}
+                            >
+                              الطلبية
+                            </Link>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
+                  )
+                )}
               </tbody>
             </table>
           </div>
         )}
+
+        {pageCount >
+        1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page <= 1
+              }
+              onClick={() =>
+                navigate(
+                  searchQuery,
+                  statusFilter,
+                  page - 1
+                )
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {page} من{" "}
+              {pageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page >=
+                pageCount
+              }
+              onClick={() =>
+                navigate(
+                  searchQuery,
+                  statusFilter,
+                  page + 1
+                )
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
       </section>
 
-      {open && (
+      {createOpen ? (
         <div className="modalOverlay">
-          <section className="modal">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            style={{
+              width:
+                "94vw",
+              maxWidth:
+                920,
+            }}
+          >
             <div className="modalHeader">
-              <div><span className="eyebrow">عرض جديد</span><h2>إنشاء عرض سعر</h2></div>
-              <button type="button" className="closeButton" onClick={() => setOpen(false)}>×</button>
+              <div>
+                <span className="eyebrow">
+                  عرض جديد
+                </span>
+
+                <h2>
+                  إنشاء عرض سعر
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="closeButton"
+                disabled={
+                  saving
+                }
+                onClick={() =>
+                  setCreateOpen(
+                    false
+                  )
+                }
+              >
+                ×
+              </button>
             </div>
-            <form onSubmit={createQuote}>
+
+            <form
+              onSubmit={
+                createQuote
+              }
+            >
               <div className="formGrid">
                 <label className="field">
-                  <span>العميل</span>
-                  <select value={trader} onChange={(e) => setTrader(e.target.value)}>
-                    <option value="">اختر العميل</option>
-                    {traders.map((t) => <option key={t.id} value={t.id}>{t.name}{t.area ? ` - ${t.area}` : ""}</option>)}
+                  <span>
+                    العميل
+                  </span>
+
+                  <select
+                    value={
+                      trader
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setTrader(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="">
+                      اختر العميل
+                    </option>
+
+                    {traders.map(
+                      (
+                        traderRow
+                      ) => (
+                        <option
+                          key={
+                            traderRow.id
+                          }
+                          value={
+                            traderRow.id
+                          }
+                        >
+                          {
+                            traderRow.name
+                          }
+                          {traderRow.area
+                            ? ` - ${traderRow.area}`
+                            : ""}
+                        </option>
+                      )
+                    )}
                   </select>
                 </label>
+
                 <label className="field">
-                  <span>صالح لغاية</span>
-                  <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+                  <span>
+                    صالح لغاية
+                  </span>
+
+                  <input
+                    type="date"
+                    min={
+                      businessDateInput()
+                    }
+                    value={
+                      validUntil
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setValidUntil(
+                        event.target.value
+                      )
+                    }
+                  />
                 </label>
               </div>
 
-              <div className="panel panelPad" style={{ marginTop: 14 }}>
+              <section
+                className="panel panelPad"
+                style={{
+                  marginTop: 14,
+                }}
+              >
                 <div className="panelHeader">
-                  <div><h2>الأصناف</h2><p>سعر البيع قابل للتعديل ضمن العرض.</p></div>
-                  <button type="button" className="softButton" onClick={() => setItems((x) => [...x, emptyItem()])}>
-                    <Icons.plus size={13} /> صنف
+                  <div>
+                    <h2>
+                      الأصناف
+                    </h2>
+
+                    <p>
+                      حدّد الكمية وسعر البيع لكل صنف.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={() =>
+                      setItems(
+                        (
+                          current
+                        ) => [
+                          ...current,
+                          emptyItem(),
+                        ]
+                      )
+                    }
+                  >
+                    <Icons.plus
+                      size={13}
+                    />
+                    صنف
                   </button>
                 </div>
+
                 <div className="tableWrap">
-                  <table>
-                    <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th /></tr></thead>
+                  <table className="dataTable">
+                    <thead>
+                      <tr>
+                        <th>
+                          الصنف
+                        </th>
+                        <th>
+                          الكمية
+                        </th>
+                        <th>
+                          السعر
+                        </th>
+                        <th>
+                          الإجمالي
+                        </th>
+                        <th />
+                      </tr>
+                    </thead>
+
                     <tbody>
-                      {items.map((item, index) => {
-                        const total = Number(item.quantity || 0) * Number(item.sale_unit_price || 0);
-                        return (
-                          <tr key={item.key}>
-                            <td>
-                              <select value={item.product_id} onChange={(e) => chooseProduct(index, e.target.value)}>
-                                <option value="">اختر</option>
-                                {products.map((p) => <option key={p.id} value={p.id}>{p.name}{p.sku ? ` - ${p.sku}` : ""}</option>)}
-                              </select>
-                            </td>
-                            <td><input style={{ width: 95 }} type="number" min="0.001" step="0.001" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></td>
-                            <td><input style={{ width: 120 }} type="number" min="0" step="0.01" value={item.sale_unit_price} onChange={(e) => updateItem(index, { sale_unit_price: e.target.value })} /></td>
-                            <td>{Number.isFinite(total) ? total.toFixed(2) : "0.00"} {currency}</td>
-                            <td><button type="button" className="dangerButton" disabled={items.length === 1} onClick={() => setItems((x) => x.filter((_, i) => i !== index))}>×</button></td>
-                          </tr>
-                        );
-                      })}
+                      {items.map(
+                        (
+                          item,
+                          index
+                        ) => {
+                          const total =
+                            numberValue(
+                              item.quantity
+                            ) *
+                            numberValue(
+                              item.sale_unit_price
+                            );
+
+                          return (
+                            <tr
+                              key={
+                                item.key
+                              }
+                            >
+                              <td>
+                                <select
+                                  value={
+                                    item.product_id
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    chooseProduct(
+                                      index,
+                                      event.target.value
+                                    )
+                                  }
+                                >
+                                  <option value="">
+                                    اختر الصنف
+                                  </option>
+
+                                  {products.map(
+                                    (
+                                      product
+                                    ) => (
+                                      <option
+                                        key={
+                                          product.id
+                                        }
+                                        value={
+                                          product.id
+                                        }
+                                      >
+                                        {
+                                          product.name
+                                        }
+                                        {product.sku
+                                          ? ` - ${product.sku}`
+                                          : ""}
+                                      </option>
+                                    )
+                                  )}
+                                </select>
+                              </td>
+
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0.001"
+                                  step="0.001"
+                                  value={
+                                    item.quantity
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    updateItem(
+                                      index,
+                                      {
+                                        quantity:
+                                          event.target.value,
+                                      }
+                                    )
+                                  }
+                                  style={{
+                                    width:
+                                      105,
+                                  }}
+                                />
+                              </td>
+
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={
+                                    item.sale_unit_price
+                                  }
+                                  onChange={(
+                                    event
+                                  ) =>
+                                    updateItem(
+                                      index,
+                                      {
+                                        sale_unit_price:
+                                          event.target.value,
+                                      }
+                                    )
+                                  }
+                                  style={{
+                                    width:
+                                      120,
+                                  }}
+                                />
+                              </td>
+
+                              <td>
+                                {money(
+                                  total,
+                                  currency
+                                )}
+                              </td>
+
+                              <td>
+                                <button
+                                  type="button"
+                                  className="dangerButton"
+                                  disabled={
+                                    items.length ===
+                                    1
+                                  }
+                                  onClick={() =>
+                                    setItems(
+                                      (
+                                        current
+                                      ) =>
+                                        current.filter(
+                                          (
+                                            _,
+                                            itemIndex
+                                          ) =>
+                                            itemIndex !==
+                                            index
+                                        )
+                                    )
+                                  }
+                                >
+                                  حذف
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                      )}
                     </tbody>
                   </table>
                 </div>
-              </div>
 
-              <label className="field" style={{ marginTop: 14 }}>
-                <span>ملاحظات</span>
-                <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                <div
+                  style={{
+                    marginTop:
+                      12,
+                    textAlign:
+                      "end",
+                  }}
+                >
+                  <strong>
+                    الإجمالي:{" "}
+                    {money(
+                      draftTotal,
+                      currency
+                    )}
+                  </strong>
+                </div>
+              </section>
+
+              <label
+                className="field"
+                style={{
+                  marginTop: 14,
+                }}
+              >
+                <span>
+                  ملاحظات
+                </span>
+
+                <textarea
+                  value={
+                    notes
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setNotes(
+                      event.target.value
+                    )
+                  }
+                  placeholder="اختياري"
+                />
               </label>
 
-              <div className="panel panelPad" style={{ marginTop: 14 }}>
-                <div className="panelHeader">
-                  <div><h2>إجمالي العرض</h2><p>قبل تحويله لطلبية.</p></div>
-                  <div className="statValue">{draftTotal.toFixed(2)} {currency}</div>
+              {createMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
+                  {
+                    createMessage
+                  }
                 </div>
-              </div>
+              ) : null}
 
-              {message && <div className="toastError" style={{ marginTop: 12 }}>{message}</div>}
               <div className="modalActions">
-                <button type="button" className="softButton" onClick={() => setOpen(false)}>إلغاء</button>
-                <button className="primaryButton" disabled={saving}>{saving ? "عم نحفظ..." : "حفظ العرض"}</button>
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    saving
+                  }
+                  onClick={() =>
+                    setCreateOpen(
+                      false
+                    )
+                  }
+                >
+                  إلغاء
+                </button>
+
+                <button
+                  type="submit"
+                  className="primaryButton"
+                  disabled={
+                    saving
+                  }
+                >
+                  {saving
+                    ? "جارٍ الإنشاء..."
+                    : "إنشاء العرض"}
+                </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
 
-      {selected && (
+      {selected ? (
         <div className="modalOverlay">
-          <section className="modal">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            style={{
+              width:
+                "94vw",
+              maxWidth:
+                850,
+            }}
+          >
             <div className="modalHeader">
-              <div><span className="eyebrow">{selected.quote_number}</span><h2>{one(selected.traders)?.name ?? "عرض سعر"}</h2></div>
-              <button type="button" className="closeButton" onClick={() => setSelected(null)}>×</button>
+              <div>
+                <span className="eyebrow">
+                  تفاصيل العرض
+                </span>
+
+                <h2>
+                  {
+                    selected.quote_number
+                  }
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="closeButton"
+                onClick={() =>
+                  setSelected(
+                    null
+                  )
+                }
+              >
+                ×
+              </button>
             </div>
-            <div className="quickList">
-              {selected.sales_quote_items.map((item) => {
-                const p = one(item.products);
-                const guard = Math.max(Number(item.minimum_sale_price_snapshot || 0), Number(item.reference_cost_snapshot || 0));
-                const below = Number(item.sale_unit_price) < guard;
-                return (
-                  <div className="quickItem" key={item.id}>
-                    <div className="quickIcon"><Icons.box size={15} /></div>
-                    <div>
-                      <strong>{p?.name ?? "صنف"}</strong>
-                      <span>{Number(item.quantity)} × {Number(item.sale_unit_price).toFixed(2)} {selected.currency}{below ? " • يحتاج موافقة عند التحويل" : ""}</span>
-                    </div>
-                    <div className="count">{Number(item.line_total).toFixed(2)}</div>
-                  </div>
-                );
-              })}
+
+            <div className="formGrid">
+              <div className="field">
+                <span>
+                  العميل
+                </span>
+
+                <strong>
+                  {selected.trader?.name ||
+                    "—"}
+                </strong>
+              </div>
+
+              <div className="field">
+                <span>
+                  الحالة
+                </span>
+
+                <strong>
+                  {
+                    statusLabels[
+                      selected.status
+                    ]
+                  }
+                </strong>
+              </div>
+
+              <div className="field">
+                <span>
+                  تاريخ العرض
+                </span>
+
+                <strong>
+                  {
+                    selected.quote_date
+                  }
+                </strong>
+              </div>
+
+              <div className="field">
+                <span>
+                  صالح لغاية
+                </span>
+
+                <strong>
+                  {selected.valid_until ||
+                    "بدون"}
+                </strong>
+              </div>
             </div>
-            {selected.notes && <p className="muted" style={{ marginTop: 14 }}>{selected.notes}</p>}
+
+            <div
+              className="tableWrap"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>
+                      الصنف
+                    </th>
+                    <th>
+                      الكمية
+                    </th>
+                    <th>
+                      السعر
+                    </th>
+                    <th>
+                      الإجمالي
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {selected.items.map(
+                    (item) => (
+                      <tr
+                        key={
+                          item.id
+                        }
+                      >
+                        <td>
+                          <strong>
+                            {
+                              item.product_name
+                            }
+                          </strong>
+
+                          <div className="muted">
+                            {item.sku ||
+                              item.unit ||
+                              ""}
+                          </div>
+                        </td>
+
+                        <td>
+                          {numberValue(
+                            item.quantity
+                          ).toFixed(
+                            3
+                          )}
+                        </td>
+
+                        <td>
+                          {money(
+                            item.sale_unit_price,
+                            selected.currency
+                          )}
+                        </td>
+
+                        <td>
+                          {money(
+                            item.line_total,
+                            selected.currency
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {selected.notes ? (
+              <div
+                className="panel panelPad"
+                style={{
+                  marginTop: 14,
+                }}
+              >
+                <strong>
+                  ملاحظات
+                </strong>
+
+                <p className="muted">
+                  {
+                    selected.notes
+                  }
+                </p>
+              </div>
+            ) : null}
+
             <div className="modalActions">
-              {canUpdate && selected.status === "sent" && (
-                <button type="button" className="dangerButton" onClick={() => void setStatus(selected, "rejected")}>رفض</button>
-              )}
-              {canUpdate && (selected.status === "draft" || selected.status === "sent" || selected.status === "accepted") && (
-                <button type="button" className="softButton" onClick={() => void setStatus(selected, "cancelled")}>إلغاء العرض</button>
-              )}
-              <button type="button" className="softButton" onClick={() => setSelected(null)}>إغلاق</button>
+              <strong>
+                الإجمالي:{" "}
+                {money(
+                  selected.total,
+                  selected.currency
+                )}
+              </strong>
+
+              <button
+                type="button"
+                className="softButton"
+                onClick={() =>
+                  setSelected(
+                    null
+                  )
+                }
+              >
+                إغلاق
+              </button>
             </div>
           </section>
         </div>
-      )}
+      ) : null}
+
+      {lifecycleTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  حالة العرض
+                </span>
+
+                <h2>
+                  {lifecycleTitle(
+                    lifecycleTarget.action
+                  )}
+                </h2>
+              </div>
+            </div>
+
+            <form
+              onSubmit={
+                saveLifecycle
+              }
+            >
+              <p>
+                العرض:{" "}
+                <strong>
+                  {
+                    lifecycleTarget.row.quote_number
+                  }
+                </strong>
+              </p>
+
+              <p className="muted">
+                {lifecycleDescription(
+                  lifecycleTarget.action
+                )}
+              </p>
+
+              {lifecycleMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
+                  {
+                    lifecycleMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    busyId ===
+                    lifecycleTarget.row.id
+                  }
+                  onClick={() =>
+                    setLifecycleTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  type="submit"
+                  className={
+                    lifecycleTarget.action ===
+                      "cancelled" ||
+                    lifecycleTarget.action ===
+                      "rejected"
+                      ? "dangerButton"
+                      : "primaryButton"
+                  }
+                  disabled={
+                    busyId ===
+                    lifecycleTarget.row.id
+                  }
+                >
+                  {busyId ===
+                  lifecycleTarget.row.id
+                    ? "جارٍ الحفظ..."
+                    : "تأكيد"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {convertTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  تحويل العرض
+                </span>
+
+                <h2>
+                  إنشاء طلبية من عرض السعر
+                </h2>
+              </div>
+            </div>
+
+            <form
+              onSubmit={
+                saveConvert
+              }
+            >
+              <p>
+                العرض:{" "}
+                <strong>
+                  {
+                    convertTarget.quote_number
+                  }
+                </strong>
+              </p>
+
+              <p className="muted">
+                سيتم إنشاء الطلبية بنفس العميل والأصناف والكميات والأسعار الموجودة في العرض. إذا كان أي سعر تحت الحد المسموح فسيتم إنشاء طلب موافقة بدلاً من تجاوز الحماية.
+              </p>
+
+              {convertMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                >
+                  {
+                    convertMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    busyId ===
+                    convertTarget.id
+                  }
+                  onClick={() =>
+                    setConvertTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  type="submit"
+                  className="primaryButton"
+                  disabled={
+                    busyId ===
+                    convertTarget.id
+                  }
+                >
+                  {busyId ===
+                  convertTarget.id
+                    ? "جارٍ التحويل..."
+                    : "تأكيد التحويل"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function Mini({ title, value }: { title: string; value: string }) {
-  return <div className="statCard"><div className="statLabel">{title}</div><div className="statValue">{value}</div></div>;
+function Mini({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
+  return (
+    <div className="statCard">
+      <div className="statLabel">
+        {title}
+      </div>
+
+      <div className="statValue">
+        {value}
+      </div>
+    </div>
+  );
 }

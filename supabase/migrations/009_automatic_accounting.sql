@@ -1,242 +1,5 @@
-begin;
-
--- ============================================================
--- EXTRA SYSTEM ACCOUNTS
--- ============================================================
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '1250',
-  'دفعات مقدمة للموردين',
-  'asset',
-  'supplier_advances',
-  'debit',
-  'supplier_advances',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '1000'
-on conflict(company_id,code)
-do nothing;
-
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '1350',
-  'بضاعة بالطريق وحساب استلام',
-  'asset',
-  'inventory_clearing',
-  'debit',
-  'inventory_clearing',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '1000'
-on conflict(company_id,code)
-do nothing;
-
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '2150',
-  'دفعات مقدمة من العملاء',
-  'liability',
-  'customer_advances',
-  'credit',
-  'customer_advances',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '2000'
-on conflict(company_id,code)
-do nothing;
-
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '3150',
-  'رصيد افتتاحي وتسويات',
-  'equity',
-  'opening_balance',
-  'credit',
-  'opening_balance_equity',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '3000'
-on conflict(company_id,code)
-do nothing;
-
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '4150',
-  'خصومات المبيعات',
-  'revenue',
-  'sales_discounts',
-  'debit',
-  'sales_discounts',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '4000'
-on conflict(company_id,code)
-do nothing;
-
-
-insert into public.finance_accounts(
-  company_id,
-  parent_id,
-  code,
-  name,
-  account_type,
-  account_group,
-  normal_balance,
-  system_key,
-  allow_posting,
-  is_system
-)
-select
-  c.id,
-  p.id,
-  '6250',
-  'فروقات وتكاليف المشتريات',
-  'expense',
-  'purchase_variance',
-  'debit',
-  'purchase_variance',
-  true,
-  true
-from public.companies c
-join public.finance_accounts p
-  on p.company_id = c.id
- and p.code = '6000'
-on conflict(company_id,code)
-do nothing;
-
-
--- ============================================================
--- EXCHANGE RATES
--- 1 unit of currency = rate_to_base units of company base.
--- ============================================================
-
-create table if not exists public.finance_exchange_rates(
-  id uuid primary key default gen_random_uuid(),
-
-  company_id uuid not null
-    references public.companies(id)
-    on delete cascade,
-
-  currency text not null,
-
-  rate_date date not null,
-
-  rate_to_base numeric(24,10) not null
-    check(rate_to_base > 0),
-
-  source text,
-
-  notes text,
-
-  created_by uuid
-    default auth.uid()
-    references auth.users(id)
-    on delete set null,
-
-  created_at timestamptz not null default now(),
-
-  unique(
-    company_id,
-    currency,
-    rate_date
-  )
-);
-
-create index if not exists
-finance_exchange_rates_lookup_idx
-on public.finance_exchange_rates(
-  company_id,
-  currency,
-  rate_date desc
-);
-
-
-create or replace function public.finance_rate_to_base(
+create or replace function
+public.finance_rate_to_base(
   target_company uuid,
   target_currency text,
   target_date date
@@ -248,9 +11,11 @@ set search_path = public
 as $$
 declare
   v_base text;
+  v_currency text;
   v_rate numeric(24,10);
+  v_effective_date date;
 begin
-  select upper(default_currency)
+  select upper(trim(default_currency))
   into v_base
   from public.companies
   where id = target_company;
@@ -259,35 +24,47 @@ begin
     raise exception 'Company not found';
   end if;
 
-  if upper(
-       coalesce(
-         target_currency,
-         v_base
-       )
-     ) = v_base
-  then
+  v_currency :=
+    upper(
+      trim(
+        coalesce(
+          target_currency,
+          v_base
+        )
+      )
+    );
+
+  if v_currency !~ '^[A-Z]{3}$' then
+    raise exception 'Invalid currency';
+  end if;
+
+  if v_currency = v_base then
     return 1;
   end if;
+
+  v_effective_date :=
+    coalesce(
+      target_date,
+      (
+        now()
+        at time zone 'Asia/Damascus'
+      )::date
+    );
 
   select rate_to_base
   into v_rate
   from public.finance_exchange_rates
   where company_id = target_company
-    and upper(currency) =
-        upper(target_currency)
-    and rate_date <=
-        coalesce(
-          target_date,
-          current_date
-        )
+    and upper(currency) = v_currency
+    and rate_date <= v_effective_date
   order by rate_date desc
   limit 1;
 
   if v_rate is null then
     raise exception
       'Missing exchange rate for % on %',
-      target_currency,
-      target_date;
+      v_currency,
+      v_effective_date;
   end if;
 
   return v_rate;
@@ -303,7 +80,8 @@ on function public.finance_rate_to_base(
 from public, authenticated;
 
 
-create or replace function public.save_finance_exchange_rate(
+create or replace function
+public.save_finance_exchange_rate(
   target_company uuid,
   target_currency text,
   target_date date,
@@ -317,6 +95,10 @@ set search_path = public
 as $$
 declare
   v_id uuid;
+  v_base_currency text;
+  v_currency text;
+  v_business_date date;
+  v_rate_date date;
 begin
   if not public.has_permission(
     target_company,
@@ -325,20 +107,53 @@ begin
     raise exception 'Not allowed';
   end if;
 
-  if nullif(
-       trim(target_currency),
-       ''
-     ) is null
-  then
-    raise exception
-      'Currency is required';
+  select upper(trim(default_currency))
+  into v_base_currency
+  from public.companies
+  where id = target_company;
+
+  if v_base_currency is null then
+    raise exception 'Company not found';
+  end if;
+
+  v_currency :=
+    upper(
+      trim(
+        coalesce(
+          target_currency,
+          ''
+        )
+      )
+    );
+
+  if v_currency !~ '^[A-Z]{3}$' then
+    raise exception 'Invalid currency';
+  end if;
+
+  if v_currency = v_base_currency then
+    raise exception 'Base currency does not need exchange rate';
   end if;
 
   if target_rate is null
      or target_rate <= 0
   then
-    raise exception
-      'Invalid exchange rate';
+    raise exception 'Invalid exchange rate';
+  end if;
+
+  v_business_date :=
+    (
+      now()
+      at time zone 'Asia/Damascus'
+    )::date;
+
+  v_rate_date :=
+    coalesce(
+      target_date,
+      v_business_date
+    );
+
+  if v_rate_date > v_business_date then
+    raise exception 'Future exchange rate date is not allowed';
   end if;
 
   insert into public.finance_exchange_rates(
@@ -350,11 +165,8 @@ begin
   )
   values(
     target_company,
-    upper(trim(target_currency)),
-    coalesce(
-      target_date,
-      current_date
-    ),
+    v_currency,
+    v_rate_date,
     target_rate,
     nullif(
       trim(target_notes),
@@ -544,7 +356,9 @@ declare
   v_entry uuid;
   v_number text;
   v_currency text;
+  v_base_currency text;
   v_rate numeric(24,10);
+  v_business_date date;
 
   v_line jsonb;
   v_account uuid;
@@ -589,45 +403,71 @@ begin
       'Automatic journal requires at least two lines';
   end if;
 
+  v_business_date :=
+    coalesce(
+      target_date,
+      (
+        now()
+        at time zone
+        'Asia/Damascus'
+      )::date
+    );
+
   perform
     public.assert_finance_period_open(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_business_date
     );
 
   select
-    coalesce(
-      nullif(
-        trim(target_currency),
-        ''
-      ),
-      default_currency
+    upper(default_currency),
+    upper(
+      coalesce(
+        nullif(
+          trim(target_currency),
+          ''
+        ),
+        default_currency
+      )
     )
-  into v_currency
+  into
+    v_base_currency,
+    v_currency
   from public.companies
   where id =
         target_company;
 
-  if v_currency is null then
+  if v_currency is null
+     or v_base_currency is null
+  then
     raise exception
       'Company not found';
   end if;
 
-  v_rate :=
-    coalesce(
-      target_rate,
-      public.finance_rate_to_base(
-        target_company,
-        v_currency,
-        coalesce(
-          target_date,
-          current_date
+  if v_currency =
+     v_base_currency
+  then
+    v_rate := 1;
+  else
+
+    if target_rate is not null
+       and target_rate <= 0
+    then
+      raise exception
+        'Invalid exchange rate';
+    end if;
+
+    v_rate :=
+      coalesce(
+        target_rate,
+        public.finance_rate_to_base(
+          target_company,
+          v_currency,
+          v_business_date
         )
-      )
-    );
+      );
+
+  end if;
 
   for v_line in
     select value
@@ -717,10 +557,7 @@ begin
   v_number :=
     public.next_journal_number(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_business_date
     );
 
   insert into public.journal_entries(
@@ -738,10 +575,7 @@ begin
   values(
     target_company,
     v_number,
-    coalesce(
-      target_date,
-      current_date
-    ),
+    v_business_date,
     target_description,
     'posted',
     upper(v_currency),
@@ -840,6 +674,11 @@ begin
       v_memo
     );
   end loop;
+
+  perform
+    public.balance_journal_base_rounding(
+      v_entry
+    );
 
   return v_entry;
 end;
@@ -1015,6 +854,179 @@ on function public.reverse_system_journal(
 )
 from public, authenticated;
 
+
+-- ============================================================
+-- MANUAL JOURNAL REVERSAL
+-- Never delete or rewrite posted accounting history.
+-- ============================================================
+
+create or replace function public.reverse_manual_journal_entry(
+  target_company uuid,
+  target_entry uuid,
+  target_reason text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_source_type text;
+  v_source_id uuid;
+  v_status text;
+  v_reversed_from uuid;
+
+  v_reversal uuid;
+  v_business_date date;
+begin
+
+  if not public.has_permission(
+    target_company,
+    'finance.manual_journal_reverse'
+  ) then
+    raise exception
+      'Not allowed';
+  end if;
+
+
+  if nullif(
+       trim(target_reason),
+       ''
+     ) is null
+  then
+    raise exception
+      'Reversal reason is required';
+  end if;
+
+
+  select
+    source_type,
+    source_id,
+    status,
+    reversed_from_id
+
+  into
+    v_source_type,
+    v_source_id,
+    v_status,
+    v_reversed_from
+
+  from public.journal_entries
+
+  where id =
+        target_entry
+
+    and company_id =
+        target_company
+
+  for update;
+
+
+  if not found then
+    raise exception
+      'Journal entry not found';
+  end if;
+
+
+  if v_source_type <>
+     'manual'
+     or v_reversed_from
+        is not null
+  then
+    raise exception
+      'Only original manual journals can be reversed';
+  end if;
+
+
+  -- Compatibility guard for manual entries created before
+  -- source_id became the entry's own id.
+  if v_source_id is null then
+
+    update public.journal_entries
+    set source_id =
+        id
+
+    where id =
+          target_entry
+
+      and company_id =
+          target_company;
+
+  elsif v_source_id <>
+        target_entry
+  then
+
+    raise exception
+      'Invalid manual journal source identity';
+
+  end if;
+
+
+  -- Idempotent retry: return the existing reversal.
+  select id
+  into v_reversal
+
+  from public.journal_entries
+
+  where reversed_from_id =
+        target_entry
+
+  limit 1;
+
+
+  if v_reversal is not null then
+    return v_reversal;
+  end if;
+
+
+  v_business_date :=
+    (
+      now()
+      at time zone
+      'Asia/Damascus'
+    )::date;
+
+
+  -- reverse_system_journal itself verifies that the reversal
+  -- date is inside an open financial period.
+  v_reversal :=
+    public.reverse_system_journal(
+      target_company,
+      'manual',
+      target_entry,
+      v_business_date,
+      'عكس قيد يدوي: ' ||
+      trim(target_reason)
+    );
+
+
+  if v_reversal is null then
+    raise exception
+      'Manual journal reversal failed';
+  end if;
+
+
+  return v_reversal;
+end;
+$$;
+
+
+revoke all
+on function public.reverse_manual_journal_entry(
+  uuid,
+  uuid,
+  text
+)
+from public;
+
+
+grant execute
+on function public.reverse_manual_journal_entry(
+  uuid,
+  uuid,
+  text
+)
+to authenticated;
 
 -- ============================================================
 -- FIX TRIAL BALANCE
@@ -3494,11 +3506,6 @@ using(
   public.has_permission(
     company_id,
     'finance.accounts_view'
-  )
-  or
-  public.has_permission(
-    company_id,
-    'finance.accounts_write'
   )
   or
   public.has_permission(

@@ -53,7 +53,18 @@ export type FinanceJournal = {
   exchange_rate_to_base: number;
   source_type: string | null;
   source_id: string | null;
+  reversed_from_id: string | null;
   created_at: string;
+};
+
+type FinanceJournalLine = {
+  id: string;
+  account_id: string;
+  debit: number;
+  credit: number;
+  base_debit: number;
+  base_credit: number;
+  memo: string | null;
 };
 
 export type FinanceRate = {
@@ -91,11 +102,11 @@ type JournalDraftLine = {
 };
 
 const accountTypeLabels: Record<string, string> = {
-  asset: "أصل",
-  liability: "التزام",
-  equity: "حقوق ملكية",
-  revenue: "إيراد",
-  expense: "مصروف",
+  asset: "╪ú╪╡┘ä",
+  liability: "╪º┘ä╪¬╪▓╪º┘à",
+  equity: "╪¡┘é┘ê┘é ┘à┘ä┘â┘è╪⌐",
+  revenue: "╪Ñ┘è╪▒╪º╪»",
+  expense: "┘à╪╡╪▒┘ê┘ü",
 };
 
 function numberValue(value: unknown) {
@@ -106,16 +117,33 @@ function numberValue(value: unknown) {
     : 0;
 }
 
-function today() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
+function businessDate() {
+  const parts = new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone: "Asia/Damascus",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  ).formatToParts(new Date());
+
+  const values = Object.fromEntries(
+    parts.map((part) => [
+      part.type,
+      part.value,
+    ])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
-function currentMonth() {
-  return new Date()
-    .toISOString()
-    .slice(0, 7);
+function businessMonth() {
+  return businessDate().slice(0, 7);
+}
+
+function friendlyFinanceError() {
+  return "تعذر تنفيذ العملية المالية. تأكد من البيانات والصلاحيات والفترة المالية ثم حاول مجددًا.";
 }
 
 export function FinanceClient({
@@ -126,8 +154,17 @@ export function FinanceClient({
   journals,
   rates,
   periods,
+  initialTab,
+  journalPage,
+  journalCount,
+  ratePage,
+  rateCount,
+  periodPage,
+  periodCount,
+  pageSize,
   canWrite,
   canManualJournal,
+  canReverseManualJournal,
   canClose,
   canReopen,
 }: {
@@ -138,8 +175,17 @@ export function FinanceClient({
   journals: FinanceJournal[];
   rates: FinanceRate[];
   periods: FinancePeriod[];
+  initialTab: Tab;
+  journalPage: number;
+  journalCount: number;
+  ratePage: number;
+  rateCount: number;
+  periodPage: number;
+  periodCount: number;
+  pageSize: number;
   canWrite: boolean;
   canManualJournal: boolean;
+  canReverseManualJournal: boolean;
   canClose: boolean;
   canReopen: boolean;
 }) {
@@ -149,7 +195,55 @@ export function FinanceClient({
   const router = useRouter();
 
   const [tab, setTab] =
-    useState<Tab>("overview");
+    useState<Tab>(initialTab);
+
+  const journalTotalPages = Math.max(
+    1,
+    Math.ceil(journalCount / pageSize)
+  );
+
+  const rateTotalPages = Math.max(
+    1,
+    Math.ceil(rateCount / pageSize)
+  );
+
+  const periodTotalPages = Math.max(
+    1,
+    Math.ceil(periodCount / pageSize)
+  );
+
+  function navigateFinance(
+    nextTab: Tab,
+    pageParam?:
+      | "journalPage"
+      | "ratePage"
+      | "periodPage",
+    page?: number
+  ) {
+    const params =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    params.set("tab", nextTab);
+
+    if (pageParam && page) {
+      if (page <= 1) {
+        params.delete(pageParam);
+      } else {
+        params.set(
+          pageParam,
+          String(page)
+        );
+      }
+    }
+
+    setTab(nextTab);
+
+    router.push(
+      `/finance?${params.toString()}`
+    );
+  }
 
   const [saving, setSaving] =
     useState(false);
@@ -182,10 +276,10 @@ export function FinanceClient({
     useState(false);
 
   const [rateCurrency, setRateCurrency] =
-    useState("SYP");
+    useState("");
 
   const [rateDate, setRateDate] =
-    useState(today());
+    useState(businessDate());
 
   const [rateValue, setRateValue] =
     useState("");
@@ -194,22 +288,19 @@ export function FinanceClient({
     useState("");
 
   const [periodMonth, setPeriodMonth] =
-    useState(currentMonth());
+    useState(businessMonth());
 
   const [journalOpen, setJournalOpen] =
     useState(false);
 
   const [journalDate, setJournalDate] =
-    useState(today());
+    useState(businessDate());
 
   const [journalDescription, setJournalDescription] =
     useState("");
 
   const [journalCurrency, setJournalCurrency] =
     useState(baseCurrency);
-
-  const [journalRate, setJournalRate] =
-    useState("1");
 
   const [journalLines, setJournalLines] =
     useState<JournalDraftLine[]>([
@@ -226,6 +317,24 @@ export function FinanceClient({
         memo: "",
       },
     ]);
+
+  const [selectedJournal, setSelectedJournal] =
+    useState<FinanceJournal | null>(null);
+
+  const [journalDetailLines, setJournalDetailLines] =
+    useState<FinanceJournalLine[]>([]);
+
+  const [journalDetailsOpen, setJournalDetailsOpen] =
+    useState(false);
+
+  const [journalDetailsLoading, setJournalDetailsLoading] =
+    useState(false);
+
+  const [journalReversalReason, setJournalReversalReason] =
+    useState("");
+
+  const [reversingJournal, setReversingJournal] =
+    useState(false);
 
   const postingAccounts =
     useMemo(
@@ -332,7 +441,7 @@ export function FinanceClient({
       !accountName.trim()
     ) {
       setMessage(
-        "الكود واسم الحساب مطلوبين."
+        "╪º┘ä┘â┘ê╪» ┘ê╪º╪│┘à ╪º┘ä╪¡╪│╪º╪¿ ┘à╪╖┘ä┘ê╪¿┘è┘å."
       );
       return;
     }
@@ -371,8 +480,10 @@ export function FinanceClient({
     setSaving(false);
 
     if (error) {
+      console.error("Finance operation failed", error);
+
       setMessage(
-        error.message
+        friendlyFinanceError()
       );
       return;
     }
@@ -390,14 +501,23 @@ export function FinanceClient({
   ) {
     event.preventDefault();
 
+    const normalizedRateCurrency =
+      rateCurrency.trim().toUpperCase();
+
     if (
-      !rateCurrency.trim() ||
+      !/^[A-Z]{3}$/.test(
+        normalizedRateCurrency
+      ) ||
+      normalizedRateCurrency ===
+        baseCurrency.toUpperCase() ||
+      !rateDate ||
+      rateDate > businessDate() ||
       numberValue(
         rateValue
       ) <= 0
     ) {
       setMessage(
-        "اكتب العملة وسعر الصرف."
+        "╪º┘â╪¬╪¿ ╪º┘ä╪╣┘à┘ä╪⌐ ┘ê╪│╪╣╪▒ ╪º┘ä╪╡╪▒┘ü."
       );
       return;
     }
@@ -412,7 +532,7 @@ export function FinanceClient({
           target_company:
             companyId,
           target_currency:
-            rateCurrency.trim(),
+            normalizedRateCurrency,
           target_date:
             rateDate,
           target_rate:
@@ -428,8 +548,10 @@ export function FinanceClient({
     setSaving(false);
 
     if (error) {
+      console.error("Finance operation failed", error);
+
       setMessage(
-        error.message
+        friendlyFinanceError()
       );
       return;
     }
@@ -483,8 +605,10 @@ export function FinanceClient({
     setSaving(false);
 
     if (error) {
+      console.error("Finance operation failed", error);
+
       setMessage(
-        error.message
+        friendlyFinanceError()
       );
       return;
     }
@@ -527,14 +651,14 @@ export function FinanceClient({
       !journalDescription.trim()
     ) {
       setMessage(
-        "اكتب بيان القيد."
+        "╪º┘â╪¬╪¿ ╪¿┘è╪º┘å ╪º┘ä┘é┘è╪»."
       );
       return;
     }
 
     if (lines.length < 2) {
       setMessage(
-        "القيد لازم يحتوي سطرين على الأقل."
+        "╪º┘ä┘é┘è╪» ┘ä╪º╪▓┘à ┘è╪¡╪¬┘ê┘è ╪│╪╖╪▒┘è┘å ╪╣┘ä┘ë ╪º┘ä╪ú┘é┘ä."
       );
       return;
     }
@@ -562,7 +686,7 @@ export function FinanceClient({
       ) > 0.009
     ) {
       setMessage(
-        "القيد غير متوازن."
+        "╪º┘ä┘é┘è╪» ╪║┘è╪▒ ┘à╪¬┘ê╪º╪▓┘å."
       );
       return;
     }
@@ -583,12 +707,7 @@ export function FinanceClient({
           target_currency:
             journalCurrency,
           target_exchange_rate:
-            journalCurrency ===
-            baseCurrency
-              ? 1
-              : numberValue(
-                  journalRate
-                ),
+            1,
           lines_payload:
             lines,
         }
@@ -597,8 +716,10 @@ export function FinanceClient({
     setSaving(false);
 
     if (error) {
+      console.error("Finance operation failed", error);
+
       setMessage(
-        error.message
+        friendlyFinanceError()
       );
       return;
     }
@@ -608,7 +729,6 @@ export function FinanceClient({
     setJournalCurrency(
       baseCurrency
     );
-    setJournalRate("1");
 
     setJournalLines([
       {
@@ -628,6 +748,102 @@ export function FinanceClient({
     router.refresh();
   }
 
+  async function openJournalDetails(
+    journal: FinanceJournal
+  ) {
+    setSelectedJournal(journal);
+    setJournalDetailLines([]);
+    setJournalReversalReason("");
+    setMessage("");
+    setJournalDetailsOpen(true);
+    setJournalDetailsLoading(true);
+
+    const { data, error } =
+      await supabase
+        .from("journal_lines")
+        .select(
+          "id,account_id,debit,credit,base_debit,base_credit,memo"
+        )
+        .eq("company_id", companyId)
+        .eq("journal_entry_id", journal.id)
+        .order("created_at", {
+          ascending: true,
+        });
+
+    setJournalDetailsLoading(false);
+
+    if (error) {
+      console.error(
+        "Finance journal details failed",
+        error
+      );
+
+      setMessage(
+        friendlyFinanceError()
+      );
+      return;
+    }
+
+    setJournalDetailLines(
+      (data ?? []) as FinanceJournalLine[]
+    );
+  }
+
+  async function reverseSelectedManualJournal() {
+    if (
+      !canReverseManualJournal ||
+      !selectedJournal ||
+      selectedJournal.source_type !== "manual" ||
+      selectedJournal.status !== "posted" ||
+      selectedJournal.reversed_from_id
+    ) {
+      setMessage(
+        "هذا القيد غير قابل للعكس."
+      );
+      return;
+    }
+
+    if (!journalReversalReason.trim()) {
+      setMessage(
+        "سبب عكس القيد مطلوب."
+      );
+      return;
+    }
+
+    setReversingJournal(true);
+    setMessage("");
+
+    const { error } =
+      await supabase.rpc(
+        "reverse_manual_journal_entry",
+        {
+          target_company: companyId,
+          target_entry: selectedJournal.id,
+          target_reason: journalReversalReason.trim(),
+        }
+      );
+
+    setReversingJournal(false);
+
+    if (error) {
+      console.error(
+        "Manual journal reversal failed",
+        error
+      );
+
+      setMessage(
+        friendlyFinanceError()
+      );
+      return;
+    }
+
+    setJournalDetailsOpen(false);
+    setSelectedJournal(null);
+    setJournalDetailLines([]);
+    setJournalReversalReason("");
+    router.refresh();
+  }
+
   const tabButton = (
     key: Tab,
     label: string
@@ -640,7 +856,7 @@ export function FinanceClient({
           : "softButton"
       }
       onClick={() =>
-        setTab(key)
+        navigateFinance(key)
       }
     >
       {label}
@@ -656,11 +872,11 @@ export function FinanceClient({
           </span>
 
           <h2>
-            الإدارة المالية
+            ╪º┘ä╪Ñ╪»╪º╪▒╪⌐ ╪º┘ä┘à╪º┘ä┘è╪⌐
           </h2>
 
           <p className="muted">
-            كل العمليات التشغيلية تترحل محاسبيًا بشكل تلقائي.
+            ┘â┘ä ╪º┘ä╪╣┘à┘ä┘è╪º╪¬ ╪º┘ä╪¬╪┤╪║┘è┘ä┘è╪⌐ ╪¬╪¬╪▒╪¡┘ä ┘à╪¡╪º╪│╪¿┘è┘ï╪º ╪¿╪┤┘â┘ä ╪¬┘ä┘é╪º╪ª┘è.
           </p>
         </div>
 
@@ -679,7 +895,7 @@ export function FinanceClient({
               <Icons.plus
                 size={14}
               />
-              قيد يدوي
+              ┘é┘è╪» ┘è╪»┘ê┘è
             </button>
           )}
 
@@ -697,7 +913,7 @@ export function FinanceClient({
               <Icons.plus
                 size={14}
               />
-              حساب جديد
+              ╪¡╪│╪º╪¿ ╪¼╪»┘è╪»
             </button>
           )}
         </div>
@@ -705,28 +921,28 @@ export function FinanceClient({
 
       <section className="statsGrid">
         <Mini
-          title="الأصول"
+          title="╪º┘ä╪ú╪╡┘ê┘ä"
           value={`${assets.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="الالتزامات"
+          title="╪º┘ä╪º┘ä╪¬╪▓╪º┘à╪º╪¬"
           value={`${liabilities.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="الإيرادات"
+          title="╪º┘ä╪Ñ┘è╪▒╪º╪»╪º╪¬"
           value={`${revenue.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="النتيجة الحالية"
+          title="╪º┘ä┘å╪¬┘è╪¼╪⌐ ╪º┘ä╪¡╪º┘ä┘è╪⌐"
           value={`${netProfit.toFixed(
             2
           )} ${baseCurrency}`}
@@ -742,27 +958,27 @@ export function FinanceClient({
       >
         {tabButton(
           "overview",
-          "نظرة عامة"
+          "┘å╪╕╪▒╪⌐ ╪╣╪º┘à╪⌐"
         )}
 
         {tabButton(
           "accounts",
-          "شجرة الحسابات"
+          "╪┤╪¼╪▒╪⌐ ╪º┘ä╪¡╪│╪º╪¿╪º╪¬"
         )}
 
         {tabButton(
           "journals",
-          "القيود"
+          "╪º┘ä┘é┘è┘ê╪»"
         )}
 
         {tabButton(
           "rates",
-          "أسعار الصرف"
+          "╪ú╪│╪╣╪º╪▒ ╪º┘ä╪╡╪▒┘ü"
         )}
 
         {tabButton(
           "periods",
-          "الفترات المالية"
+          "╪º┘ä┘ü╪¬╪▒╪º╪¬ ╪º┘ä┘à╪º┘ä┘è╪⌐"
         )}
       </div>
 
@@ -788,11 +1004,11 @@ export function FinanceClient({
           <div className="panelHeader panelPad">
             <div>
               <h2>
-                ميزان المراجعة
+                ┘à┘è╪▓╪º┘å ╪º┘ä┘à╪▒╪º╪¼╪╣╪⌐
               </h2>
 
               <p>
-                المدين والدائن بالعملة الأساسية
+                ╪º┘ä┘à╪»┘è┘å ┘ê╪º┘ä╪»╪º╪ª┘å ╪¿╪º┘ä╪╣┘à┘ä╪⌐ ╪º┘ä╪ú╪│╪º╪│┘è╪⌐
               </p>
             </div>
           </div>
@@ -814,7 +1030,7 @@ export function FinanceClient({
             }}
           >
             <strong>
-              مجموع المدين:{" "}
+              ┘à╪¼┘à┘ê╪╣ ╪º┘ä┘à╪»┘è┘å:{" "}
               {totalDebit.toFixed(
                 2
               )}{" "}
@@ -831,7 +1047,7 @@ export function FinanceClient({
             </span>
 
             <strong>
-              مجموع الدائن:{" "}
+              ┘à╪¼┘à┘ê╪╣ ╪º┘ä╪»╪º╪ª┘å:{" "}
               {totalCredit.toFixed(
                 2
               )}{" "}
@@ -853,12 +1069,12 @@ export function FinanceClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>الكود</th>
-                  <th>الحساب</th>
-                  <th>النوع</th>
-                  <th>الرصيد الطبيعي</th>
-                  <th>الترحيل</th>
-                  <th>الحالة</th>
+                  <th>╪º┘ä┘â┘ê╪»</th>
+                  <th>╪º┘ä╪¡╪│╪º╪¿</th>
+                  <th>╪º┘ä┘å┘ê╪╣</th>
+                  <th>╪º┘ä╪▒╪╡┘è╪» ╪º┘ä╪╖╪¿┘è╪╣┘è</th>
+                  <th>╪º┘ä╪¬╪▒╪¡┘è┘ä</th>
+                  <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
                 </tr>
               </thead>
 
@@ -885,7 +1101,7 @@ export function FinanceClient({
 
                         {account.is_system && (
                           <div className="muted">
-                            حساب نظام
+                            ╪¡╪│╪º╪¿ ┘å╪╕╪º┘à
                           </div>
                         )}
                       </td>
@@ -900,14 +1116,14 @@ export function FinanceClient({
                       <td>
                         {account.normal_balance ===
                         "debit"
-                          ? "مدين"
-                          : "دائن"}
+                          ? "┘à╪»┘è┘å"
+                          : "╪»╪º╪ª┘å"}
                       </td>
 
                       <td>
                         {account.allow_posting
-                          ? "نعم"
-                          : "تجميعي"}
+                          ? "┘å╪╣┘à"
+                          : "╪¬╪¼┘à┘è╪╣┘è"}
                       </td>
 
                       <td>
@@ -919,8 +1135,8 @@ export function FinanceClient({
                           }`}
                         >
                           {account.active
-                            ? "نشط"
-                            : "موقوف"}
+                            ? "┘å╪┤╪╖"
+                            : "┘à┘ê┘é┘ê┘ü"}
                         </span>
                       </td>
                     </tr>
@@ -947,11 +1163,11 @@ export function FinanceClient({
               />
 
               <h3>
-                ما في قيود
+                ┘à╪º ┘ü┘è ┘é┘è┘ê╪»
               </h3>
 
               <p>
-                أول عملية مالية رح تولد قيد تلقائي.
+                ╪ú┘ê┘ä ╪╣┘à┘ä┘è╪⌐ ┘à╪º┘ä┘è╪⌐ ╪▒╪¡ ╪¬┘ê┘ä╪» ┘é┘è╪» ╪¬┘ä┘é╪º╪ª┘è.
               </p>
             </div>
           ) : (
@@ -959,12 +1175,12 @@ export function FinanceClient({
               <table className="dataTable">
                 <thead>
                   <tr>
-                    <th>القيد</th>
-                    <th>التاريخ</th>
-                    <th>البيان</th>
-                    <th>المصدر</th>
-                    <th>العملة</th>
-                    <th>الحالة</th>
+                    <th>╪º┘ä┘é┘è╪»</th>
+                    <th>╪º┘ä╪¬╪º╪▒┘è╪«</th>
+                    <th>╪º┘ä╪¿┘è╪º┘å</th>
+                    <th>╪º┘ä┘à╪╡╪»╪▒</th>
+                    <th>╪º┘ä╪╣┘à┘ä╪⌐</th>
+                    <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
                   </tr>
                 </thead>
 
@@ -1019,8 +1235,8 @@ export function FinanceClient({
                           >
                             {journal.status ===
                             "posted"
-                              ? "مرحّل"
-                              : "معكوس"}
+                              ? "┘à╪▒╪¡┘æ┘ä"
+                              : "┘à╪╣┘â┘ê╪│"}
                           </span>
                         </td>
                       </tr>
@@ -1030,6 +1246,51 @@ export function FinanceClient({
               </table>
             </div>
           )}
+
+          <div
+            className="rowActions"
+            style={{
+              marginTop: 12,
+              justifyContent: "space-between",
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={journalPage <= 1}
+              onClick={() =>
+                navigateFinance(
+                  "journals",
+                  "journalPage",
+                  journalPage - 1
+                )
+              }
+            >
+              {"\u0627\u0644\u0633\u0627\u0628\u0642"}
+            </button>
+
+            <span className="muted">
+              {`\u0635\u0641\u062d\u0629 ${journalPage} \u0645\u0646 ${journalTotalPages} - ${journalCount} \u0633\u062c\u0644`}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                journalPage >=
+                journalTotalPages
+              }
+              onClick={() =>
+                navigateFinance(
+                  "journals",
+                  "journalPage",
+                  journalPage + 1
+                )
+              }
+            >
+              {"\u0627\u0644\u062a\u0627\u0644\u064a"}
+            </button>
+          </div>
         </section>
       )}
 
@@ -1044,11 +1305,11 @@ export function FinanceClient({
           <div className="panelHeader">
             <div>
               <h2>
-                أسعار الصرف
+                ╪ú╪│╪╣╪º╪▒ ╪º┘ä╪╡╪▒┘ü
               </h2>
 
               <p>
-                العملة الأساسية:{" "}
+                ╪º┘ä╪╣┘à┘ä╪⌐ ╪º┘ä╪ú╪│╪º╪│┘è╪⌐:{" "}
                 {baseCurrency}
               </p>
             </div>
@@ -1067,24 +1328,24 @@ export function FinanceClient({
                 <Icons.plus
                   size={14}
                 />
-                سعر صرف
+                ╪│╪╣╪▒ ╪╡╪▒┘ü
               </button>
             )}
           </div>
 
           {!rates.length ? (
             <p className="muted">
-              ما في أسعار صرف مسجلة.
+              ┘à╪º ┘ü┘è ╪ú╪│╪╣╪º╪▒ ╪╡╪▒┘ü ┘à╪│╪¼┘ä╪⌐.
             </p>
           ) : (
             <div className="tableWrap">
               <table className="dataTable">
                 <thead>
                   <tr>
-                    <th>العملة</th>
-                    <th>التاريخ</th>
-                    <th>السعر إلى {baseCurrency}</th>
-                    <th>ملاحظات</th>
+                    <th>╪º┘ä╪╣┘à┘ä╪⌐</th>
+                    <th>╪º┘ä╪¬╪º╪▒┘è╪«</th>
+                    <th>╪º┘ä╪│╪╣╪▒ ╪Ñ┘ä┘ë {baseCurrency}</th>
+                    <th>┘à┘ä╪º╪¡╪╕╪º╪¬</th>
                   </tr>
                 </thead>
 
@@ -1120,7 +1381,7 @@ export function FinanceClient({
 
                         <td>
                           {rate.notes ||
-                            "—"}
+                            "ΓÇö"}
                         </td>
                       </tr>
                     )
@@ -1129,6 +1390,50 @@ export function FinanceClient({
               </table>
             </div>
           )}
+
+          <div
+            className="rowActions"
+            style={{
+              marginTop: 12,
+              justifyContent: "space-between",
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={ratePage <= 1}
+              onClick={() =>
+                navigateFinance(
+                  "rates",
+                  "ratePage",
+                  ratePage - 1
+                )
+              }
+            >
+              {"\u0627\u0644\u0633\u0627\u0628\u0642"}
+            </button>
+
+            <span className="muted">
+              {`\u0635\u0641\u062d\u0629 ${ratePage} \u0645\u0646 ${rateTotalPages} - ${rateCount} \u0633\u062c\u0644`}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                ratePage >= rateTotalPages
+              }
+              onClick={() =>
+                navigateFinance(
+                  "rates",
+                  "ratePage",
+                  ratePage + 1
+                )
+              }
+            >
+              {"\u0627\u0644\u062a\u0627\u0644\u064a"}
+            </button>
+          </div>
         </section>
       )}
 
@@ -1143,11 +1448,11 @@ export function FinanceClient({
           <div className="panelHeader">
             <div>
               <h2>
-                إقفال الأشهر
+                ╪Ñ┘é┘ü╪º┘ä ╪º┘ä╪ú╪┤┘ç╪▒
               </h2>
 
               <p>
-                الشهر المقفل يمنع أي ترحيل محاسبي جديد داخله.
+                ╪º┘ä╪┤┘ç╪▒ ╪º┘ä┘à┘é┘ü┘ä ┘è┘à┘å╪╣ ╪ú┘è ╪¬╪▒╪¡┘è┘ä ┘à╪¡╪º╪│╪¿┘è ╪¼╪»┘è╪» ╪»╪º╪«┘ä┘ç.
               </p>
             </div>
           </div>
@@ -1155,7 +1460,7 @@ export function FinanceClient({
           <div className="formGrid">
             <label className="field">
               <span>
-                الشهر
+                ╪º┘ä╪┤┘ç╪▒
               </span>
 
               <input
@@ -1176,7 +1481,7 @@ export function FinanceClient({
 
             <div className="field">
               <span>
-                الإجراء
+                ╪º┘ä╪Ñ╪¼╪▒╪º╪í
               </span>
 
               <div className="rowActions">
@@ -1193,7 +1498,7 @@ export function FinanceClient({
                       )
                     }
                   >
-                    إقفال الشهر
+                    ╪Ñ┘é┘ü╪º┘ä ╪º┘ä╪┤┘ç╪▒
                   </button>
                 )}
 
@@ -1210,7 +1515,7 @@ export function FinanceClient({
                       )
                     }
                   >
-                    إعادة فتح
+                    ╪Ñ╪╣╪º╪»╪⌐ ┘ü╪¬╪¡
                   </button>
                 )}
               </div>
@@ -1226,9 +1531,9 @@ export function FinanceClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>من</th>
-                  <th>إلى</th>
-                  <th>الحالة</th>
+                  <th>┘à┘å</th>
+                  <th>╪Ñ┘ä┘ë</th>
+                  <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
                 </tr>
               </thead>
 
@@ -1263,8 +1568,8 @@ export function FinanceClient({
                         >
                           {period.status ===
                           "closed"
-                            ? "مقفل"
-                            : "مفتوح"}
+                            ? "┘à┘é┘ü┘ä"
+                            : "┘à┘ü╪¬┘ê╪¡"}
                         </span>
                       </td>
                     </tr>
@@ -1273,7 +1578,265 @@ export function FinanceClient({
               </tbody>
             </table>
           </div>
+
+          <div
+            className="rowActions"
+            style={{
+              marginTop: 12,
+              justifyContent: "space-between",
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={periodPage <= 1}
+              onClick={() =>
+                navigateFinance(
+                  "periods",
+                  "periodPage",
+                  periodPage - 1
+                )
+              }
+            >
+              {"\u0627\u0644\u0633\u0627\u0628\u0642"}
+            </button>
+
+            <span className="muted">
+              {`\u0635\u0641\u062d\u0629 ${periodPage} \u0645\u0646 ${periodTotalPages} - ${periodCount} \u0633\u062c\u0644`}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                periodPage >=
+                periodTotalPages
+              }
+              onClick={() =>
+                navigateFinance(
+                  "periods",
+                  "periodPage",
+                  periodPage + 1
+                )
+              }
+            >
+              {"\u0627\u0644\u062a\u0627\u0644\u064a"}
+            </button>
+          </div>
         </section>
+      )}
+
+      {journalDetailsOpen && selectedJournal && (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            style={{ maxWidth: 980 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="journal-details-title"
+          >
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  Journal Entry
+                </span>
+
+                <h2 id="journal-details-title">
+                  {selectedJournal.entry_number}
+                </h2>
+
+                <p className="muted">
+                  {selectedJournal.description}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="closeButton"
+                disabled={reversingJournal}
+                onClick={() => {
+                  setJournalDetailsOpen(false);
+                  setSelectedJournal(null);
+                  setJournalDetailLines([]);
+                  setJournalReversalReason("");
+                  setMessage("");
+                }}
+                aria-label="إغلاق"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="formGrid">
+              <div className="field">
+                <span>التاريخ</span>
+                <strong>{selectedJournal.entry_date}</strong>
+              </div>
+
+              <div className="field">
+                <span>المصدر</span>
+                <strong>
+                  {sourceLabel(selectedJournal.source_type)}
+                </strong>
+              </div>
+
+              <div className="field">
+                <span>العملة</span>
+                <strong>{selectedJournal.currency}</strong>
+              </div>
+
+              <div className="field">
+                <span>سعر الصرف</span>
+                <strong>
+                  {numberValue(
+                    selectedJournal.exchange_rate_to_base
+                  ).toFixed(6)}
+                </strong>
+              </div>
+            </div>
+
+            <div
+              className="tableWrap"
+              style={{ marginTop: 16 }}
+            >
+              {journalDetailsLoading ? (
+                <div className="panelPad muted">
+                  جاري تحميل تفاصيل القيد...
+                </div>
+              ) : journalDetailLines.length ? (
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الحساب</th>
+                      <th>مدين</th>
+                      <th>دائن</th>
+                      <th>مدين أساسي</th>
+                      <th>دائن أساسي</th>
+                      <th>البيان</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {journalDetailLines.map((line) => {
+                      const account = accounts.find(
+                        (item) => item.id === line.account_id
+                      );
+
+                      return (
+                        <tr key={line.id}>
+                          <td>
+                            <strong>
+                              {account
+                                ? `${account.code} - ${account.name}`
+                                : "حساب غير متاح"}
+                            </strong>
+                          </td>
+
+                          <td>
+                            {numberValue(line.debit).toFixed(2)}
+                          </td>
+
+                          <td>
+                            {numberValue(line.credit).toFixed(2)}
+                          </td>
+
+                          <td>
+                            {numberValue(line.base_debit).toFixed(2)}{" "}
+                            {baseCurrency}
+                          </td>
+
+                          <td>
+                            {numberValue(line.base_credit).toFixed(2)}{" "}
+                            {baseCurrency}
+                          </td>
+
+                          <td>{line.memo || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="panelPad muted">
+                  لا توجد سطور لهذا القيد.
+                </div>
+              )}
+            </div>
+
+            {canReverseManualJournal &&
+              selectedJournal.source_type === "manual" &&
+              selectedJournal.status === "posted" &&
+              !selectedJournal.reversed_from_id && (
+                <div
+                  className="panelPad"
+                  style={{ marginTop: 16 }}
+                >
+                  <label className="field">
+                    <span>سبب عكس القيد *</span>
+
+                    <textarea
+                      rows={3}
+                      value={journalReversalReason}
+                      onChange={(event) =>
+                        setJournalReversalReason(
+                          event.target.value
+                        )
+                      }
+                      placeholder="اكتب سبب العكس بشكل واضح"
+                    />
+                  </label>
+
+                  <p className="muted">
+                    القيد الأصلي لن يُحذف. سيتم إنشاء قيد عكسي جديد مع الاحتفاظ بالتاريخ المحاسبي.
+                  </p>
+                </div>
+              )}
+
+            {message && (
+              <div className="toastError" role="alert">
+                {message}
+              </div>
+            )}
+
+            <div className="modalActions">
+              <button
+                type="button"
+                className="softButton"
+                disabled={reversingJournal}
+                onClick={() => {
+                  setJournalDetailsOpen(false);
+                  setSelectedJournal(null);
+                  setJournalDetailLines([]);
+                  setJournalReversalReason("");
+                  setMessage("");
+                }}
+              >
+                إغلاق
+              </button>
+
+              {canReverseManualJournal &&
+                selectedJournal.source_type === "manual" &&
+                selectedJournal.status === "posted" &&
+                !selectedJournal.reversed_from_id && (
+                  <button
+                    type="button"
+                    className="dangerButton"
+                    disabled={
+                      reversingJournal ||
+                      !journalReversalReason.trim()
+                    }
+                    onClick={() =>
+                      void reverseSelectedManualJournal()
+                    }
+                  >
+                    {reversingJournal
+                      ? "جاري العكس..."
+                      : "عكس القيد"}
+                  </button>
+                )}
+            </div>
+          </section>
+        </div>
       )}
 
       {accountOpen && (
@@ -1286,7 +1849,7 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  حساب جديد
+                  ╪¡╪│╪º╪¿ ╪¼╪»┘è╪»
                 </h2>
               </div>
 
@@ -1299,7 +1862,7 @@ export function FinanceClient({
                   )
                 }
               >
-                ×
+                ├ù
               </button>
             </div>
 
@@ -1311,7 +1874,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    كود الحساب *
+                    ┘â┘ê╪» ╪º┘ä╪¡╪│╪º╪¿ *
                   </span>
 
                   <input
@@ -1331,7 +1894,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    اسم الحساب *
+                    ╪º╪│┘à ╪º┘ä╪¡╪│╪º╪¿ *
                   </span>
 
                   <input
@@ -1351,7 +1914,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    الحساب الأب
+                    ╪º┘ä╪¡╪│╪º╪¿ ╪º┘ä╪ú╪¿
                   </span>
 
                   <select
@@ -1368,7 +1931,7 @@ export function FinanceClient({
                     }
                   >
                     <option value="">
-                      بدون
+                      ╪¿╪»┘ê┘å
                     </option>
 
                     {accounts.map(
@@ -1391,7 +1954,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    النوع
+                    ╪º┘ä┘å┘ê╪╣
                   </span>
 
                   <select
@@ -1420,26 +1983,26 @@ export function FinanceClient({
                     }}
                   >
                     <option value="asset">
-                      أصل
+                      ╪ú╪╡┘ä
                     </option>
                     <option value="liability">
-                      التزام
+                      ╪º┘ä╪¬╪▓╪º┘à
                     </option>
                     <option value="equity">
-                      حقوق ملكية
+                      ╪¡┘é┘ê┘é ┘à┘ä┘â┘è╪⌐
                     </option>
                     <option value="revenue">
-                      إيراد
+                      ╪Ñ┘è╪▒╪º╪»
                     </option>
                     <option value="expense">
-                      مصروف
+                      ┘à╪╡╪▒┘ê┘ü
                     </option>
                   </select>
                 </label>
 
                 <label className="field">
                   <span>
-                    الرصيد الطبيعي
+                    ╪º┘ä╪▒╪╡┘è╪» ╪º┘ä╪╖╪¿┘è╪╣┘è
                   </span>
 
                   <select
@@ -1456,17 +2019,17 @@ export function FinanceClient({
                     }
                   >
                     <option value="debit">
-                      مدين
+                      ┘à╪»┘è┘å
                     </option>
                     <option value="credit">
-                      دائن
+                      ╪»╪º╪ª┘å
                     </option>
                   </select>
                 </label>
 
                 <label className="field">
                   <span>
-                    يسمح بالترحيل
+                    ┘è╪│┘à╪¡ ╪¿╪º┘ä╪¬╪▒╪¡┘è┘ä
                   </span>
 
                   <select
@@ -1486,10 +2049,10 @@ export function FinanceClient({
                     }
                   >
                     <option value="yes">
-                      نعم
+                      ┘å╪╣┘à
                     </option>
                     <option value="no">
-                      حساب تجميعي
+                      ╪¡╪│╪º╪¿ ╪¬╪¼┘à┘è╪╣┘è
                     </option>
                   </select>
                 </label>
@@ -1511,7 +2074,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  إلغاء
+                  ╪Ñ┘ä╪║╪º╪í
                 </button>
 
                 <button
@@ -1520,7 +2083,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  حفظ الحساب
+                  ╪¡┘ü╪╕ ╪º┘ä╪¡╪│╪º╪¿
                 </button>
               </div>
             </form>
@@ -1538,7 +2101,7 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  تسجيل سعر صرف
+                  ╪¬╪│╪¼┘è┘ä ╪│╪╣╪▒ ╪╡╪▒┘ü
                 </h2>
               </div>
 
@@ -1551,7 +2114,7 @@ export function FinanceClient({
                   )
                 }
               >
-                ×
+                ├ù
               </button>
             </div>
 
@@ -1563,7 +2126,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    العملة
+                    ╪º┘ä╪╣┘à┘ä╪⌐
                   </span>
 
                   <input
@@ -1583,7 +2146,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    التاريخ
+                    ╪º┘ä╪¬╪º╪▒┘è╪«
                   </span>
 
                   <input
@@ -1604,7 +2167,7 @@ export function FinanceClient({
 
                 <label className="field full">
                   <span>
-                    1 {rateCurrency || "عملة"} = كم {baseCurrency}؟
+                    1 {rateCurrency || "╪╣┘à┘ä╪⌐"} = ┘â┘à {baseCurrency}╪ƒ
                   </span>
 
                   <input
@@ -1627,7 +2190,7 @@ export function FinanceClient({
 
                 <label className="field full">
                   <span>
-                    ملاحظات
+                    ┘à┘ä╪º╪¡╪╕╪º╪¬
                   </span>
 
                   <textarea
@@ -1657,7 +2220,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  إلغاء
+                  ╪Ñ┘ä╪║╪º╪í
                 </button>
 
                 <button
@@ -1666,7 +2229,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  حفظ السعر
+                  ╪¡┘ü╪╕ ╪º┘ä╪│╪╣╪▒
                 </button>
               </div>
             </form>
@@ -1689,11 +2252,11 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  قيد يومية يدوي
+                  ┘é┘è╪» ┘è┘ê┘à┘è╪⌐ ┘è╪»┘ê┘è
                 </h2>
 
                 <p className="muted">
-                  للاستخدام المحاسبي فقط.
+                  ┘ä┘ä╪º╪│╪¬╪«╪»╪º┘à ╪º┘ä┘à╪¡╪º╪│╪¿┘è ┘ü┘é╪╖.
                 </p>
               </div>
 
@@ -1706,7 +2269,7 @@ export function FinanceClient({
                   )
                 }
               >
-                ×
+                ├ù
               </button>
             </div>
 
@@ -1718,7 +2281,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    التاريخ
+                    ╪º┘ä╪¬╪º╪▒┘è╪«
                   </span>
 
                   <input
@@ -1739,7 +2302,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    العملة
+                    ╪º┘ä╪╣┘à┘ä╪⌐
                   </span>
 
                   <input
@@ -1756,36 +2319,9 @@ export function FinanceClient({
                     }
                   />
                 </label>
-
-                {journalCurrency !==
-                  baseCurrency && (
-                  <label className="field">
-                    <span>
-                      سعر الصرف
-                    </span>
-
-                    <input
-                      type="number"
-                      min="0.00000001"
-                      step="0.00000001"
-                      value={
-                        journalRate
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setJournalRate(
-                          event.target
-                            .value
-                        )
-                      }
-                    />
-                  </label>
-                )}
-
                 <label className="field full">
                   <span>
-                    البيان *
+                    ╪º┘ä╪¿┘è╪º┘å *
                   </span>
 
                   <input
@@ -1813,10 +2349,10 @@ export function FinanceClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>الحساب</th>
-                      <th>مدين</th>
-                      <th>دائن</th>
-                      <th>بيان</th>
+                      <th>╪º┘ä╪¡╪│╪º╪¿</th>
+                      <th>┘à╪»┘è┘å</th>
+                      <th>╪»╪º╪ª┘å</th>
+                      <th>╪¿┘è╪º┘å</th>
                       <th />
                     </tr>
                   </thead>
@@ -1862,7 +2398,7 @@ export function FinanceClient({
                               }
                             >
                               <option value="">
-                                اختار
+                                ╪º╪«╪¬╪º╪▒
                               </option>
 
                               {postingAccounts.map(
@@ -2019,7 +2555,7 @@ export function FinanceClient({
                                   )
                                 }
                               >
-                                ×
+                                ├ù
                               </button>
                             )}
                           </td>
@@ -2056,7 +2592,7 @@ export function FinanceClient({
                 <Icons.plus
                   size={13}
                 />
-                سطر جديد
+                ╪│╪╖╪▒ ╪¼╪»┘è╪»
               </button>
 
               <div
@@ -2066,7 +2602,7 @@ export function FinanceClient({
                 }}
               >
                 <strong>
-                  مدين:{" "}
+                  ┘à╪»┘è┘å:{" "}
                   {journalLines
                     .reduce(
                       (
@@ -2083,7 +2619,7 @@ export function FinanceClient({
                 </strong>
 
                 <strong>
-                  دائن:{" "}
+                  ╪»╪º╪ª┘å:{" "}
                   {journalLines
                     .reduce(
                       (
@@ -2116,7 +2652,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  إلغاء
+                  ╪Ñ┘ä╪║╪º╪í
                 </button>
 
                 <button
@@ -2125,7 +2661,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  ترحيل القيد
+                  ╪¬╪▒╪¡┘è┘ä ╪º┘ä┘é┘è╪»
                 </button>
               </div>
             </form>
@@ -2148,11 +2684,11 @@ function TrialTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>الكود</th>
-            <th>الحساب</th>
-            <th>مدين</th>
-            <th>دائن</th>
-            <th>الرصيد</th>
+            <th>╪º┘ä┘â┘ê╪»</th>
+            <th>╪º┘ä╪¡╪│╪º╪¿</th>
+            <th>┘à╪»┘è┘å</th>
+            <th>╪»╪º╪ª┘å</th>
+            <th>╪º┘ä╪▒╪╡┘è╪»</th>
           </tr>
         </thead>
 
@@ -2206,37 +2742,37 @@ function sourceLabel(
   source: string | null
 ) {
   const labels: Record<string, string> = {
-    manual: "يدوي",
+    manual: "┘è╪»┘ê┘è",
     sales_invoice:
-      "فاتورة بيع",
+      "┘ü╪º╪¬┘ê╪▒╪⌐ ╪¿┘è╪╣",
     purchase_invoice:
-      "فاتورة شراء",
+      "┘ü╪º╪¬┘ê╪▒╪⌐ ╪┤╪▒╪º╪í",
     customer_payment:
-      "قبض عميل",
+      "┘é╪¿╪╢ ╪╣┘à┘è┘ä",
     customer_payment_allocation:
-      "تخصيص قبض",
+      "╪¬╪«╪╡┘è╪╡ ┘é╪¿╪╢",
     supplier_payment:
-      "دفع مورد",
+      "╪»┘ü╪╣ ┘à┘ê╪▒╪»",
     supplier_payment_allocation:
-      "تخصيص مورد",
+      "╪¬╪«╪╡┘è╪╡ ┘à┘ê╪▒╪»",
     inventory_movement:
-      "حركة مخزون",
+      "╪¡╪▒┘â╪⌐ ┘à╪«╪▓┘ê┘å",
     expense:
-      "مصروف",
+      "┘à╪╡╪▒┘ê┘ü",
     payroll_run:
-      "رواتب",
+      "╪▒┘ê╪º╪¬╪¿",
     payroll_payment:
-      "دفع راتب",
+      "╪»┘ü╪╣ ╪▒╪º╪¬╪¿",
     cash_transaction:
-      "حركة صندوق",
+      "╪¡╪▒┘â╪⌐ ╪╡┘å╪»┘ê┘é",
     reversal:
-      "قيد عكسي",
+      "┘é┘è╪» ╪╣┘â╪│┘è",
   };
 
   return source
     ? labels[source] ||
         source
-    : "—";
+    : "ΓÇö";
 }
 
 function Mini({

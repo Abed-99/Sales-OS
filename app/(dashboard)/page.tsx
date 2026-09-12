@@ -4,150 +4,421 @@ import type { ReactNode } from "react";
 import { Icons } from "@/components/icons";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
+import { hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
-type OrderRow = {
-  id: string;
-  total: number;
-  status: string;
-  payment_status: string;
-  created_at: string;
-};
-
-type TraderRow = {
+type RecentCustomer = {
   id: string;
   name: string;
   area: string | null;
-  status: string;
   phone: string | null;
-  whatsapp: string | null;
   created_at: string;
 };
 
+type DashboardSummary = {
+  business_date: string;
+  currency: string;
+
+  today_sales: number;
+  today_invoice_count: number;
+
+  open_orders: number;
+  purchasing_orders: number;
+  ready_orders: number;
+  delivery_orders: number;
+  delivered_today: number;
+
+  unpaid_invoices: number;
+
+  customer_count: number;
+  active_product_count: number;
+  active_supplier_count: number;
+  order_count: number;
+
+  recent_customers: RecentCustomer[];
+};
+
+function toSafeNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
+}
+
+function normalizeSummary(
+  data: unknown,
+  fallbackCurrency: string
+): DashboardSummary {
+  const raw =
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+
+  const recentCustomers =
+    Array.isArray(raw.recent_customers)
+      ? (raw.recent_customers as RecentCustomer[])
+          .filter(
+            (customer) =>
+              customer &&
+              typeof customer.id === "string" &&
+              typeof customer.name === "string"
+          )
+      : [];
+
+  return {
+    business_date:
+      typeof raw.business_date === "string"
+        ? raw.business_date
+        : "",
+
+    currency:
+      typeof raw.currency === "string"
+        ? raw.currency
+        : fallbackCurrency,
+
+    today_sales:
+      toSafeNumber(raw.today_sales),
+
+    today_invoice_count:
+      toSafeNumber(
+        raw.today_invoice_count
+      ),
+
+    open_orders:
+      toSafeNumber(raw.open_orders),
+
+    purchasing_orders:
+      toSafeNumber(
+        raw.purchasing_orders
+      ),
+
+    ready_orders:
+      toSafeNumber(raw.ready_orders),
+
+    delivery_orders:
+      toSafeNumber(
+        raw.delivery_orders
+      ),
+
+    delivered_today:
+      toSafeNumber(
+        raw.delivered_today
+      ),
+
+    unpaid_invoices:
+      toSafeNumber(
+        raw.unpaid_invoices
+      ),
+
+    customer_count:
+      toSafeNumber(
+        raw.customer_count
+      ),
+
+    active_product_count:
+      toSafeNumber(
+        raw.active_product_count
+      ),
+
+    active_supplier_count:
+      toSafeNumber(
+        raw.active_supplier_count
+      ),
+
+    order_count:
+      toSafeNumber(
+        raw.order_count
+      ),
+
+    recent_customers:
+      recentCustomers,
+  };
+}
+
 export default async function DashboardPage() {
-  const { userName, companyName, companyId, currency } =
+  const context =
     await getCurrentContext();
 
-  const supabase = await createClient();
+  const canViewDashboard =
+    hasPermission(
+      context.permissions,
+      "dashboard.view",
+      context.isOwner
+    );
 
-  const [
-    tradersResult,
-    productsResult,
-    suppliersResult,
-    ordersResult,
-    recentResult,
-  ] = await Promise.all([
-    supabase.from("traders").select("*", { count: "exact", head: true }).eq("company_id", companyId),
-    supabase.from("products").select("*", { count: "exact", head: true }).eq("company_id", companyId),
-    supabase.from("suppliers").select("*", { count: "exact", head: true }).eq("company_id", companyId),
-    supabase
-      .from("sales_orders")
-      .select("id,total,status,payment_status,created_at")
-      .eq("company_id", companyId)
-      .neq("status", "cancelled")
-      .order("created_at", { ascending: false })
-      .limit(250),
-    supabase
-      .from("traders")
-      .select("id,name,area,status,phone,whatsapp,created_at")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(5),
-  ]);
+  if (!canViewDashboard) {
+    return (
+      <>
+        <Topbar
+          title="الرئيسية"
+          subtitle="لوحة التحكم"
+          companyName={
+            context.companyName
+          }
+        />
 
-  if (ordersResult.error) throw new Error(ordersResult.error.message);
-  if (recentResult.error) throw new Error(recentResult.error.message);
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.shield size={32} />
 
-  const orders = (ordersResult.data ?? []) as OrderRow[];
-  const recent = (recentResult.data ?? []) as TraderRow[];
-  const today = new Date().toISOString().slice(0, 10);
-  const todayOrders = orders.filter(
-    (order) => String(order.created_at).slice(0, 10) === today
+              <h3>
+                لا تملك صلاحية عرض لوحة التحكم
+              </h3>
+
+              <p>
+                تواصل مع مالك الشركة أو مدير الصلاحيات إذا كنت تحتاج إلى الوصول لهذه الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const supabase =
+    await createClient();
+
+  const {
+    data,
+    error,
+  } = await supabase.rpc(
+    "get_dashboard_summary",
+    {
+      target_company:
+        context.companyId,
+    }
   );
-  const todaySales = todayOrders.reduce(
-    (sum, order) => sum + Number(order.total || 0),
-    0
-  );
 
-  const openOrders = orders.filter(
-    (order) => !["delivered", "cancelled"].includes(order.status)
-  ).length;
-  const unpaidOrders = orders.filter(
-    (order) => order.payment_status !== "paid"
-  ).length;
-  const readyOrders = orders.filter((order) => order.status === "ready").length;
-  const purchasingOrders = orders.filter((order) =>
-    ["to_purchase", "purchasing"].includes(order.status)
-  ).length;
-  const deliveryOrders = orders.filter(
-    (order) => order.status === "out_for_delivery"
-  ).length;
-  const deliveredOrders = orders.filter(
-    (order) => order.status === "delivered"
-  ).length;
+  if (error) {
+    console.error(
+      "Dashboard summary failed:",
+      error
+    );
 
-  const fmt = (value: number) =>
-    new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+    return (
+      <>
+        <Topbar
+          title="الرئيسية"
+          subtitle="لوحة التحكم"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.grid size={32} />
+
+              <h3>
+                تعذر تحميل لوحة التحكم
+              </h3>
+
+              <p>
+                حدث خطأ أثناء تحميل ملخص الشركة. حاول تحديث الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const summary =
+    normalizeSummary(
+      data,
+      context.currency
+    );
+
+  const canViewOrders =
+    hasPermission(
+      context.permissions,
+      "orders.view",
+      context.isOwner
+    );
+
+  const canCreateOrders =
+    hasPermission(
+      context.permissions,
+      "orders.create",
+      context.isOwner
+    );
+
+  const canViewCustomers =
+    hasPermission(
+      context.permissions,
+      "traders.view",
+      context.isOwner
+    );
+
+  const canViewPurchases =
+    hasPermission(
+      context.permissions,
+      "purchases.view",
+      context.isOwner
+    );
+
+  const canViewProducts =
+    hasPermission(
+      context.permissions,
+      "products.view",
+      context.isOwner
+    );
+
+  const canViewSuppliers =
+    hasPermission(
+      context.permissions,
+      "suppliers.view",
+      context.isOwner
+    );
+
+  const hasWelcomeActions =
+    (
+      canViewOrders &&
+      canCreateOrders
+    ) ||
+    canViewCustomers ||
+    canViewPurchases;
+
+  const hasQuickLinks =
+    canViewCustomers ||
+    canViewProducts ||
+    canViewSuppliers ||
+    canViewOrders;
+
+  const fmt = (
+    value: number
+  ) =>
+    new Intl.NumberFormat(
+      "en-US",
+      {
+        maximumFractionDigits: 2,
+      }
+    ).format(value);
 
   return (
     <>
       <Topbar
         title="الرئيسية"
-        subtitle={`أهلاً ${userName}، هاي نظرة سريعة على شغل اليوم.`}
-        companyName={companyName}
+        subtitle={`مرحباً ${context.userName}، هذه نظرة سريعة على أعمال اليوم.`}
+        companyName={
+          context.companyName
+        }
       />
 
       <div className="page dashboardHome">
         <section className="dashboardWelcome">
           <div className="dashboardWelcomeText">
-            <span className="eyebrow">Sales OS</span>
-            <h2>كل شغل الشركة قدامك بمكان واحد</h2>
+            <span className="eyebrow">
+              Sales OS
+            </span>
+
+            <h2>
+              كل أعمال الشركة أمامك في مكان واحد
+            </h2>
+
             <p>
-              تابع المبيعات، العملاء، المشتريات والتوصيل بسرعة ومن دون
-              ما تضيع بين الصفحات.
+              تابع المبيعات والعملاء والمشتريات والتوصيل بسرعة ومن دون التنقل بين صفحات متعددة.
             </p>
           </div>
 
-          <div className="dashboardWelcomeActions">
-            <Link href="/orders" className="primaryButton">
-              <Icons.plus size={16} />
-              طلب جديد
-            </Link>
-            <Link href="/customers" className="softButton">
-              <Icons.users size={16} />
-              العملاء
-            </Link>
-            <Link href="/purchases" className="softButton">
-              <Icons.store size={16} />
-              المشتريات
-            </Link>
-          </div>
+          {hasWelcomeActions ? (
+            <div className="dashboardWelcomeActions">
+              {canViewOrders &&
+              canCreateOrders ? (
+                <Link
+                  href="/orders"
+                  className="primaryButton"
+                >
+                  <Icons.plus
+                    size={16}
+                  />
+                  طلب جديد
+                </Link>
+              ) : null}
+
+              {canViewCustomers ? (
+                <Link
+                  href="/customers"
+                  className="softButton"
+                >
+                  <Icons.users
+                    size={16}
+                  />
+                  العملاء
+                </Link>
+              ) : null}
+
+              {canViewPurchases ? (
+                <Link
+                  href="/purchases"
+                  className="softButton"
+                >
+                  <Icons.store
+                    size={16}
+                  />
+                  المشتريات
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="dashboardStats">
           <Stat
-            icon={<Icons.money size={18} />}
-            label="مبيعات اليوم"
-            value={`${fmt(todaySales)} ${currency}`}
-            trend={`${todayOrders.length} طلب اليوم`}
+            icon={
+              <Icons.money
+                size={18}
+              />
+            }
+            label="المبيعات المفوترة اليوم"
+            value={`${fmt(
+              summary.today_sales
+            )} ${summary.currency}`}
+            trend={`${summary.today_invoice_count} فاتورة اليوم`}
           />
+
           <Stat
-            icon={<Icons.cart size={18} />}
+            icon={
+              <Icons.cart
+                size={18}
+              />
+            }
             label="طلبات قيد التنفيذ"
-            value={String(openOrders)}
+            value={String(
+              summary.open_orders
+            )}
             trend="تحتاج متابعة"
           />
+
           <Stat
-            icon={<Icons.wallet size={18} />}
-            label="طلبات غير مسددة"
-            value={String(unpaidOrders)}
+            icon={
+              <Icons.wallet
+                size={18}
+              />
+            }
+            label="فواتير غير مسددة"
+            value={String(
+              summary.unpaid_invoices
+            )}
             trend="بانتظار التحصيل"
           />
+
           <Stat
-            icon={<Icons.users size={18} />}
+            icon={
+              <Icons.users
+                size={18}
+              />
+            }
             label="إجمالي العملاء"
-            value={String(tradersResult.count ?? 0)}
-            trend="قاعدة العملاء"
+            value={String(
+              summary.customer_count
+            )}
+            trend="العملاء الفعليون"
           />
         </section>
 
@@ -155,35 +426,75 @@ export default async function DashboardPage() {
           <section className="panel panelPad">
             <div className="panelHeader">
               <div>
-                <h2>حركة الطلبات</h2>
-                <p>وضع الطلبات الحالية ضمن دورة العمل</p>
+                <h2>
+                  حركة الطلبات
+                </h2>
+
+                <p>
+                  حالة الطلبات ضمن دورة العمل الحالية
+                </p>
               </div>
-              <Link href="/orders" className="softButton">
-                عرض الطلبات
-                <Icons.arrow size={13} />
-              </Link>
+
+              {canViewOrders ? (
+                <Link
+                  href="/orders"
+                  className="softButton"
+                >
+                  عرض الطلبات
+                  <Icons.arrow
+                    size={13}
+                  />
+                </Link>
+              ) : null}
             </div>
 
             <div className="orderFlowGrid">
               <FlowCard
-                label="بانتظار الشراء"
-                value={purchasingOrders}
-                icon={<Icons.store size={18} />}
+                label="بانتظار/قيد الشراء"
+                value={
+                  summary.purchasing_orders
+                }
+                icon={
+                  <Icons.store
+                    size={18}
+                  />
+                }
               />
+
               <FlowCard
                 label="جاهزة"
-                value={readyOrders}
-                icon={<Icons.box size={18} />}
+                value={
+                  summary.ready_orders
+                }
+                icon={
+                  <Icons.box
+                    size={18}
+                  />
+                }
               />
+
               <FlowCard
                 label="قيد التوصيل"
-                value={deliveryOrders}
-                icon={<Icons.truck size={18} />}
+                value={
+                  summary.delivery_orders
+                }
+                icon={
+                  <Icons.truck
+                    size={18}
+                  />
+                }
               />
+
               <FlowCard
-                label="تم التسليم"
-                value={deliveredOrders}
-                icon={<Icons.check size={18} />}
+                label="تم التسليم اليوم"
+                value={
+                  summary.delivered_today
+                }
+                icon={
+                  <Icons.check
+                    size={18}
+                  />
+                }
               />
             </div>
           </section>
@@ -191,73 +502,163 @@ export default async function DashboardPage() {
           <aside className="panel panelPad">
             <div className="panelHeader">
               <div>
-                <h2>اختصارات سريعة</h2>
-                <p>أكثر الأقسام استخداماً</p>
+                <h2>
+                  اختصارات سريعة
+                </h2>
+
+                <p>
+                  الأقسام المتاحة حسب صلاحياتك
+                </p>
               </div>
             </div>
 
-            <div className="dashboardQuickGrid">
-              <QuickLink href="/customers" icon={<Icons.users size={18} />} title="العملاء" value={String(tradersResult.count ?? 0)} />
-              <QuickLink href="/products" icon={<Icons.box size={18} />} title="الأصناف" value={String(productsResult.count ?? 0)} />
-              <QuickLink href="/suppliers" icon={<Icons.store size={18} />} title="الموردون" value={String(suppliersResult.count ?? 0)} />
-              <QuickLink href="/orders" icon={<Icons.cart size={18} />} title="الطلبات" value={String(orders.length)} />
-            </div>
+            {hasQuickLinks ? (
+              <div className="dashboardQuickGrid">
+                {canViewCustomers ? (
+                  <QuickLink
+                    href="/customers"
+                    icon={
+                      <Icons.users
+                        size={18}
+                      />
+                    }
+                    title="العملاء"
+                    value={`${summary.customer_count} عميل`}
+                  />
+                ) : null}
+
+                {canViewProducts ? (
+                  <QuickLink
+                    href="/products"
+                    icon={
+                      <Icons.box
+                        size={18}
+                      />
+                    }
+                    title="الأصناف"
+                    value={`${summary.active_product_count} صنف نشط`}
+                  />
+                ) : null}
+
+                {canViewSuppliers ? (
+                  <QuickLink
+                    href="/suppliers"
+                    icon={
+                      <Icons.store
+                        size={18}
+                      />
+                    }
+                    title="الموردون"
+                    value={`${summary.active_supplier_count} مورد نشط`}
+                  />
+                ) : null}
+
+                {canViewOrders ? (
+                  <QuickLink
+                    href="/orders"
+                    icon={
+                      <Icons.cart
+                        size={18}
+                      />
+                    }
+                    title="الطلبات"
+                    value={`${summary.order_count} طلب غير ملغى`}
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <div className="dashboardEmpty">
+                <p>
+                  لا توجد أقسام إضافية متاحة ضمن صلاحياتك الحالية.
+                </p>
+              </div>
+            )}
           </aside>
         </div>
 
-        <section className="panel panelPad dashboardRecent">
-          <div className="panelHeader">
-            <div>
-              <h2>آخر العملاء المضافين</h2>
-              <p>أحدث العملاء المسجلين بالنظام</p>
-            </div>
-            <Link href="/customers" className="softButton">
-              كل العملاء
-              <Icons.arrow size={13} />
-            </Link>
-          </div>
+        {canViewCustomers ? (
+          <section className="panel panelPad dashboardRecent">
+            <div className="panelHeader">
+              <div>
+                <h2>
+                  آخر العملاء المضافين
+                </h2>
 
-          {!recent.length ? (
-            <div className="empty dashboardEmpty">
-              <Icons.users size={30} />
-              <h3>ما في عملاء لسا</h3>
-              <p>أضف أول عميل لتبدأ دورة البيع.</p>
+                <p>
+                  أحدث العملاء الفعليين المسجلين في النظام
+                </p>
+              </div>
+
+              <Link
+                href="/customers"
+                className="softButton"
+              >
+                كل العملاء
+                <Icons.arrow
+                  size={13}
+                />
+              </Link>
             </div>
-          ) : (
-            <div className="dashboardCustomerCards dashboardCustomerCardsAlways">
-              {recent.map((trader) => (
-                <Link
-                  href={`/customers/${trader.id}`}
-                  key={trader.id}
-                  className="dashboardCustomerCard"
-                >
-                  <div className="merchantLogo">{trader.name?.charAt(0)}</div>
-                  <div className="dashboardCustomerInfo">
-                    <strong>{trader.name}</strong>
-                    <span>
-                      {trader.area || "بدون منطقة"} · {trader.phone || "بدون رقم"}
-                    </span>
-                  </div>
-                  <span className="chip blue">{statusLabel(trader.status)}</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
+
+            {!summary.recent_customers.length ? (
+              <div className="empty dashboardEmpty">
+                <Icons.users
+                  size={30}
+                />
+
+                <h3>
+                  لا يوجد عملاء حتى الآن
+                </h3>
+
+                <p>
+                  عند إضافة أول عميل فعلي سيظهر هنا تلقائياً.
+                </p>
+              </div>
+            ) : (
+              <div className="dashboardCustomerCards dashboardCustomerCardsAlways">
+                {summary.recent_customers.map(
+                  (customer) => (
+                    <Link
+                      href={`/customers/${customer.id}`}
+                      key={
+                        customer.id
+                      }
+                      className="dashboardCustomerCard"
+                    >
+                      <div className="merchantLogo">
+                        {customer.name
+                          .charAt(0)}
+                      </div>
+
+                      <div className="dashboardCustomerInfo">
+                        <strong>
+                          {
+                            customer.name
+                          }
+                        </strong>
+
+                        <span>
+                          {customer.area ||
+                            "بدون منطقة"}
+                          {" · "}
+                          {customer.phone ||
+                            "بدون رقم"}
+                        </span>
+                      </div>
+
+                      <span className="chip green">
+                        عميل
+                      </span>
+                    </Link>
+                  )
+                )}
+              </div>
+            )}
+          </section>
+        ) : null}
       </div>
     </>
   );
-}
-
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    new: "جديد",
-    contacted: "تم التواصل",
-    interested: "مهتم",
-    customer: "عميل",
-    inactive: "غير نشط",
-  };
-  return labels[status] ?? status;
 }
 
 function Stat({
@@ -274,11 +675,22 @@ function Stat({
   return (
     <div className="dashboardStatCard">
       <div className="dashboardStatTop">
-        <div className="dashboardStatIcon">{icon}</div>
-        <span>{trend}</span>
+        <div className="dashboardStatIcon">
+          {icon}
+        </div>
+
+        <span>
+          {trend}
+        </span>
       </div>
-      <div className="dashboardStatLabel">{label}</div>
-      <div className="dashboardStatValue">{value}</div>
+
+      <div className="dashboardStatLabel">
+        {label}
+      </div>
+
+      <div className="dashboardStatValue">
+        {value}
+      </div>
     </div>
   );
 }
@@ -294,10 +706,18 @@ function FlowCard({
 }) {
   return (
     <div className="orderFlowCard">
-      <div className="orderFlowIcon">{icon}</div>
+      <div className="orderFlowIcon">
+        {icon}
+      </div>
+
       <div>
-        <strong>{value}</strong>
-        <span>{label}</span>
+        <strong>
+          {value}
+        </strong>
+
+        <span>
+          {label}
+        </span>
       </div>
     </div>
   );
@@ -315,13 +735,27 @@ function QuickLink({
   value: string;
 }) {
   return (
-    <Link href={href} className="dashboardQuickLink">
-      <div className="quickIcon">{icon}</div>
-      <div>
-        <strong>{title}</strong>
-        <span>{value} سجل</span>
+    <Link
+      href={href}
+      className="dashboardQuickLink"
+    >
+      <div className="quickIcon">
+        {icon}
       </div>
-      <Icons.arrow size={14} />
+
+      <div>
+        <strong>
+          {title}
+        </strong>
+
+        <span>
+          {value}
+        </span>
+      </div>
+
+      <Icons.arrow
+        size={14}
+      />
     </Link>
   );
 }

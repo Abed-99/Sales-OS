@@ -1,8 +1,14 @@
-import { redirect } from "next/navigation";
+﻿import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LoginClient } from "@/components/auth/login-client";
 
-export default async function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{
+    error?: string | string[];
+  }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
   const supabase = await createClient();
 
   const {
@@ -13,5 +19,16 @@ export default async function LoginPage() {
     redirect("/");
   }
 
-  return <LoginClient />;
+  const params = await searchParams;
+
+  const errorCode = Array.isArray(params.error)
+    ? params.error[0]
+    : params.error;
+
+  const initialMessage =
+    errorCode === "auth_callback"
+      ? "تعذر إكمال عملية المصادقة. قد يكون الرابط غير صالح أو منتهي الصلاحية."
+      : "";
+
+  return <LoginClient initialMessage={initialMessage} />;
 }

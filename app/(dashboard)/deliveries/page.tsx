@@ -1,109 +1,290 @@
-import { Topbar } from "@/components/topbar";
 import {
   DeliveriesClient,
-  type DeliveryAllocation,
-  type DeliveryOrder,
+  type DeliveryQueueRow,
+  type DeliveryStats,
 } from "@/components/deliveries/deliveries-client";
-import { createClient } from "@/lib/supabase/server";
+import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasPermission } from "@/lib/permissions";
+import {
+  hasAnyPermission,
+  hasPermission,
+} from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
-export default async function DeliveriesPage() {
-  const context = await getCurrentContext();
-  const supabase = await createClient();
+type DeliveryStatusFilter =
+  | "all"
+  | "ready"
+  | "out_for_delivery";
 
-  const canUpdate = hasPermission(
-    context.permissions,
-    "deliveries.update",
-    context.isOwner
-  );
+function firstParam(
+  value:
+    | string
+    | string[]
+    | undefined
+) {
+  return Array.isArray(value)
+    ? value[0] ?? ""
+    : value ?? "";
+}
+
+function cleanSearch(
+  value: string
+) {
+  return value
+    .replace(
+      /[%_(),"'\\]/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim()
+    .slice(
+      0,
+      100
+    );
+}
+
+export default async function DeliveriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<
+    Record<
+      string,
+      | string
+      | string[]
+      | undefined
+    >
+  >;
+}) {
+  const context =
+    await getCurrentContext();
+
+  const params =
+    await searchParams;
+
+  const canAccess =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "deliveries.view",
+        "deliveries.update",
+      ],
+      context.isOwner
+    );
+
+  if (!canAccess) {
+    return (
+      <>
+        <Topbar
+          title="التوصيل"
+          subtitle="تجهيز وتسليم طلبيات العملاء"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <h3>
+                لا تملك صلاحية عرض التوصيلات
+              </h3>
+
+              <p>
+                تحتاج إلى صلاحية التوصيلات للوصول لهذه الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const canUpdate =
+    hasPermission(
+      context.permissions,
+      "deliveries.update",
+      context.isOwner
+    );
+
+  const canViewMap =
+    hasPermission(
+      context.permissions,
+      "map.view",
+      context.isOwner
+    );
+
+  const searchQuery =
+    cleanSearch(
+      firstParam(
+        params.q
+      )
+    );
+
+  const rawStatus =
+    firstParam(
+      params.status
+    );
+
+  const statusFilter:
+    DeliveryStatusFilter =
+      rawStatus ===
+        "ready" ||
+      rawStatus ===
+        "out_for_delivery"
+        ? rawStatus
+        : "all";
+
+  const page =
+    Math.max(
+      1,
+      Number.parseInt(
+        firstParam(
+          params.page
+        ),
+        10
+      ) || 1
+    );
+
+  const pageSize =
+    50;
+
+  const offset =
+    (page - 1) *
+    pageSize;
+
+  const supabase =
+    await createClient();
 
   const [
-    ordersResult,
-    allocationsResult,
-  ] = await Promise.all([
-    supabase
-      .from("sales_orders")
-      .select(`
-        id,
-        status,
-        payment_status,
-        total,
-        created_at,
-        traders(
-          id,
-          name,
-          area,
-          address,
-          phone,
-          whatsapp,
-          latitude,
-          longitude
-        ),
-        sales_order_items(
-          id,
-          product_id,
-          quantity,
-          sale_unit_price,
-          products(
-            name,
-            sku,
-            unit
-          )
-        )
-      `)
-      .eq(
-        "company_id",
-        context.companyId
-      )
-      .in(
-        "status",
-        [
-          "ready",
-          "out_for_delivery",
-        ]
-      )
-      .order(
-        "created_at",
+    queueResult,
+    summaryResult,
+  ] =
+    await Promise.all([
+      supabase.rpc(
+        "get_delivery_queue",
         {
-          ascending: true,
+          target_company:
+            context.companyId,
+
+          target_search:
+            searchQuery ||
+            null,
+
+          target_status:
+            statusFilter ===
+            "all"
+              ? null
+              : statusFilter,
+
+          target_limit:
+            pageSize,
+
+          target_offset:
+            offset,
         }
-      )
-      .limit(200),
-
-    supabase
-      .from("delivery_items")
-      .select(`
-        id,
-        sales_order_item_id,
-        quantity,
-        delivery_id,
-        deliveries(
-          id,
-          order_id,
-          status,
-          delivery_number,
-          created_at,
-          delivered_at
-        )
-      `)
-      .eq(
-        "company_id",
-        context.companyId
       ),
-  ]);
 
-  if (ordersResult.error) {
-    throw new Error(
-      ordersResult.error.message
-    );
+      supabase.rpc(
+        "get_deliveries_summary",
+        {
+          target_company:
+            context.companyId,
+        }
+      ),
+    ]);
+
+  let initialError:
+    string | null =
+      null;
+
+  if (queueResult.error) {
+    initialError =
+      "تعذر تحميل قائمة التوصيلات.";
   }
 
-  if (allocationsResult.error) {
-    throw new Error(
-      allocationsResult.error.message
-    );
+  if (summaryResult.error) {
+    initialError ??=
+      "تعذر تحميل ملخص التوصيلات.";
   }
+
+  const queueData =
+    queueResult.data &&
+    typeof queueResult.data ===
+      "object" &&
+    !Array.isArray(
+      queueResult.data
+    )
+      ? (
+          queueResult.data as {
+            rows?: unknown;
+            total_count?: unknown;
+          }
+        )
+      : null;
+
+  const initialRows =
+    Array.isArray(
+      queueData?.rows
+    )
+      ? (
+          queueData?.rows as DeliveryQueueRow[]
+        )
+      : [];
+
+  const totalCount =
+    Number(
+      queueData?.total_count ??
+        0
+    );
+
+  const summaryRaw =
+    Array.isArray(
+      summaryResult.data
+    )
+      ? summaryResult.data[0]
+      : summaryResult.data;
+
+  const summary =
+    summaryRaw &&
+    typeof summaryRaw ===
+      "object"
+      ? (
+          summaryRaw as Record<
+            string,
+            unknown
+          >
+        )
+      : null;
+
+  const stats:
+    DeliveryStats = {
+      readyCount:
+        Number(
+          summary?.ready_count ??
+            0
+        ),
+
+      roadCount:
+        Number(
+          summary?.road_count ??
+            0
+        ),
+
+      roadUnits:
+        Number(
+          summary?.road_units ??
+            0
+        ),
+
+      remainingUnits:
+        Number(
+          summary?.remaining_units ??
+            0
+        ),
+  };
 
   return (
     <>
@@ -122,16 +303,39 @@ export default async function DeliveriesPage() {
         currency={
           context.currency
         }
-        initialOrders={
-          (ordersResult.data ??
-            []) as unknown as DeliveryOrder[]
+        initialRows={
+          initialRows
         }
-        initialAllocations={
-          (allocationsResult.data ??
-            []) as unknown as DeliveryAllocation[]
+        initialStats={
+          stats
+        }
+        totalCount={
+          Number.isFinite(
+            totalCount
+          )
+            ? totalCount
+            : 0
+        }
+        page={
+          page
+        }
+        pageSize={
+          pageSize
+        }
+        searchQuery={
+          searchQuery
+        }
+        statusFilter={
+          statusFilter
         }
         canUpdate={
           canUpdate
+        }
+        canViewMap={
+          canViewMap
+        }
+        initialError={
+          initialError
         }
       />
     </>

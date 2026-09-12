@@ -818,6 +818,8 @@ declare
   v_reserved numeric(18,3);
   v_average_cost numeric(18,4);
   v_cost numeric(18,4);
+  v_reference_cost numeric(18,4);
+  v_can_set_cost boolean;
 
   v_difference numeric(18,3);
 
@@ -1000,12 +1002,94 @@ begin
         3
       );
 
-    v_cost :=
-      coalesce(
-        v_supplied_cost,
-        v_average_cost,
-        0
+    if v_supplied_cost is not null
+       and v_supplied_cost < 0
+    then
+      raise exception
+        'Invalid unit cost';
+    end if;
+
+    v_can_set_cost :=
+      public.has_any_permission(
+        target_company,
+        array[
+          'products.view_cost',
+          'suppliers.view_finance',
+          'reports.finance',
+          'reports.profit'
+        ]::text[]
       );
+
+    -- Existing inventory always keeps its server-side
+    -- weighted average. A browser cannot revalue it.
+    if coalesce(
+         v_system,
+         0
+       ) > 0
+       or coalesce(
+         v_average_cost,
+         0
+       ) > 0
+    then
+
+      v_cost :=
+        coalesce(
+          v_average_cost,
+          0
+        );
+
+    elsif coalesce(
+            v_supplied_cost,
+            0
+          ) > 0
+    then
+
+      if not v_can_set_cost then
+        raise exception
+          'Not allowed to set inventory cost';
+      end if;
+
+      v_cost :=
+        round(
+          v_supplied_cost,
+          4
+        );
+
+    else
+
+      select
+        sp.purchase_price
+
+      into
+        v_reference_cost
+
+      from public.supplier_prices sp
+
+      where sp.company_id =
+            target_company
+
+        and sp.product_id =
+            v_product
+
+        and sp.available =
+            true
+
+      order by
+        sp.last_checked_at desc,
+        sp.updated_at desc
+
+      limit 1;
+
+      v_cost :=
+        round(
+          coalesce(
+            v_reference_cost,
+            0
+          ),
+          4
+        );
+
+    end if;
 
     if v_difference > 0
        and v_cost <= 0

@@ -20,6 +20,13 @@ values
   149
 ),
 (
+  'finance.manual_journal_reverse',
+  'finance',
+  'manual_journal_reverse',
+  'عكس قيد يومية يدوي',
+  150
+),
+(
   'payroll.view',
   'payroll',
   'view',
@@ -75,6 +82,7 @@ cross join public.permissions p
 where r.is_owner = true
   and p.code in (
     'finance.manual_journal',
+    'finance.manual_journal_reverse',
     'payroll.view',
     'payroll.manage_employees',
     'payroll.process',
@@ -98,6 +106,7 @@ where r.name = 'محاسب'
   and r.is_owner = false
   and p.code in (
     'finance.manual_journal',
+    'finance.manual_journal_reverse',
     'payroll.view',
     'payroll.manage_employees',
     'payroll.process',
@@ -1397,6 +1406,12 @@ begin
     raise exception 'Not allowed';
   end if;
 
+  if target_month < 1
+     or target_month > 12
+  then
+    raise exception 'Invalid month';
+  end if;
+
   v_start :=
     make_date(
       target_year,
@@ -1412,7 +1427,12 @@ begin
   where company_id =
         target_company
     and period_start =
-        v_start;
+        v_start
+    and status = 'closed';
+
+  if not found then
+    raise exception 'Closed financial period not found';
+  end if;
 end;
 $$;
 
@@ -1681,6 +1701,152 @@ on function public.next_journal_number(uuid,date)
 from public, authenticated;
 
 
+
+-- ============================================================
+-- BASE-CURRENCY ROUNDING BALANCER
+-- Source-currency debit/credit is already balanced before this
+-- runs. This only removes cent-level differences introduced by
+-- rounding each converted journal line independently.
+-- ============================================================
+
+create or replace function public.balance_journal_base_rounding(
+  target_entry uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_debit numeric(18,2);
+  v_credit numeric(18,2);
+  v_diff numeric(18,2);
+  v_line uuid;
+begin
+  select
+    round(
+      coalesce(
+        sum(base_debit),
+        0
+      ),
+      2
+    ),
+    round(
+      coalesce(
+        sum(base_credit),
+        0
+      ),
+      2
+    )
+  into
+    v_debit,
+    v_credit
+  from public.journal_lines
+  where journal_entry_id =
+        target_entry;
+
+  v_diff :=
+    round(
+      v_debit -
+      v_credit,
+      2
+    );
+
+  if abs(v_diff) <= 0.009 then
+    return;
+  end if;
+
+  if v_diff > 0 then
+
+    select id
+    into v_line
+    from public.journal_lines
+    where journal_entry_id =
+          target_entry
+      and credit > 0
+    order by
+      base_credit desc,
+      id
+    limit 1
+    for update;
+
+    if v_line is null then
+      raise exception
+        'Cannot balance journal base rounding';
+    end if;
+
+    update public.journal_lines
+    set base_credit =
+        round(
+          base_credit +
+          v_diff,
+          2
+        )
+    where id = v_line;
+
+  else
+
+    select id
+    into v_line
+    from public.journal_lines
+    where journal_entry_id =
+          target_entry
+      and debit > 0
+    order by
+      base_debit desc,
+      id
+    limit 1
+    for update;
+
+    if v_line is null then
+      raise exception
+        'Cannot balance journal base rounding';
+    end if;
+
+    update public.journal_lines
+    set base_debit =
+        round(
+          base_debit +
+          abs(v_diff),
+          2
+        )
+    where id = v_line;
+
+  end if;
+
+  select
+    round(
+      coalesce(
+        sum(base_debit),
+        0
+      ),
+      2
+    ),
+    round(
+      coalesce(
+        sum(base_credit),
+        0
+      ),
+      2
+    )
+  into
+    v_debit,
+    v_credit
+  from public.journal_lines
+  where journal_entry_id =
+        target_entry;
+
+  if v_debit <> v_credit then
+    raise exception
+      'Journal base currency is not balanced';
+  end if;
+end;
+$$;
+
+revoke all
+on function public.balance_journal_base_rounding(uuid)
+from public, authenticated;
+
 -- ============================================================
 -- MANUAL JOURNAL RPC
 -- Manual accounting only for explicit permission.
@@ -1707,6 +1873,7 @@ declare
   v_base_currency text;
   v_currency text;
   v_rate numeric(20,8);
+  v_business_date date;
 
   v_line jsonb;
   v_account uuid;
@@ -1751,17 +1918,26 @@ begin
       'Journal needs at least two lines';
   end if;
 
+  v_business_date :=
+    coalesce(
+      target_date,
+      (
+        now()
+        at time zone
+        'Asia/Damascus'
+      )::date
+    );
+
   perform
     public.assert_finance_period_open(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_business_date
     );
 
-  select default_currency
-  into v_base_currency
+  select
+    upper(default_currency)
+  into
+    v_base_currency
   from public.companies
   where id =
         target_company;
@@ -1772,12 +1948,14 @@ begin
   end if;
 
   v_currency :=
-    coalesce(
-      nullif(
-        trim(target_currency),
-        ''
-      ),
-      v_base_currency
+    upper(
+      coalesce(
+        nullif(
+          trim(target_currency),
+          ''
+        ),
+        v_base_currency
+      )
     );
 
   if v_currency =
@@ -1785,15 +1963,14 @@ begin
   then
     v_rate := 1;
   else
+    -- Never trust a browser-supplied accounting FX rate.
+    -- Use the approved company rate snapshot for this date.
     v_rate :=
-      target_exchange_rate;
-
-    if v_rate is null
-       or v_rate <= 0
-    then
-      raise exception
-        'Valid exchange rate is required';
-    end if;
+      public.finance_rate_to_base(
+        target_company,
+        v_currency,
+        v_business_date
+      );
   end if;
 
   -- Validate and total first.
@@ -1886,10 +2063,7 @@ begin
   v_number :=
     public.next_journal_number(
       target_company,
-      coalesce(
-        target_date,
-        current_date
-      )
+      v_business_date
     );
 
   insert into public.journal_entries(
@@ -1906,10 +2080,7 @@ begin
   values(
     target_company,
     v_number,
-    coalesce(
-      target_date,
-      current_date
-    ),
+    v_business_date,
     trim(
       target_description
     ),
@@ -1921,6 +2092,14 @@ begin
   )
   returning id
   into v_entry;
+
+  -- Manual entries use their own id as immutable source identity.
+  -- This lets the generic reversal engine reverse them safely.
+  update public.journal_entries
+  set source_id =
+      v_entry
+  where id =
+        v_entry;
 
   for v_line in
     select value
@@ -2012,6 +2191,11 @@ begin
       v_memo
     );
   end loop;
+
+  perform
+    public.balance_journal_base_rounding(
+      v_entry
+    );
 
   return v_entry;
 end;
@@ -3292,12 +3476,16 @@ on public.finance_periods
 for select
 to authenticated
 using (
-  public.has_permission(
+  public.has_any_permission(
     company_id,
-    'finance.accounts_view'
+    array[
+      'finance.accounts_view',
+      'reports.finance',
+      'finance.month_close',
+      'finance.month_reopen'
+    ]::text[]
   )
 );
-
 
 drop policy if exists journal_entries_read
 on public.journal_entries;

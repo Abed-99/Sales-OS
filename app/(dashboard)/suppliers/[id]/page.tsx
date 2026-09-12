@@ -1,9 +1,14 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Topbar } from "@/components/topbar";
+
 import { Icons } from "@/components/icons";
-import { createClient } from "@/lib/supabase/server";
+import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
+import {
+  hasAnyPermission,
+  hasPermission,
+} from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
 type ProductRelation = {
   id: string;
@@ -12,18 +17,6 @@ type ProductRelation = {
   unit: string | null;
   sale_price: number | null;
   active: boolean;
-};
-
-type HistoryProductRelation = {
-  id: string;
-  name: string;
-  sku: string | null;
-};
-
-type CashboxRelation = {
-  id: string;
-  name: string;
-  currency: string;
 };
 
 type SupplierPrice = {
@@ -47,15 +40,25 @@ type PriceHistory = {
   notes: string | null;
   effective_at: string;
   products:
-    | HistoryProductRelation
-    | HistoryProductRelation[]
+    | {
+        id: string;
+        name: string;
+        sku: string | null;
+      }
+    | {
+        id: string;
+        name: string;
+        sku: string | null;
+      }[]
     | null;
 };
 
 type PurchaseInvoice = {
   id: string;
   invoice_number: string;
-  supplier_invoice_number: string | null;
+  supplier_invoice_number:
+    | string
+    | null;
   status: string;
   payment_status: string;
   currency: string;
@@ -64,8 +67,12 @@ type PurchaseInvoice = {
   total: number;
   paid_total: number;
   balance_due: number;
-  notes: string | null;
-  created_at: string;
+};
+
+type CashboxRelation = {
+  id: string;
+  name: string;
+  currency: string;
 };
 
 type SupplierPayment = {
@@ -76,32 +83,53 @@ type SupplierPayment = {
   amount: number;
   allocated_total: number;
   unallocated_total: number;
-  payment_currency: string | null;
-  exchange_rate_to_base: number | null;
-  base_amount: number | null;
+  payment_currency:
+    | string
+    | null;
+  base_amount:
+    | number
+    | null;
   payment_method: string;
-  reference_number: string | null;
-  notes: string | null;
-  reversal_reason: string | null;
-  created_at: string;
+  reference_number:
+    | string
+    | null;
+  reversal_reason:
+    | string
+    | null;
   cashboxes:
     | CashboxRelation
     | CashboxRelation[]
     | null;
 };
 
+type FinancialSummary = {
+  total_purchases: number;
+  total_payments: number;
+  invoice_balance: number;
+  advance_credit: number;
+  net_balance: number;
+  invoice_count: number;
+  payment_count: number;
+  available_products: number;
+  currency: string;
+};
+
 type LedgerRow = {
-  id: string;
-  date: string;
-  type: "invoice" | "payment";
+  source_id: string;
+  event_date: string;
+  event_created_at: string;
+  row_type: string;
   reference: string;
   description: string;
   debit: number;
   credit: number;
   balance: number;
+  total_count: number;
+  currency: string;
 };
 
-const paymentMethodLabels: Record<string, string> = {
+const paymentMethodLabels:
+  Record<string, string> = {
   cash: "نقدي",
   bank: "تحويل بنكي",
   card: "بطاقة",
@@ -109,292 +137,703 @@ const paymentMethodLabels: Record<string, string> = {
   other: "أخرى",
 };
 
-function oneRelation<T>(value: T | T[] | null) {
+function oneRelation<T>(
+  value: T | T[] | null
+) {
   return Array.isArray(value)
     ? value[0] ?? null
     : value;
 }
 
+function firstRpcRow<T>(
+  value: T[] | T | null
+): T | null {
+  if (!value) {
+    return null;
+  }
+
+  return Array.isArray(value)
+    ? value[0] ?? null
+    : value;
+}
+
+function formatDate(
+  value: string | null
+) {
+  if (!value) {
+    return "—";
+  }
+
+  const date =
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      value
+    )
+      ? new Date(
+          `${value}T00:00:00+03:00`
+        )
+      : new Date(value);
+
+  return new Intl.DateTimeFormat(
+    "ar-SY",
+    {
+      timeZone:
+        "Asia/Damascus",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  ).format(date);
+}
+
+function formatDateTime(
+  value: string | null
+) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ar-SY",
+    {
+      timeZone:
+        "Asia/Damascus",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(
+    new Date(value)
+  );
+}
+
+function money(
+  value: number,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(Number(value || 0))} ${currency}`;
+}
+
 export default async function SupplierDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{
+    id: string;
+  }>;
 }) {
   const { id } = await params;
-  const context = await getCurrentContext();
-  const supabase = await createClient();
+  const context =
+    await getCurrentContext();
 
-  const { data: supplier, error: supplierError } =
+  const canView =
+    hasPermission(
+      context.permissions,
+      "suppliers.view",
+      context.isOwner
+    );
+
+  if (!canView) {
+    return (
+      <>
+        <Topbar
+          title="المورد"
+          subtitle="ملف المورد"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.shield
+                size={32}
+              />
+
+              <h3>
+                لا تملك صلاحية عرض الموردين
+              </h3>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const canViewFinance =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "suppliers.view_finance",
+        "payments.supplier_view",
+        "reports.finance",
+      ],
+      context.isOwner
+    );
+
+  const canViewInvoices =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "purchase_invoices.view",
+        "purchases.view",
+        "payments.supplier_view",
+        "suppliers.view_finance",
+        "reports.finance",
+        "reports.profit",
+      ],
+      context.isOwner
+    );
+
+  const canViewPayments =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "payments.supplier_view",
+        "suppliers.view_finance",
+        "finance.cashbox_view",
+        "finance.accounts_view",
+        "reports.finance",
+      ],
+      context.isOwner
+    );
+
+  const canViewPrices =
+    context.isOwner ||
+    hasPermission(
+      context.permissions,
+      "purchases.view"
+    ) ||
+    hasPermission(
+      context.permissions,
+      "reports.profit"
+    ) ||
+    (
+      hasPermission(
+        context.permissions,
+        "products.view"
+      ) &&
+      hasPermission(
+        context.permissions,
+        "products.view_cost"
+      )
+    );
+
+  const canViewPriceHistory =
+    context.isOwner ||
+    hasPermission(
+      context.permissions,
+      "purchases.view"
+    ) ||
+    (
+      hasPermission(
+        context.permissions,
+        "products.view"
+      ) &&
+      hasPermission(
+        context.permissions,
+        "products.view_cost"
+      )
+    );
+
+  const canOpenPurchases =
+    hasPermission(
+      context.permissions,
+      "purchases.view",
+      context.isOwner
+    );
+
+  const supabase =
+    await createClient();
+
+  const supplierResult =
     await supabase
       .from("suppliers")
       .select(
-        "id,name,contact_name,phone,whatsapp,address,notes,active,created_at"
+        "id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,created_at,updated_at"
       )
-      .eq("company_id", context.companyId)
+      .eq(
+        "company_id",
+        context.companyId
+      )
       .eq("id", id)
       .maybeSingle();
 
-  if (supplierError) {
-    throw new Error(supplierError.message);
+  if (supplierResult.error) {
+    return (
+      <>
+        <Topbar
+          title="المورد"
+          subtitle="ملف المورد"
+          companyName={
+            context.companyName
+          }
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.store
+                size={30}
+              />
+
+              <h3>
+                تعذر تحميل بيانات المورد
+              </h3>
+
+              <p>
+                حاول تحديث الصفحة.
+              </p>
+            </div>
+          </section>
+        </div>
+      </>
+    );
   }
 
-  if (!supplier) {
+  if (!supplierResult.data) {
     notFound();
   }
 
-  const [
-    pricesResult,
-    historyResult,
-    invoicesResult,
-    paymentsResult,
-  ] = await Promise.all([
-    supabase
-      .from("supplier_prices")
-      .select(
-        "id,product_id,purchase_price,available,notes,last_checked_at,products(id,name,sku,unit,sale_price,active)"
-      )
-      .eq("company_id", context.companyId)
-      .eq("supplier_id", id)
-      .order("last_checked_at", {
-        ascending: false,
-      }),
+  const supplier =
+    supplierResult.data;
 
-    supabase
-      .from("supplier_price_history")
-      .select(
-        "id,product_id,purchase_price,available,notes,effective_at,products(id,name,sku)"
-      )
-      .eq("company_id", context.companyId)
-      .eq("supplier_id", id)
-      .order("effective_at", {
-        ascending: false,
-      })
-      .limit(100),
+  let prices:
+    SupplierPrice[] = [];
+  let pricesCount = 0;
 
-    supabase
-      .from("purchase_invoices")
-      .select(
-        "id,invoice_number,supplier_invoice_number,status,payment_status,currency,invoice_date,due_date,total,paid_total,balance_due,notes,created_at"
-      )
-      .eq("company_id", context.companyId)
-      .eq("supplier_id", id)
-      .order("invoice_date", {
-        ascending: false,
-      })
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(100),
+  let history:
+    PriceHistory[] = [];
+  let historyCount = 0;
 
-    supabase
-      .from("supplier_payments")
-      .select(
-        "id,payment_number,status,payment_date,amount,allocated_total,unallocated_total,payment_currency,exchange_rate_to_base,base_amount,payment_method,reference_number,notes,reversal_reason,created_at,cashboxes(id,name,currency)"
-      )
-      .eq("company_id", context.companyId)
-      .eq("supplier_id", id)
-      .order("payment_date", {
-        ascending: false,
-      })
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(100),
-  ]);
+  let invoices:
+    PurchaseInvoice[] = [];
+  let invoiceListCount = 0;
 
-  if (pricesResult.error) {
-    throw new Error(
-      pricesResult.error.message
-    );
+  let payments:
+    SupplierPayment[] = [];
+  let paymentListCount = 0;
+
+  let summary:
+    FinancialSummary | null =
+      null;
+
+  let ledger:
+    LedgerRow[] = [];
+
+  let ledgerCount = 0;
+
+  const warnings: string[] =
+    [];
+
+  if (canViewPrices) {
+    const result =
+      await supabase
+        .from(
+          "supplier_prices"
+        )
+        .select(
+          "id,product_id,purchase_price,available,notes,last_checked_at,products(id,name,sku,unit,sale_price,active)",
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "supplier_id",
+          id
+        )
+        .order(
+          "last_checked_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(100);
+
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل أسعار المورد."
+      );
+    } else {
+      prices =
+        (result.data ??
+          []) as SupplierPrice[];
+
+      pricesCount =
+        result.count ?? 0;
+    }
   }
 
-  if (historyResult.error) {
-    throw new Error(
-      historyResult.error.message
-    );
+  if (canViewPriceHistory) {
+    const result =
+      await supabase
+        .from(
+          "supplier_price_history"
+        )
+        .select(
+          "id,product_id,purchase_price,available,notes,effective_at,products(id,name,sku)",
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "supplier_id",
+          id
+        )
+        .order(
+          "effective_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(12);
+
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل تاريخ الأسعار."
+      );
+    } else {
+      history =
+        (result.data ??
+          []) as PriceHistory[];
+
+      historyCount =
+        result.count ?? 0;
+    }
   }
 
-  if (invoicesResult.error) {
-    throw new Error(
-      invoicesResult.error.message
-    );
+  if (canViewInvoices) {
+    const result =
+      await supabase
+        .from(
+          "purchase_invoices"
+        )
+        .select(
+          "id,invoice_number,supplier_invoice_number,status,payment_status,currency,invoice_date,due_date,total,paid_total,balance_due",
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "supplier_id",
+          id
+        )
+        .order(
+          "invoice_date",
+          {
+            ascending:
+              false,
+          }
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(50);
+
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل فواتير المورد."
+      );
+    } else {
+      invoices =
+        (result.data ??
+          []) as PurchaseInvoice[];
+
+      invoiceListCount =
+        result.count ?? 0;
+    }
   }
 
-  if (paymentsResult.error) {
-    throw new Error(
-      paymentsResult.error.message
-    );
+  if (canViewPayments) {
+    const result =
+      await supabase
+        .from(
+          "supplier_payments"
+        )
+        .select(
+          "id,payment_number,status,payment_date,amount,allocated_total,unallocated_total,payment_currency,base_amount,payment_method,reference_number,reversal_reason,cashboxes(id,name,currency)",
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "company_id",
+          context.companyId
+        )
+        .eq(
+          "supplier_id",
+          id
+        )
+        .order(
+          "payment_date",
+          {
+            ascending:
+              false,
+          }
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .limit(50);
+
+    if (result.error) {
+      warnings.push(
+        "تعذر تحميل دفعات المورد."
+      );
+    } else {
+      payments =
+        (result.data ??
+          []) as SupplierPayment[];
+
+      paymentListCount =
+        result.count ?? 0;
+    }
   }
 
-  const prices =
-    (pricesResult.data ?? []) as SupplierPrice[];
-
-  const history =
-    (historyResult.data ?? []) as PriceHistory[];
-
-  const invoices =
-    (invoicesResult.data ?? []) as PurchaseInvoice[];
-
-  const payments =
-    (paymentsResult.data ?? []) as SupplierPayment[];
-
-  const postedInvoices =
-    invoices.filter(
-      (invoice) =>
-        invoice.status !== "cancelled"
-    );
-
-  const postedPayments =
-    payments.filter(
-      (payment) =>
-        payment.status === "posted"
-    );
-
-  const totalPurchases =
-    postedInvoices.reduce(
-      (sum, invoice) =>
-        sum +
-        Number(invoice.total || 0),
-      0
-    );
-
-  const totalPayments =
-    postedPayments.reduce(
-      (sum, payment) =>
-        sum +
-        Number(
-          payment.base_amount ??
-            Number(
-              payment.amount || 0
-            ) *
-              Number(
-                payment.exchange_rate_to_base ||
-                  1
-              )
-        ),
-      0
-    );
-
-  const invoiceBalance =
-    postedInvoices.reduce(
-      (sum, invoice) =>
-        sum +
-        Number(
-          invoice.balance_due || 0
-        ),
-      0
-    );
-
-  const advanceCredit =
-    postedPayments.reduce(
-      (sum, payment) =>
-        sum +
-        Number(
-          payment.unallocated_total || 0
-        ) *
-          Number(
-            payment.exchange_rate_to_base ||
-              1
-          ),
-      0
-    );
-
-  const netSupplierBalance =
-    totalPurchases - totalPayments;
-
-  const activeProducts =
-    prices.filter(
-      (price) => price.available
-    ).length;
-
-  const ledgerSource = [
-    ...postedInvoices.map((invoice) => ({
-      id: invoice.id,
-      date: invoice.invoice_date,
-      createdAt: invoice.created_at,
-      type: "invoice" as const,
-      reference:
-        invoice.invoice_number,
-      description:
-        invoice.supplier_invoice_number
-          ? `فاتورة مورد ${invoice.supplier_invoice_number}`
-          : "فاتورة شراء",
-      debit: Number(
-        invoice.total || 0
+  if (canViewFinance) {
+    const [
+      summaryResult,
+      ledgerResult,
+    ] = await Promise.all([
+      supabase.rpc(
+        "get_supplier_financial_summary",
+        {
+          target_company:
+            context.companyId,
+          target_supplier: id,
+        }
       ),
-      credit: 0,
-    })),
 
-    ...postedPayments.map((payment) => ({
-      id: payment.id,
-      date: payment.payment_date,
-      createdAt: payment.created_at,
-      type: "payment" as const,
-      reference:
-        payment.payment_number,
-      description:
-        payment.reference_number
-          ? `دفعة - ${payment.reference_number}`
-          : "دفعة للمورد",
-      debit: 0,
-      credit: Number(
-        payment.base_amount ??
-          Number(
-            payment.amount || 0
-          ) *
-            Number(
-              payment.exchange_rate_to_base ||
-                1
-            )
+      supabase.rpc(
+        "get_supplier_ledger",
+        {
+          target_company:
+            context.companyId,
+          target_supplier: id,
+          target_limit: 100,
+        }
       ),
-    })),
-  ].sort((a, b) => {
-    const dateCompare =
-      a.date.localeCompare(b.date);
+    ]);
 
-    if (dateCompare !== 0) {
-      return dateCompare;
+    if (summaryResult.error) {
+      warnings.push(
+        "تعذر تحميل الملخص المالي."
+      );
+    } else {
+      const row =
+        firstRpcRow(
+          summaryResult.data
+        );
+
+      if (row) {
+        const value =
+          row as Record<
+            string,
+            unknown
+          >;
+
+        summary = {
+          total_purchases:
+            Number(
+              value.total_purchases ??
+                0
+            ),
+
+          total_payments:
+            Number(
+              value.total_payments ??
+                0
+            ),
+
+          invoice_balance:
+            Number(
+              value.invoice_balance ??
+                0
+            ),
+
+          advance_credit:
+            Number(
+              value.advance_credit ??
+                0
+            ),
+
+          net_balance:
+            Number(
+              value.net_balance ??
+                0
+            ),
+
+          invoice_count:
+            Number(
+              value.invoice_count ??
+                0
+            ),
+
+          payment_count:
+            Number(
+              value.payment_count ??
+                0
+            ),
+
+          available_products:
+            Number(
+              value.available_products ??
+                0
+            ),
+
+          currency:
+            String(
+              value.currency ??
+                context.currency
+            ),
+        };
+      }
     }
 
-    return a.createdAt.localeCompare(
-      b.createdAt
-    );
-  });
+    if (ledgerResult.error) {
+      warnings.push(
+        "تعذر تحميل كشف حساب المورد."
+      );
+    } else {
+      ledger =
+        (
+          ledgerResult.data ??
+          []
+        ).map(
+          (
+            item:
+              Record<
+                string,
+                unknown
+              >
+          ) => ({
+            source_id:
+              String(
+                item.source_id
+              ),
 
-  let runningBalance = 0;
+            event_date:
+              String(
+                item.event_date
+              ),
 
-  const ledger: LedgerRow[] =
-    ledgerSource.map((row) => {
-      runningBalance +=
-        row.debit - row.credit;
+            event_created_at:
+              String(
+                item.event_created_at
+              ),
 
-      return {
-        id: row.id,
-        date: row.date,
-        type: row.type,
-        reference:
-          row.reference,
-        description:
-          row.description,
-        debit: row.debit,
-        credit: row.credit,
-        balance:
-          runningBalance,
-      };
-    });
+            row_type:
+              String(
+                item.row_type
+              ),
 
-  const money = (value: number) =>
-    `${Number(value || 0).toFixed(2)} ${context.currency}`;
+            reference:
+              String(
+                item.reference ??
+                  ""
+              ),
+
+            description:
+              String(
+                item.description ??
+                  ""
+              ),
+
+            debit:
+              Number(
+                item.debit ?? 0
+              ),
+
+            credit:
+              Number(
+                item.credit ?? 0
+              ),
+
+            balance:
+              Number(
+                item.balance ?? 0
+              ),
+
+            total_count:
+              Number(
+                item.total_count ??
+                  0
+              ),
+
+            currency:
+              String(
+                item.currency ??
+                  context.currency
+              ),
+          })
+        );
+
+      ledgerCount =
+        ledger[0]?.total_count ??
+        0;
+    }
+  }
+
+  const baseCurrency =
+    summary?.currency ??
+    context.currency;
 
   return (
     <>
       <Topbar
         title={supplier.name}
         subtitle="ملف المورد، الأسعار، الفواتير وكشف الحساب"
-        companyName={context.companyName}
+        companyName={
+          context.companyName
+        }
       />
 
       <div className="page">
+        {warnings.length ? (
+          <div
+            className="toastError"
+            role="alert"
+            style={{
+              marginBottom: 14,
+            }}
+          >
+            {[
+              ...new Set(
+                warnings
+              ),
+            ].join(" ")}
+          </div>
+        ) : null}
+
         <div className="pageTitle">
           <div>
             <span className="eyebrow">
@@ -423,20 +862,27 @@ export default async function SupplierDetailPage({
               رجوع
             </Link>
 
-            <Link
-              className="primaryButton"
-              href="/purchases"
-            >
-              <Icons.money size={14} />
-              المشتريات والدفعات
-            </Link>
+            {canOpenPurchases ? (
+              <Link
+                className="primaryButton"
+                href="/purchases"
+              >
+                <Icons.money
+                  size={14}
+                />
+                المشتريات
+              </Link>
+            ) : null}
 
             {supplier.phone ? (
               <a
                 className="softButton"
                 href={`tel:${supplier.phone}`}
+                aria-label="اتصال بالمورد"
               >
-                <Icons.phone size={14} />
+                <Icons.phone
+                  size={14}
+                />
               </a>
             ) : null}
 
@@ -449,6 +895,7 @@ export default async function SupplierDetailPage({
                   /\D/g,
                   ""
                 )}`}
+                aria-label="فتح واتساب المورد"
               >
                 <Icons.whatsapp
                   size={14}
@@ -458,190 +905,247 @@ export default async function SupplierDetailPage({
           </div>
         </div>
 
-        <section className="statsGrid">
-          <Mini
-            title="إجمالي المشتريات"
-            value={money(
-              totalPurchases
-            )}
-          />
+        {canViewFinance &&
+        summary ? (
+          <>
+            <section className="statsGrid">
+              <Mini
+                title="إجمالي المشتريات"
+                value={money(
+                  summary.total_purchases,
+                  baseCurrency
+                )}
+              />
 
-          <Mini
-            title="إجمالي الدفعات"
-            value={money(
-              totalPayments
-            )}
-          />
+              <Mini
+                title="إجمالي الدفعات"
+                value={money(
+                  summary.total_payments,
+                  baseCurrency
+                )}
+              />
 
-          <Mini
-            title="مستحق بالفواتير"
-            value={money(
-              invoiceBalance
-            )}
-          />
+              <Mini
+                title="المستحق بالفواتير"
+                value={money(
+                  summary.invoice_balance,
+                  baseCurrency
+                )}
+              />
 
-          <Mini
-            title="صافي حساب المورد"
-            value={money(
-              netSupplierBalance
-            )}
-          />
-        </section>
+              <Mini
+                title="صافي حساب المورد"
+                value={money(
+                  summary.net_balance,
+                  baseCurrency
+                )}
+              />
+            </section>
 
-        <section
-          className="statsGrid"
-          style={{ marginTop: 12 }}
-        >
-          <Mini
-            title="دفعات مقدمة"
-            value={money(
-              advanceCredit
-            )}
-          />
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 12,
+              }}
+            >
+              <Mini
+                title="دفعات مقدمة"
+                value={money(
+                  summary.advance_credit,
+                  baseCurrency
+                )}
+              />
 
-          <Mini
-            title="أصناف متوفرة"
-            value={String(
-              activeProducts
-            )}
-          />
+              <Mini
+                title="أصناف متوفرة"
+                value={String(
+                  summary.available_products
+                )}
+              />
 
-          <Mini
-            title="فواتير مثبتة"
-            value={String(
-              postedInvoices.length
-            )}
-          />
+              <Mini
+                title="فواتير مثبتة"
+                value={String(
+                  summary.invoice_count
+                )}
+              />
 
-          <Mini
-            title="دفعات مثبتة"
-            value={String(
-              postedPayments.length
-            )}
-          />
-        </section>
+              <Mini
+                title="دفعات مثبتة"
+                value={String(
+                  summary.payment_count
+                )}
+              />
+            </section>
+          </>
+        ) : null}
 
         <div className="pageGrid">
-          <section className="panel panelPad">
-            <div className="panelHeader">
-              <div>
-                <h2>
-                  كشف حساب المورد
-                </h2>
+          {canViewFinance ? (
+            <section className="panel panelPad">
+              <div className="panelHeader">
+                <div>
+                  <h2>
+                    كشف حساب المورد
+                  </h2>
 
-                <p>
-                  الفواتير مدينة
-                  والدفعات دائنة.
-                </p>
+                  <p>
+                    الرصيد محسوب على كامل التاريخ، حتى لو كان المعروض آخر 100 حركة فقط.
+                  </p>
+                </div>
+
+                {summary ? (
+                  <div className="statValue">
+                    {money(
+                      summary.net_balance,
+                      baseCurrency
+                    )}
+                  </div>
+                ) : null}
               </div>
 
-              <div className="statValue">
-                {money(
-                  netSupplierBalance
-                )}
-              </div>
-            </div>
+              {!ledger.length ? (
+                <div className="empty">
+                  <Icons.wallet
+                    size={28}
+                  />
 
-            {!ledger.length ? (
+                  <h3>
+                    لا توجد حركة حساب
+                  </h3>
+                </div>
+              ) : (
+                <>
+                  {ledgerCount >
+                  ledger.length ? (
+                    <p className="muted">
+                      يعرض أحدث{" "}
+                      {ledger.length} من{" "}
+                      {ledgerCount} حركة.
+                    </p>
+                  ) : null}
+
+                  <div className="tableWrap">
+                    <table className="dataTable">
+                      <thead>
+                        <tr>
+                          <th>
+                            التاريخ
+                          </th>
+                          <th>
+                            المرجع
+                          </th>
+                          <th>
+                            البيان
+                          </th>
+                          <th>
+                            مدين
+                          </th>
+                          <th>
+                            دائن
+                          </th>
+                          <th>
+                            الرصيد
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {ledger.map(
+                          (row) => (
+                            <tr
+                              key={`${row.row_type}-${row.source_id}`}
+                            >
+                              <td>
+                                {formatDate(
+                                  row.event_date
+                                )}
+                              </td>
+
+                              <td>
+                                <strong>
+                                  {
+                                    row.reference
+                                  }
+                                </strong>
+                              </td>
+
+                              <td>
+                                <span
+                                  className={`chip ${
+                                    row.row_type ===
+                                    "invoice"
+                                      ? "orange"
+                                      : "green"
+                                  }`}
+                                >
+                                  {row.row_type ===
+                                  "invoice"
+                                    ? "فاتورة"
+                                    : "دفعة"}
+                                </span>
+
+                                <div className="muted">
+                                  {
+                                    row.description
+                                  }
+                                </div>
+                              </td>
+
+                              <td>
+                                {row.debit >
+                                0
+                                  ? money(
+                                      row.debit,
+                                      row.currency
+                                    )
+                                  : "—"}
+                              </td>
+
+                              <td>
+                                {row.credit >
+                                0
+                                  ? money(
+                                      row.credit,
+                                      row.currency
+                                    )
+                                  : "—"}
+                              </td>
+
+                              <td>
+                                <strong>
+                                  {money(
+                                    row.balance,
+                                    row.currency
+                                  )}
+                                </strong>
+                              </td>
+                            </tr>
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : (
+            <section className="panel panelPad">
               <div className="empty">
-                <Icons.wallet
+                <Icons.shield
                   size={28}
                 />
 
                 <h3>
-                  ما في حركة حساب
+                  المعلومات المالية مخفية
                 </h3>
 
                 <p>
-                  أول فاتورة أو دفعة
-                  رح تظهر هون.
+                  تحتاج إلى صلاحية مالية لعرض كشف الحساب.
                 </p>
               </div>
-            ) : (
-              <div className="tableWrap">
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>التاريخ</th>
-                      <th>المرجع</th>
-                      <th>البيان</th>
-                      <th>مدين</th>
-                      <th>دائن</th>
-                      <th>الرصيد</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {ledger.map(
-                      (row) => (
-                        <tr
-                          key={`${row.type}-${row.id}`}
-                        >
-                          <td>
-                            {row.date}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {
-                                row.reference
-                              }
-                            </strong>
-                          </td>
-
-                          <td>
-                            <span
-                              className={`chip ${
-                                row.type ===
-                                "invoice"
-                                  ? "orange"
-                                  : "green"
-                              }`}
-                            >
-                              {row.type ===
-                              "invoice"
-                                ? "فاتورة"
-                                : "دفعة"}
-                            </span>
-
-                            <div className="muted">
-                              {
-                                row.description
-                              }
-                            </div>
-                          </td>
-
-                          <td>
-                            {row.debit > 0
-                              ? money(
-                                  row.debit
-                                )
-                              : "—"}
-                          </td>
-
-                          <td>
-                            {row.credit > 0
-                              ? money(
-                                  row.credit
-                                )
-                              : "—"}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {money(
-                                row.balance
-                              )}
-                            </strong>
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+            </section>
+          )}
 
           <aside className="panel panelPad">
             <div className="panelHeader">
@@ -662,7 +1166,9 @@ export default async function SupplierDetailPage({
 
               <Info
                 title="الهاتف"
-                value={supplier.phone}
+                value={
+                  supplier.phone
+                }
               />
 
               <Info
@@ -680,6 +1186,16 @@ export default async function SupplierDetailPage({
               />
 
               <Info
+                title="شروط الدفع"
+                value={
+                  supplier.payment_terms_days >
+                  0
+                    ? `${supplier.payment_terms_days} يوم`
+                    : "نقدي"
+                }
+              />
+
+              <Info
                 title="الحالة"
                 value={
                   supplier.active
@@ -690,10 +1206,8 @@ export default async function SupplierDetailPage({
 
               <Info
                 title="تاريخ الإضافة"
-                value={new Date(
+                value={formatDate(
                   supplier.created_at
-                ).toLocaleDateString(
-                  "ar-LB"
                 )}
               />
             </div>
@@ -721,380 +1235,330 @@ export default async function SupplierDetailPage({
           </aside>
         </div>
 
-        <section
-          className="panel panelPad"
-          style={{ marginTop: 14 }}
-        >
-          <div className="panelHeader">
-            <div>
-              <h2>
-                فواتير الشراء
-              </h2>
-
-              <p>
-                الفواتير الحالية
-                وحالة كل فاتورة.
-              </p>
-            </div>
-          </div>
-
-          {!invoices.length ? (
-            <p className="muted">
-              ما في فواتير شراء.
-            </p>
-          ) : (
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>الفاتورة</th>
-                    <th>رقم المورد</th>
-                    <th>التاريخ</th>
-                    <th>الاستحقاق</th>
-                    <th>الإجمالي</th>
-                    <th>المدفوع</th>
-                    <th>المتبقي</th>
-                    <th>الحالة</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {invoices.map(
-                    (invoice) => (
-                      <tr
-                        key={
-                          invoice.id
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              invoice.invoice_number
-                            }
-                          </strong>
-                        </td>
-
-                        <td>
-                          {invoice.supplier_invoice_number ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {
-                            invoice.invoice_date
-                          }
-                        </td>
-
-                        <td>
-                          {invoice.due_date ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {money(
-                            invoice.total
-                          )}
-                        </td>
-
-                        <td>
-                          {money(
-                            invoice.paid_total
-                          )}
-                        </td>
-
-                        <td>
-                          {money(
-                            invoice.balance_due
-                          )}
-                        </td>
-
-                        <td>
-                          {invoice.status ===
-                          "cancelled" ? (
-                            <span className="chip gray">
-                              ملغاة
-                            </span>
-                          ) : (
-                            <span
-                              className={`chip ${
-                                invoice.payment_status ===
-                                "paid"
-                                  ? "green"
-                                  : invoice.payment_status ===
-                                      "partial"
-                                    ? "orange"
-                                    : "gray"
-                              }`}
-                            >
-                              {invoice.payment_status ===
-                              "paid"
-                                ? "مدفوعة"
-                                : invoice.payment_status ===
-                                    "partial"
-                                  ? "جزئي"
-                                  : "غير مدفوعة"}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section
-          className="panel panelPad"
-          style={{ marginTop: 14 }}
-        >
-          <div className="panelHeader">
-            <div>
-              <h2>
-                دفعات المورد
-              </h2>
-
-              <p>
-                الدفعات المثبتة
-                والمعكوسة والرصيد
-                المقدم.
-              </p>
-            </div>
-          </div>
-
-          {!payments.length ? (
-            <p className="muted">
-              ما في دفعات مسجلة.
-            </p>
-          ) : (
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>الدفعة</th>
-                    <th>التاريخ</th>
-                    <th>المبلغ</th>
-                    <th>موزع</th>
-                    <th>مقدم</th>
-                    <th>الطريقة</th>
-                    <th>الصندوق</th>
-                    <th>الحالة</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {payments.map(
-                    (payment) => {
-                      const cashbox =
-                        oneRelation(
-                          payment.cashboxes
-                        );
-
-                      return (
-                        <tr
-                          key={
-                            payment.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                payment.payment_number
-                              }
-                            </strong>
-
-                            <div className="muted">
-                              {payment.reference_number ||
-                                ""}
-                            </div>
-                          </td>
-
-                          <td>
-                            {
-                              payment.payment_date
-                            }
-                          </td>
-
-                          <td>
-                            {Number(
-                              payment.amount || 0
-                            ).toFixed(2)}{" "}
-                            {payment.payment_currency ||
-                              cashbox?.currency ||
-                              context.currency}
-
-                            {payment.payment_currency &&
-                            payment.payment_currency !==
-                              context.currency &&
-                            payment.base_amount != null ? (
-                              <div className="muted">
-                                ? {money(
-                                  payment.base_amount
-                                )}
-                              </div>
-                            ) : null}
-                          </td>
-
-                          <td>
-                            {Number(
-                              payment.allocated_total ||
-                                0
-                            ).toFixed(2)}{" "}
-                            {payment.payment_currency ||
-                              cashbox?.currency ||
-                              context.currency}
-                          </td>
-
-                          <td>
-                            {Number(
-                              payment.unallocated_total ||
-                                0
-                            ).toFixed(2)}{" "}
-                            {payment.payment_currency ||
-                              cashbox?.currency ||
-                              context.currency}
-                          </td>
-
-                          <td>
-                            {paymentMethodLabels[
-                              payment.payment_method
-                            ] ||
-                              payment.payment_method}
-                          </td>
-
-                          <td>
-                            {cashbox?.name ||
-                              "—"}
-                          </td>
-
-                          <td>
-                            <span
-                              className={`chip ${
-                                payment.status ===
-                                "posted"
-                                  ? "green"
-                                  : "gray"
-                              }`}
-                            >
-                              {payment.status ===
-                              "posted"
-                                ? "مثبتة"
-                                : "معكوسة"}
-                            </span>
-
-                            {payment.reversal_reason ? (
-                              <div className="muted">
-                                {
-                                  payment.reversal_reason
-                                }
-                              </div>
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    }
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <div className="pageGrid">
-          <section className="panel panelPad">
+        {canViewInvoices ? (
+          <section
+            className="panel panelPad"
+            style={{
+              marginTop: 14,
+            }}
+          >
             <div className="panelHeader">
               <div>
                 <h2>
-                  الأصناف والأسعار الحالية
+                  فواتير الشراء
                 </h2>
 
                 <p>
-                  آخر سعر عند هذا المورد.
+                  أحدث 50 فاتورة. الإجماليات بالأعلى محسوبة على كامل السجل.
                 </p>
+              </div>
+
+              <div className="resultCount">
+                {invoiceListCount} فاتورة
               </div>
             </div>
 
-            {!prices.length ? (
+            {!invoices.length ? (
               <p className="muted">
-                ما في أصناف مرتبطة.
+                لا توجد فواتير شراء.
               </p>
             ) : (
               <div className="tableWrap">
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>الصنف</th>
-                      <th>سعر الشراء</th>
-                      <th>سعر البيع</th>
-                      <th>الحالة</th>
-                      <th>آخر تحديث</th>
+                      <th>
+                        الفاتورة
+                      </th>
+                      <th>
+                        رقم المورد
+                      </th>
+                      <th>
+                        التاريخ
+                      </th>
+                      <th>
+                        الاستحقاق
+                      </th>
+                      <th>
+                        الإجمالي
+                      </th>
+                      <th>
+                        المدفوع
+                      </th>
+                      <th>
+                        المتبقي
+                      </th>
+                      <th>
+                        الحالة
+                      </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {prices.map(
-                      (price) => {
-                        const product =
+                    {invoices.map(
+                      (invoice) => (
+                        <tr
+                          key={
+                            invoice.id
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {
+                                invoice.invoice_number
+                              }
+                            </strong>
+                          </td>
+
+                          <td>
+                            {invoice.supplier_invoice_number ||
+                              "—"}
+                          </td>
+
+                          <td>
+                            {formatDate(
+                              invoice.invoice_date
+                            )}
+                          </td>
+
+                          <td>
+                            {formatDate(
+                              invoice.due_date
+                            )}
+                          </td>
+
+                          <td>
+                            {money(
+                              invoice.total,
+                              invoice.currency
+                            )}
+                          </td>
+
+                          <td>
+                            {money(
+                              invoice.paid_total,
+                              invoice.currency
+                            )}
+                          </td>
+
+                          <td>
+                            {money(
+                              invoice.balance_due,
+                              invoice.currency
+                            )}
+                          </td>
+
+                          <td>
+                            {invoice.status ===
+                            "cancelled" ? (
+                              <span className="chip gray">
+                                ملغاة
+                              </span>
+                            ) : invoice.status ===
+                              "draft" ? (
+                              <span className="chip blue">
+                                مسودة
+                              </span>
+                            ) : (
+                              <span
+                                className={`chip ${
+                                  invoice.payment_status ===
+                                  "paid"
+                                    ? "green"
+                                    : invoice.payment_status ===
+                                        "partial"
+                                      ? "orange"
+                                      : "gray"
+                                }`}
+                              >
+                                {invoice.payment_status ===
+                                "paid"
+                                  ? "مدفوعة"
+                                  : invoice.payment_status ===
+                                      "partial"
+                                    ? "مدفوعة جزئياً"
+                                    : "غير مدفوعة"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {canViewPayments ? (
+          <section
+            className="panel panelPad"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <div className="panelHeader">
+              <div>
+                <h2>
+                  دفعات المورد
+                </h2>
+
+                <p>
+                  أحدث 50 دفعة مع عملة كل عملية.
+                </p>
+              </div>
+
+              <div className="resultCount">
+                {paymentListCount} دفعة
+              </div>
+            </div>
+
+            {!payments.length ? (
+              <p className="muted">
+                لا توجد دفعات مسجلة.
+              </p>
+            ) : (
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>
+                        الدفعة
+                      </th>
+                      <th>
+                        التاريخ
+                      </th>
+                      <th>
+                        المبلغ
+                      </th>
+                      <th>
+                        موزع
+                      </th>
+                      <th>
+                        مقدم
+                      </th>
+                      <th>
+                        الطريقة
+                      </th>
+                      <th>
+                        الصندوق
+                      </th>
+                      <th>
+                        الحالة
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {payments.map(
+                      (payment) => {
+                        const cashbox =
                           oneRelation(
-                            price.products
+                            payment.cashboxes
                           );
+
+                        const paymentCurrency =
+                          payment.payment_currency ||
+                          cashbox?.currency ||
+                          context.currency;
 
                         return (
                           <tr
                             key={
-                              price.id
+                              payment.id
                             }
                           >
                             <td>
                               <strong>
-                                {product?.name ||
-                                  "—"}
+                                {
+                                  payment.payment_number
+                                }
                               </strong>
 
-                              <div className="muted">
-                                {product?.sku ||
-                                  ""}
-                              </div>
+                              {payment.reference_number ? (
+                                <div className="muted">
+                                  {
+                                    payment.reference_number
+                                  }
+                                </div>
+                              ) : null}
                             </td>
 
                             <td>
-                              {money(
-                                price.purchase_price
+                              {formatDate(
+                                payment.payment_date
                               )}
                             </td>
 
                             <td>
-                              {product?.sale_price !=
-                              null
-                                ? money(
-                                    product.sale_price
-                                  )
-                                : "—"}
+                              {money(
+                                payment.amount,
+                                paymentCurrency
+                              )}
+
+                              {paymentCurrency !==
+                                context.currency &&
+                              payment.base_amount !=
+                                null ? (
+                                <div className="muted">
+                                  ≈{" "}
+                                  {money(
+                                    payment.base_amount,
+                                    context.currency
+                                  )}
+                                </div>
+                              ) : null}
+                            </td>
+
+                            <td>
+                              {money(
+                                payment.allocated_total,
+                                paymentCurrency
+                              )}
+                            </td>
+
+                            <td>
+                              {money(
+                                payment.unallocated_total,
+                                paymentCurrency
+                              )}
+                            </td>
+
+                            <td>
+                              {paymentMethodLabels[
+                                payment.payment_method
+                              ] ||
+                                "أخرى"}
+                            </td>
+
+                            <td>
+                              {cashbox?.name ||
+                                "—"}
                             </td>
 
                             <td>
                               <span
                                 className={`chip ${
-                                  price.available
+                                  payment.status ===
+                                  "posted"
                                     ? "green"
                                     : "gray"
                                 }`}
                               >
-                                {price.available
-                                  ? "متوفر"
-                                  : "غير متوفر"}
+                                {payment.status ===
+                                "posted"
+                                  ? "مثبتة"
+                                  : "معكوسة"}
                               </span>
-                            </td>
 
-                            <td>
-                              {price.last_checked_at
-                                ? new Date(
-                                    price.last_checked_at
-                                  ).toLocaleString(
-                                    "ar-LB"
-                                  )
-                                : "—"}
+                              {payment.reversal_reason ? (
+                                <div className="muted">
+                                  {
+                                    payment.reversal_reason
+                                  }
+                                </div>
+                              ) : null}
                             </td>
                           </tr>
                         );
@@ -1105,67 +1569,211 @@ export default async function SupplierDetailPage({
               </div>
             )}
           </section>
+        ) : null}
 
-          <aside className="panel panelPad">
-            <div className="panelHeader">
-              <div>
-                <h2>
-                  آخر تغييرات الأسعار
-                </h2>
+        {canViewPrices ? (
+          <div className="pageGrid">
+            <section className="panel panelPad">
+              <div className="panelHeader">
+                <div>
+                  <h2>
+                    الأصناف والأسعار الحالية
+                  </h2>
 
-                <p>
-                  السجل التاريخي لا
-                  ينمسح.
+                  <p>
+                    أسعار الشراء الحالية عند هذا المورد.
+                  </p>
+                </div>
+
+                <div className="resultCount">
+                  {pricesCount} صنف
+                </div>
+              </div>
+
+              {!prices.length ? (
+                <p className="muted">
+                  لا توجد أصناف مرتبطة.
                 </p>
-              </div>
-            </div>
+              ) : (
+                <>
+                  {pricesCount >
+                  prices.length ? (
+                    <p className="muted">
+                      يعرض أحدث{" "}
+                      {prices.length} من{" "}
+                      {pricesCount} صنف.
+                    </p>
+                  ) : null}
 
-            {!history.length ? (
-              <p className="muted">
-                ما في تاريخ أسعار.
-              </p>
-            ) : (
-              <div className="quickList">
-                {history
-                  .slice(0, 12)
-                  .map((row) => {
-                    const product =
-                      oneRelation(
-                        row.products
-                      );
+                  <div className="tableWrap">
+                    <table className="dataTable">
+                      <thead>
+                        <tr>
+                          <th>
+                            الصنف
+                          </th>
+                          <th>
+                            سعر الشراء
+                          </th>
+                          <th>
+                            سعر البيع
+                          </th>
+                          <th>
+                            الحالة
+                          </th>
+                          <th>
+                            آخر تحديث
+                          </th>
+                        </tr>
+                      </thead>
 
-                    return (
-                      <div
-                        className="quickItem"
-                        key={row.id}
-                      >
-                        <div>
-                          <strong>
-                            {product?.name ||
-                              "—"}
-                          </strong>
+                      <tbody>
+                        {prices.map(
+                          (price) => {
+                            const product =
+                              oneRelation(
+                                price.products
+                              );
 
-                          <span>
-                            {new Date(
-                              row.effective_at
-                            ).toLocaleDateString(
-                              "ar-LB"
-                            )}
-                          </span>
-                        </div>
+                            return (
+                              <tr
+                                key={
+                                  price.id
+                                }
+                              >
+                                <td>
+                                  <strong>
+                                    {product?.name ||
+                                      "صنف غير متاح"}
+                                  </strong>
 
-                        <div className="count">
-                          {money(
-                            row.purchase_price
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-          </aside>
-        </div>
+                                  <div className="muted">
+                                    {product?.sku ||
+                                      ""}
+                                  </div>
+                                </td>
+
+                                <td>
+                                  {money(
+                                    price.purchase_price,
+                                    context.currency
+                                  )}
+                                </td>
+
+                                <td>
+                                  {product?.sale_price !=
+                                  null
+                                    ? money(
+                                        product.sale_price,
+                                        context.currency
+                                      )
+                                    : "—"}
+                                </td>
+
+                                <td>
+                                  <span
+                                    className={`chip ${
+                                      price.available
+                                        ? "green"
+                                        : "gray"
+                                    }`}
+                                  >
+                                    {price.available
+                                      ? "متوفر"
+                                      : "غير متوفر"}
+                                  </span>
+                                </td>
+
+                                <td>
+                                  {formatDateTime(
+                                    price.last_checked_at
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          }
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </section>
+
+            {canViewPriceHistory ? (
+              <aside className="panel panelPad">
+                <div className="panelHeader">
+                  <div>
+                    <h2>
+                      آخر تغييرات الأسعار
+                    </h2>
+
+                    <p>
+                      السجل التاريخي محفوظ ولا يُحذف.
+                    </p>
+                  </div>
+                </div>
+
+                {!history.length ? (
+                  <p className="muted">
+                    لا يوجد تاريخ أسعار.
+                  </p>
+                ) : (
+                  <>
+                    {historyCount >
+                    history.length ? (
+                      <p className="muted">
+                        يعرض أحدث{" "}
+                        {history.length} من{" "}
+                        {historyCount} تغيير.
+                      </p>
+                    ) : null}
+
+                    <div className="quickList">
+                      {history.map(
+                        (row) => {
+                          const product =
+                            oneRelation(
+                              row.products
+                            );
+
+                          return (
+                            <div
+                              className="quickItem"
+                              key={
+                                row.id
+                              }
+                            >
+                              <div>
+                                <strong>
+                                  {product?.name ||
+                                    "صنف غير متاح"}
+                                </strong>
+
+                                <span>
+                                  {formatDateTime(
+                                    row.effective_at
+                                  )}
+                                </span>
+                              </div>
+
+                              <div className="count">
+                                {money(
+                                  row.purchase_price,
+                                  context.currency
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  </>
+                )}
+              </aside>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </>
   );
@@ -1201,8 +1809,13 @@ function Info({
   return (
     <div className="quickItem">
       <div>
-        <strong>{title}</strong>
-        <span>{value || "—"}</span>
+        <strong>
+          {title}
+        </strong>
+
+        <span>
+          {value || "—"}
+        </span>
       </div>
     </div>
   );

@@ -1,13 +1,16 @@
-import { Topbar } from "@/components/topbar";
 import {
   ReturnsClient,
+  type PurchaseReturnCandidate,
+  type ReturnHistoryRow,
+  type ReturnsStats,
   type ReturnWarehouse,
-  type ReturnSalesInvoice,
-  type ReturnPurchaseInvoice,
-  type SalesReturnRecord,
-  type PurchaseReturnRecord,
+  type SalesReturnCandidate,
+  type ReturnsTab,
+  type ReturnHistoryKindFilter,
+  type ReturnHistoryStatusFilter,
 } from "@/components/returns/returns-client";
 
+import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import {
   hasAnyPermission,
@@ -15,28 +18,166 @@ import {
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function ReturnsPage() {
-  const context = await getCurrentContext();
-  const supabase = await createClient();
+function firstParam(
+  value:
+    | string
+    | string[]
+    | undefined
+) {
+  return Array.isArray(value)
+    ? value[0] ?? ""
+    : value ?? "";
+}
 
-  const canView = hasAnyPermission(
-    context.permissions,
-    [
-      "returns.view",
-      "returns.create",
-      "inventory.returns",
-    ],
-    context.isOwner
-  );
+function cleanSearch(
+  value: string
+) {
+  return value
+    .replace(
+      /[%_(),"'\\]/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim()
+    .slice(
+      0,
+      100
+    );
+}
 
-  const canCreate = hasAnyPermission(
-    context.permissions,
-    [
-      "returns.create",
-      "inventory.returns",
-    ],
-    context.isOwner
-  );
+function cleanTab(
+  value: string
+): ReturnsTab {
+  if (
+    value === "purchases" ||
+    value === "history"
+  ) {
+    return value;
+  }
+
+  return "sales";
+}
+
+function cleanKind(
+  value: string
+): ReturnHistoryKindFilter {
+  if (
+    value === "sales" ||
+    value === "purchases"
+  ) {
+    return value;
+  }
+
+  return "all";
+}
+
+function cleanStatus(
+  value: string
+): ReturnHistoryStatusFilter {
+  if (
+    value === "posted" ||
+    value === "reversed" ||
+    value === "cancelled"
+  ) {
+    return value;
+  }
+
+  return "all";
+}
+
+function parseRpcObject(
+  value: unknown
+) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  )
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function parseRows<T>(
+  value: unknown
+): T[] {
+  const object =
+    parseRpcObject(value);
+
+  return Array.isArray(
+    object?.rows
+  )
+    ? object.rows as T[]
+    : [];
+}
+
+function parseCount(
+  value: unknown
+) {
+  const object =
+    parseRpcObject(value);
+
+  const count =
+    Number(
+      object?.total_count ??
+        0
+    );
+
+  return Number.isFinite(
+    count
+  )
+    ? count
+    : 0;
+}
+
+export default async function ReturnsPage({
+  searchParams,
+}: {
+  searchParams: Promise<
+    Record<
+      string,
+      | string
+      | string[]
+      | undefined
+    >
+  >;
+}) {
+  const context =
+    await getCurrentContext();
+
+  const params =
+    await searchParams;
+
+  const canView =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "returns.view",
+        "returns.create",
+        "inventory.returns",
+        "returns.reverse",
+      ],
+      context.isOwner
+    );
+
+  const canCreate =
+    hasAnyPermission(
+      context.permissions,
+      [
+        "returns.create",
+        "inventory.returns",
+      ],
+      context.isOwner
+    );
+
+  const canReverse =
+    hasPermission(
+      context.permissions,
+      "returns.reverse",
+      context.isOwner
+    );
 
   if (!canView) {
     return (
@@ -44,217 +185,396 @@ export default async function ReturnsPage() {
         <Topbar
           title="المرتجعات"
           subtitle="مرتجعات البيع والشراء"
-          companyName={context.companyName}
+          companyName={
+            context.companyName
+          }
         />
 
         <div className="page">
           <section className="panel panelPad">
-            ما عندك صلاحية لعرض المرتجعات.
+            <div className="empty">
+              <h3>
+                لا تملك صلاحية عرض المرتجعات
+              </h3>
+
+              <p>
+                تحتاج إلى إحدى صلاحيات المرتجعات للوصول لهذه الصفحة.
+              </p>
+            </div>
           </section>
         </div>
       </>
     );
   }
 
+  const requestedTab =
+    cleanTab(
+      firstParam(
+        params.tab
+      )
+    );
+
+  const tab:
+    ReturnsTab =
+      canCreate
+        ? requestedTab
+        : "history";
+
+  const searchQuery =
+    cleanSearch(
+      firstParam(
+        params.q
+      )
+    );
+
+  const historyKind =
+    cleanKind(
+      firstParam(
+        params.kind
+      )
+    );
+
+  const historyStatus =
+    cleanStatus(
+      firstParam(
+        params.status
+      )
+    );
+
+  const page =
+    Math.max(
+      1,
+      Number.parseInt(
+        firstParam(
+          params.page
+        ),
+        10
+      ) || 1
+    );
+
+  const pageSize =
+    50;
+
+  const offset =
+    (page - 1) *
+    pageSize;
+
+  const supabase =
+    await createClient();
+
+  let initialError:
+    string | null =
+      null;
+
+  let warehouses:
+    ReturnWarehouse[] =
+      [];
+
+  let salesCandidates:
+    SalesReturnCandidate[] =
+      [];
+
+  let purchaseCandidates:
+    PurchaseReturnCandidate[] =
+      [];
+
+  let historyRows:
+    ReturnHistoryRow[] =
+      [];
+
+  let totalCount =
+    0;
+
+  const summaryPromise =
+    supabase.rpc(
+      "get_returns_summary",
+      {
+        target_company:
+          context.companyId,
+      }
+    );
+
+  const warehousesPromise =
+    canCreate
+      ? supabase.rpc(
+          "get_return_warehouses",
+          {
+            target_company:
+              context.companyId,
+          }
+        )
+      : Promise.resolve({
+          data: [],
+          error: null,
+        });
+
+  const dataPromise =
+    tab === "sales"
+      ? supabase.rpc(
+          "get_sales_return_candidates",
+          {
+            target_company:
+              context.companyId,
+
+            target_search:
+              searchQuery ||
+              null,
+
+            target_limit:
+              pageSize,
+
+            target_offset:
+              offset,
+          }
+        )
+
+      : tab === "purchases"
+        ? supabase.rpc(
+            "get_purchase_return_candidates",
+            {
+              target_company:
+                context.companyId,
+
+              target_search:
+                searchQuery ||
+                null,
+
+              target_limit:
+                pageSize,
+
+              target_offset:
+                offset,
+            }
+          )
+
+        : supabase.rpc(
+            "get_returns_history",
+            {
+              target_company:
+                context.companyId,
+
+              target_search:
+                searchQuery ||
+                null,
+
+              target_kind:
+                historyKind ===
+                "all"
+                  ? null
+                  : historyKind,
+
+              target_status:
+                historyStatus ===
+                "all"
+                  ? null
+                  : historyStatus,
+
+              target_limit:
+                pageSize,
+
+              target_offset:
+                offset,
+            }
+          );
+
   const [
+    summaryResult,
     warehousesResult,
-    salesInvoicesResult,
-    purchaseInvoicesResult,
-    salesReturnsResult,
-    purchaseReturnsResult,
-  ] = await Promise.all([
-    supabase
-      .from("warehouses")
-      .select("id,name,code,is_default,active")
-      .eq("company_id", context.companyId)
-      .eq("active", true)
-      .order("is_default", { ascending: false })
-      .order("name"),
+    dataResult,
+  ] =
+    await Promise.all([
+      summaryPromise,
+      warehousesPromise,
+      dataPromise,
+    ]);
 
-    supabase
-      .from("sales_invoices")
-      .select(`
-        id,
-        invoice_number,
-        trader_id,
-        invoice_date,
-        currency,
-        subtotal,
-        discount_total,
-        total,
-        status,
-        traders(
-          id,
-          name
-        ),
-        sales_invoice_items(
-          id,
-          product_id,
-          description,
-          unit,
-          quantity,
-          unit_price,
-          line_total,
-          products(
-            id,
-            name,
-            sku
-          )
-        )
-      `)
-      .eq("company_id", context.companyId)
-      .eq("status", "posted")
-      .order("invoice_date", { ascending: false })
-      .limit(100),
+  if (
+    summaryResult.error
+  ) {
+    initialError =
+      "تعذر تحميل ملخص المرتجعات.";
+  }
 
-    supabase
-      .from("purchase_invoices")
-      .select(`
-        id,
-        invoice_number,
-        supplier_invoice_number,
-        supplier_id,
-        invoice_date,
-        currency,
-        total,
-        status,
-        suppliers(
-          id,
-          name
-        ),
-        purchase_invoice_items(
-          id,
-          product_id,
-          description,
-          quantity,
-          unit_cost,
-          line_total,
-          products(
-            id,
-            name,
-            sku
-          )
-        )
-      `)
-      .eq("company_id", context.companyId)
-      .eq("status", "posted")
-      .order("invoice_date", { ascending: false })
-      .limit(100),
+  if (
+    warehousesResult.error
+  ) {
+    initialError ??=
+      "تعذر تحميل المستودعات.";
+  } else if (
+    Array.isArray(
+      warehousesResult.data
+    )
+  ) {
+    warehouses =
+      warehousesResult.data as ReturnWarehouse[];
+  }
 
-    supabase
-      .from("sales_returns")
-      .select(
-        "id,return_number,sales_invoice_id,trader_id,warehouse_id,return_date,status,currency,subtotal,discount_total,total,notes,created_at"
-      )
-      .eq("company_id", context.companyId)
-      .order("return_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100),
+  if (
+    dataResult.error
+  ) {
+    initialError ??=
+      tab === "history"
+        ? "تعذر تحميل سجل المرتجعات."
+        : "تعذر تحميل الفواتير القابلة للإرجاع.";
+  } else {
+    totalCount =
+      parseCount(
+        dataResult.data
+      );
 
-    supabase
-      .from("purchase_returns")
-      .select(
-        "id,return_number,purchase_invoice_id,supplier_id,warehouse_id,return_date,status,currency,inventory_cost_total,total,notes,created_at"
-      )
-      .eq("company_id", context.companyId)
-      .order("return_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100),
-  ]);
+    if (
+      tab === "sales"
+    ) {
+      salesCandidates =
+        parseRows<SalesReturnCandidate>(
+          dataResult.data
+        );
+    }
 
-  const results = [
-    warehousesResult,
-    salesInvoicesResult,
-    purchaseInvoicesResult,
-    salesReturnsResult,
-    purchaseReturnsResult,
-  ];
+    if (
+      tab ===
+      "purchases"
+    ) {
+      purchaseCandidates =
+        parseRows<PurchaseReturnCandidate>(
+          dataResult.data
+        );
+    }
 
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(result.error.message);
+    if (
+      tab ===
+      "history"
+    ) {
+      historyRows =
+        parseRows<ReturnHistoryRow>(
+          dataResult.data
+        );
     }
   }
 
-  const [
-    salesReturnItemsResult,
-    purchaseReturnItemsResult,
-  ] = await Promise.all([
-    supabase
-      .from("sales_return_items")
-      .select(
-        "id,sales_return_id,sales_invoice_item_id,quantity"
-      )
-      .eq("company_id", context.companyId),
-
-    supabase
-      .from("purchase_return_items")
-      .select(
-        "id,purchase_return_id,purchase_invoice_item_id,quantity"
-      )
-      .eq("company_id", context.companyId),
-  ]);
-
-  if (salesReturnItemsResult.error) {
-    throw new Error(
-      salesReturnItemsResult.error.message
+  const summary =
+    parseRpcObject(
+      summaryResult.data
     );
-  }
 
-  if (purchaseReturnItemsResult.error) {
-    throw new Error(
-      purchaseReturnItemsResult.error.message
-    );
-  }
+  const stats:
+    ReturnsStats = {
+      salesCount:
+        Number(
+          summary?.sales_count ??
+            0
+        ),
+
+      salesPostedCount:
+        Number(
+          summary?.sales_posted_count ??
+            0
+        ),
+
+      salesReversedCount:
+        Number(
+          summary?.sales_reversed_count ??
+            0
+        ),
+
+      purchaseCount:
+        Number(
+          summary?.purchase_count ??
+            0
+        ),
+
+      purchasePostedCount:
+        Number(
+          summary?.purchase_posted_count ??
+            0
+        ),
+
+      purchaseReversedCount:
+        Number(
+          summary?.purchase_reversed_count ??
+            0
+        ),
+
+      salesTotals:
+        Array.isArray(
+          summary?.sales_totals
+        )
+          ? summary.sales_totals as {
+              currency: string;
+              total: number;
+            }[]
+          : [],
+
+      purchaseTotals:
+        Array.isArray(
+          summary?.purchase_totals
+        )
+          ? summary.purchase_totals as {
+              currency: string;
+              total: number;
+            }[]
+          : [],
+    };
 
   return (
     <>
       <Topbar
         title="المرتجعات"
-        subtitle="إرجاع بضاعة من العميل أو إلى المورد"
-        companyName={context.companyName}
+        subtitle="إرجاع بضاعة من العميل أو إلى المورد مع المخزون والمحاسبة"
+        companyName={
+          context.companyName
+        }
       />
 
       <ReturnsClient
-        companyId={context.companyId}
-        baseCurrency={context.currency}
+        companyId={
+          context.companyId
+        }
+        initialTab={
+          tab
+        }
+        initialStats={
+          stats
+        }
         warehouses={
-          (warehousesResult.data ?? []) as unknown as ReturnWarehouse[]
+          warehouses
         }
-        salesInvoices={
-          (salesInvoicesResult.data ?? []) as unknown as ReturnSalesInvoice[]
+        salesCandidates={
+          salesCandidates
         }
-        purchaseInvoices={
-          (purchaseInvoicesResult.data ?? []) as unknown as ReturnPurchaseInvoice[]
+        purchaseCandidates={
+          purchaseCandidates
         }
-        salesReturns={
-          (salesReturnsResult.data ?? []) as unknown as SalesReturnRecord[]
+        historyRows={
+          historyRows
         }
-        purchaseReturns={
-          (purchaseReturnsResult.data ?? []) as unknown as PurchaseReturnRecord[]
+        totalCount={
+          totalCount
         }
-        salesReturnItems={
-          (salesReturnItemsResult.data ?? []) as unknown as {
-            id: string;
-            sales_return_id: string;
-            sales_invoice_item_id: string;
-            quantity: number;
-          }[]
+        page={
+          page
         }
-        purchaseReturnItems={
-          (purchaseReturnItemsResult.data ?? []) as unknown as {
-            id: string;
-            purchase_return_id: string;
-            purchase_invoice_item_id: string;
-            quantity: number;
-          }[]
+        pageSize={
+          pageSize
         }
-        canCreate={canCreate}
-        canReverse={hasPermission(
-          context.permissions,
-          "returns.reverse",
-          context.isOwner
-        )}
+        searchQuery={
+          searchQuery
+        }
+        historyKind={
+          historyKind
+        }
+        historyStatus={
+          historyStatus
+        }
+        canCreate={
+          canCreate
+        }
+        canReverse={
+          canReverse
+        }
+        initialError={
+          initialError
+        }
       />
     </>
   );

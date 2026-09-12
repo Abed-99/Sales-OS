@@ -1,13 +1,23 @@
 ﻿"use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<ResetPasswordShell busy />}>
+    <Suspense fallback={<ResetPasswordShell />}>
       <ResetPasswordForm />
     </Suspense>
   );
@@ -16,19 +26,93 @@ export default function ResetPasswordPage() {
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isInvite = searchParams.get("invite") === "1";
+
+  const supabase = useMemo(
+    () => createClient(),
+    []
+  );
 
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  const [
+    checkingSession,
+    setCheckingSession,
+  ] = useState(true);
+
+  const [
+    sessionValid,
+    setSessionValid,
+  ] = useState(false);
+
+  const [message, setMessage] = useState("");
+  const [invite, setInvite] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    async function verifySession() {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (!active) return;
+
+      if (error || !user) {
+        setSessionValid(false);
+
+        setMessage(
+          "رابط الاستعادة غير صالح أو انتهت صلاحيته. اطلب رابط استعادة جديدًا."
+        );
+
+        setCheckingSession(false);
+        return;
+      }
+
+      const requestedInvite =
+        searchParams.get("invite") === "1";
+
+      const invitedCompanyId =
+        user.user_metadata?.invited_company_id;
+
+      setInvite(
+        requestedInvite &&
+          Boolean(invitedCompanyId)
+      );
+
+      setSessionValid(true);
+      setCheckingSession(false);
+    }
+
+    void verifySession();
+
+    return () => {
+      active = false;
+    };
+  }, [searchParams, supabase]);
+
+  async function submit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
+
+    if (busy) return;
+
     setMessage("");
 
+    if (!sessionValid) {
+      setMessage(
+        "رابط الاستعادة غير صالح أو انتهت صلاحيته."
+      );
+      return;
+    }
+
     if (password.length < 8) {
-      setMessage("كلمة المرور لازم تكون 8 محارف على الأقل.");
+      setMessage(
+        "كلمة المرور يجب أن تكون 8 محارف على الأقل."
+      );
       return;
     }
 
@@ -40,26 +124,87 @@ function ResetPasswordForm() {
     setBusy(true);
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } =
+        await supabase.auth.updateUser({
+          password,
+        });
 
       if (error) {
-        setMessage(error.message);
+        setMessage(
+          "تعذر حفظ كلمة المرور الجديدة. اطلب رابط استعادة جديدًا وحاول مرة أخرى."
+        );
         return;
       }
 
-      if (isInvite) {
+      if (invite) {
         router.replace("/");
         router.refresh();
         return;
       }
 
-      await supabase.auth.signOut();
+      const { error: signOutError } =
+        await supabase.auth.signOut();
+
+      if (signOutError) {
+        setMessage(
+          "تم تغيير كلمة المرور، لكن تعذر تسجيل الخروج تلقائيًا. أغلق الصفحة ثم سجّل الدخول بكلمة المرور الجديدة."
+        );
+        return;
+      }
+
       router.replace("/login");
       router.refresh();
+    } catch {
+      setMessage(
+        "حدث خطأ أثناء حفظ كلمة المرور. حاول مرة أخرى."
+      );
     } finally {
       setBusy(false);
     }
+  }
+
+  if (checkingSession) {
+    return <ResetPasswordShell />;
+  }
+
+  if (!sessionValid) {
+    return (
+      <main className="loginPage">
+        <section className="authCard">
+          <div className="brand">
+            <div className="brandMark">S</div>
+
+            <div>
+              <strong>Sales OS</strong>
+              <span>الأمان</span>
+            </div>
+          </div>
+
+          <span className="eyebrow">
+            أمان الحساب
+          </span>
+
+          <h1>
+            تعذر فتح رابط الاستعادة
+          </h1>
+
+          <div
+            className="toastError"
+            role="alert"
+            aria-live="polite"
+          >
+            {message}
+          </div>
+
+          <Link
+            className="authBackLink"
+            href="/forgot-password"
+          >
+            طلب رابط استعادة جديد
+          </Link>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -67,26 +212,45 @@ function ResetPasswordForm() {
       <section className="authCard">
         <div className="brand">
           <div className="brandMark">S</div>
+
           <div>
             <strong>Sales OS</strong>
-            <span>{isInvite ? "دعوة الفريق" : "الأمان"}</span>
+
+            <span>
+              {invite
+                ? "دعوة الفريق"
+                : "الأمان"}
+            </span>
           </div>
         </div>
 
         <span className="eyebrow">
-          {isInvite ? "تفعيل حساب الموظف" : "أمان الحساب"}
+          {invite
+            ? "تفعيل حساب الموظف"
+            : "أمان الحساب"}
         </span>
-        <h1>{isInvite ? "أنشئ كلمة مرورك" : "كلمة مرور جديدة"}</h1>
+
+        <h1>
+          {invite
+            ? "أنشئ كلمة مرورك"
+            : "كلمة مرور جديدة"}
+        </h1>
 
         <p>
-          {isInvite
+          {invite
             ? "تمت دعوتك إلى فريق Sales OS. اختر كلمة مرور قوية للدخول إلى الشركة حسب الصلاحيات الممنوحة لك."
-            : "اختر كلمة مرور قوية ولا تستخدم نفس كلمة المرور بحسابات أخرى."}
+            : "اختر كلمة مرور قوية ولا تستخدم كلمة المرور نفسها في حسابات أخرى."}
         </p>
 
-        <form className="authForm" onSubmit={submit}>
+        <form
+          className="authForm"
+          onSubmit={submit}
+        >
           <label className="field">
-            <span>كلمة المرور الجديدة</span>
+            <span>
+              كلمة المرور الجديدة
+            </span>
+
             <input
               required
               type="password"
@@ -94,12 +258,17 @@ function ResetPasswordForm() {
               dir="ltr"
               autoComplete="new-password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
             />
           </label>
 
           <label className="field">
-            <span>تأكيد كلمة المرور</span>
+            <span>
+              تأكيد كلمة المرور
+            </span>
+
             <input
               required
               type="password"
@@ -107,16 +276,30 @@ function ResetPasswordForm() {
               dir="ltr"
               autoComplete="new-password"
               value={repeat}
-              onChange={(event) => setRepeat(event.target.value)}
+              onChange={(event) =>
+                setRepeat(event.target.value)
+              }
             />
           </label>
 
-          {message ? <div className="toastError">{message}</div> : null}
+          {message && (
+            <div
+              className="toastError"
+              role="alert"
+              aria-live="polite"
+            >
+              {message}
+            </div>
+          )}
 
-          <button className="primaryButton authSubmit" disabled={busy}>
+          <button
+            type="submit"
+            className="primaryButton authSubmit"
+            disabled={busy}
+          >
             {busy
-              ? "عم نحفظ..."
-              : isInvite
+              ? "جارٍ الحفظ..."
+              : invite
                 ? "تفعيل الحساب والدخول"
                 : "حفظ كلمة المرور"}
           </button>
@@ -126,20 +309,30 @@ function ResetPasswordForm() {
   );
 }
 
-function ResetPasswordShell({ busy }: { busy: boolean }) {
+function ResetPasswordShell() {
   return (
     <main className="loginPage">
       <section className="authCard">
         <div className="brand">
           <div className="brandMark">S</div>
+
           <div>
             <strong>Sales OS</strong>
             <span>الأمان</span>
           </div>
         </div>
-        <span className="eyebrow">أمان الحساب</span>
-        <h1>كلمة مرور جديدة</h1>
-        <p>{busy ? "عم نجهز الصفحة..." : ""}</p>
+
+        <span className="eyebrow">
+          أمان الحساب
+        </span>
+
+        <h1>
+          كلمة مرور جديدة
+        </h1>
+
+        <p>
+          جارٍ التحقق من رابط الاستعادة...
+        </p>
       </section>
     </main>
   );

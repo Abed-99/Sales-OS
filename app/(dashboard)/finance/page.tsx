@@ -14,7 +14,83 @@ import {
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function FinancePage() {
+type FinanceTab =
+  | "overview"
+  | "accounts"
+  | "journals"
+  | "rates"
+  | "periods";
+
+type FinanceSearchParams = {
+  tab?: string | string[];
+  journalPage?: string | string[];
+  ratePage?: string | string[];
+  periodPage?: string | string[];
+};
+
+function readPage(
+  value: string | string[] | undefined
+) {
+  const raw = Array.isArray(value)
+    ? value[0]
+    : value;
+
+  const parsed = Number.parseInt(
+    raw ?? "1",
+    10
+  );
+
+  return Number.isFinite(parsed) &&
+    parsed > 0
+    ? parsed
+    : 1;
+}
+
+export default async function FinancePage({
+  searchParams,
+}: {
+  searchParams: Promise<FinanceSearchParams>;
+}) {
+  const params = await searchParams;
+  const pageSize = 50;
+
+  const requestedTab =
+    Array.isArray(params.tab)
+      ? params.tab[0]
+      : params.tab;
+
+  const initialTab: FinanceTab =
+    requestedTab === "accounts" ||
+    requestedTab === "journals" ||
+    requestedTab === "rates" ||
+    requestedTab === "periods"
+      ? requestedTab
+      : "overview";
+
+  const journalPage = readPage(
+    params.journalPage
+  );
+  const ratePage = readPage(
+    params.ratePage
+  );
+  const periodPage = readPage(
+    params.periodPage
+  );
+
+  const journalFrom =
+    (journalPage - 1) * pageSize;
+  const journalTo =
+    journalFrom + pageSize - 1;
+
+  const rateFrom =
+    (ratePage - 1) * pageSize;
+  const rateTo =
+    rateFrom + pageSize - 1;
+
+  const periodFrom =
+    (periodPage - 1) * pageSize;
+  const periodTo =
+    periodFrom + pageSize - 1;
   const context = await getCurrentContext();
   const supabase = await createClient();
 
@@ -23,7 +99,6 @@ export default async function FinancePage() {
     [
       "finance.accounts_view",
       "reports.finance",
-      "finance.cashbox_view",
     ],
     context.isOwner
   );
@@ -96,7 +171,7 @@ export default async function FinancePage() {
     supabase
       .from("journal_entries")
       .select(
-        "id,entry_number,entry_date,description,status,currency,exchange_rate_to_base,source_type,source_id,created_at"
+        "id,entry_number,entry_date,description,status,currency,exchange_rate_to_base,source_type,source_id,reversed_from_id,created_at"
       )
       .eq("company_id", context.companyId)
       .order("entry_date", { ascending: false })
@@ -130,10 +205,31 @@ export default async function FinancePage() {
     periodsResult,
   ];
 
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(result.error.message);
-    }
+  const failedResult = results.find(
+    (result) => result.error
+  );
+
+  if (failedResult?.error) {
+    console.error(
+      "Finance data load failed",
+      failedResult.error
+    );
+
+    return (
+      <>
+        <Topbar
+          title="المالية"
+          subtitle="المحاسبة المزدوجة، القيود، الحسابات والفترات المالية"
+          companyName={context.companyName}
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            تعذر تحميل البيانات المالية. حاول مرة أخرى.
+          </section>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -162,8 +258,23 @@ export default async function FinancePage() {
         periods={
           (periodsResult.data ?? []) as unknown as FinancePeriod[]
         }
-        canWrite={canWrite}
+        initialTab={initialTab}
+      journalPage={journalPage}
+      journalCount={journalsResult.count ?? 0}
+      ratePage={ratePage}
+      rateCount={ratesResult.count ?? 0}
+      periodPage={periodPage}
+      periodCount={periodsResult.count ?? 0}
+      pageSize={pageSize}
+      canWrite={canWrite}
         canManualJournal={canManualJournal}
+        canReverseManualJournal={
+          hasPermission(
+            context.permissions,
+            "finance.manual_journal_reverse",
+            context.isOwner
+          )
+        }
         canClose={canClose}
         canReopen={canReopen}
       />

@@ -733,15 +733,21 @@ $$;
 -- CANCEL ORDER = RELEASE RESERVATIONS + REALLOCATE STOCK
 -- ============================================================
 
+drop function if exists public.cancel_sales_order(
+  uuid,
+  uuid
+);
+
 create or replace function public.cancel_sales_order(
   target_company uuid,
-  target_order uuid
+  target_order uuid,
+  target_reason text
 )
 returns void
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $
 declare
   v_status text;
   v_res record;
@@ -756,21 +762,24 @@ begin
   select so.status
   into v_status
   from public.sales_orders so
-  where so.id =
-        target_order
-    and so.company_id =
-        target_company
+  where so.id = target_order
+    and so.company_id = target_company
   for update;
 
   if not found then
-    raise exception
-      'Order not found';
+    raise exception 'Order not found';
   end if;
 
-  if v_status =
-     'cancelled'
-  then
+  if v_status = 'cancelled' then
     return;
+  end if;
+
+  if nullif(
+       trim(target_reason),
+       ''
+     ) is null
+  then
+    raise exception 'Cancellation reason required';
   end if;
 
   if v_status in (
@@ -784,22 +793,23 @@ begin
   if exists (
     select 1
     from public.sales_invoices si
-    where si.company_id =
-          target_company
-      and si.order_id =
-          target_order
-      and si.status <>
-          'cancelled'
+    where si.company_id = target_company
+      and si.order_id = target_order
+      and si.status <> 'cancelled'
   ) then
     raise exception
       'Cancel sales invoice first';
   end if;
 
   update public.sales_orders
-  set status = 'cancelled'
+  set
+    status = 'cancelled',
+    cancelled_at = now(),
+    cancelled_by = auth.uid(),
+    cancellation_reason =
+      trim(target_reason)
   where id = target_order
-    and company_id =
-        target_company;
+    and company_id = target_company;
 
   for v_res in
     select
@@ -834,7 +844,8 @@ begin
       );
   end loop;
 end;
-$$;
+$;
+
 
 
 revoke all
@@ -849,7 +860,8 @@ from public;
 revoke all
 on function public.cancel_sales_order(
   uuid,
-  uuid
+  uuid,
+  text
 )
 from public;
 
@@ -865,7 +877,8 @@ to authenticated;
 grant execute
 on function public.cancel_sales_order(
   uuid,
-  uuid
+  uuid,
+  text
 )
 to authenticated;
 
@@ -1047,6 +1060,156 @@ to authenticated;
 -- RECEIVING GOODS NOW AUTO-RESERVES THEM TO OPEN ORDERS
 -- ============================================================
 
+
+-- ============================================================
+-- RECEIVABLE PURCHASE ITEMS
+-- Secure receiving source.
+-- Does not expose purchase cost.
+-- ============================================================
+
+create or replace function public.get_receivable_purchase_items(
+  target_company uuid
+)
+returns table(
+  invoice_id uuid,
+  supplier_id uuid,
+  invoice_number text,
+  supplier_invoice_number text,
+  currency text,
+  invoice_date date,
+  invoice_total numeric,
+  supplier_name text,
+  item_id uuid,
+  product_id uuid,
+  description text,
+  invoiced_quantity numeric,
+  received_quantity numeric,
+  remaining_quantity numeric,
+  product_name text,
+  sku text,
+  unit text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.has_any_permission(
+    target_company,
+    array[
+      'inventory.adjust',
+      'purchases.update'
+    ]::text[]
+  ) then
+    raise exception 'Not allowed';
+  end if;
+
+  return query
+  select
+    pi.id,
+    pi.supplier_id,
+    pi.invoice_number,
+    pi.supplier_invoice_number,
+    pi.currency,
+    pi.invoice_date,
+    pi.total,
+    s.name,
+    pii.id,
+    pii.product_id,
+    pii.description,
+    round(
+      pii.quantity,
+      3
+    ),
+    round(
+      coalesce(
+        received.qty,
+        0
+      ),
+      3
+    ),
+    round(
+      greatest(
+        pii.quantity -
+        coalesce(
+          received.qty,
+          0
+        ),
+        0
+      ),
+      3
+    ),
+    p.name,
+    p.sku,
+    p.unit
+
+  from public.purchase_invoices pi
+
+  join public.suppliers s
+    on s.id =
+       pi.supplier_id
+
+  join public.purchase_invoice_items pii
+    on pii.invoice_id =
+       pi.id
+
+  join public.products p
+    on p.id =
+       pii.product_id
+
+  left join lateral (
+    select
+      coalesce(
+        sum(gri.quantity),
+        0
+      ) as qty
+
+    from public.goods_receipt_items gri
+
+    join public.goods_receipts gr
+      on gr.id =
+         gri.goods_receipt_id
+
+    where gri.purchase_invoice_item_id =
+          pii.id
+
+      and gr.status =
+          'posted'
+  ) received
+    on true
+
+  where pi.company_id =
+        target_company
+
+    and pi.status =
+        'posted'
+
+    and pii.quantity -
+        coalesce(
+          received.qty,
+          0
+        ) > 0
+
+  order by
+    pi.invoice_date,
+    pi.created_at,
+    pi.invoice_number,
+    p.name;
+end;
+$$;
+
+revoke all
+on function public.get_receivable_purchase_items(
+  uuid
+)
+from public;
+
+grant execute
+on function public.get_receivable_purchase_items(
+  uuid
+)
+to authenticated;
 create or replace function public.receive_purchase_invoice(
   target_company uuid,
   target_invoice uuid,
@@ -1084,8 +1247,7 @@ begin
     target_company,
     array[
       'inventory.adjust',
-      'purchases.update',
-      'purchase_invoices.create'
+      'purchases.update'
     ]::text[]
   ) then
     raise exception 'Not allowed';
@@ -1817,11 +1979,28 @@ begin
       'Order not found';
   end if;
 
-  if v_order_status =
-     'delivered'
+  if v_order_status in (
+       'ready',
+       'delivered'
+     )
+     and not exists (
+       select 1
+       from public.deliveries d
+       where d.company_id =
+             target_company
+         and d.order_id =
+             target_order
+         and d.status =
+             'out_for_delivery'
+     )
   then
-    select l.sales_invoice_id
-    into v_invoice
+
+    select
+      l.sales_invoice_id
+
+    into
+      v_invoice
+
     from public.sales_invoice_delivery_links l
 
     join public.deliveries d
@@ -1839,13 +2018,15 @@ begin
 
     order by
       d.delivered_at desc
-      nulls last
+      nulls last,
+      d.created_at desc
 
     limit 1;
 
     if v_invoice is not null then
       return v_invoice;
     end if;
+
   end if;
 
   if v_order_status <>
@@ -2134,7 +2315,18 @@ begin
   v_discount :=
     least(
       v_discount,
-      v_subtotal
+      v_subtotal,
+      greatest(
+        coalesce(
+          v_order_discount,
+          0
+        ) -
+        coalesce(
+          v_previous_discount,
+          0
+        ),
+        0
+      )
     );
 
   v_total :=
@@ -2335,6 +2527,195 @@ on function public.complete_order_delivery(
 to authenticated;
 
 
+
+-- ============================================================
+-- FAIL ACTIVE DELIVERY
+-- No stock movement is reversed because physical stock is only
+-- deducted when a delivery is successfully completed.
+-- Existing reservations remain available for a retry.
+-- ============================================================
+
+create or replace function public.fail_order_delivery(
+  target_company uuid,
+  target_order uuid,
+  target_reason text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_status text;
+  v_delivery uuid;
+begin
+  if not public.has_permission(
+    target_company,
+    'deliveries.update'
+  ) then
+    raise exception 'Not allowed';
+  end if;
+
+  if nullif(
+       trim(target_reason),
+       ''
+     ) is null
+  then
+    raise exception
+      'Failure reason required';
+  end if;
+
+  select
+    so.status
+
+  into
+    v_order_status
+
+  from public.sales_orders so
+
+  where so.id =
+        target_order
+
+    and so.company_id =
+        target_company
+
+  for update;
+
+  if v_order_status is null then
+    raise exception
+      'Order not found';
+  end if;
+
+  select
+    d.id
+
+  into
+    v_delivery
+
+  from public.deliveries d
+
+  where d.company_id =
+        target_company
+
+    and d.order_id =
+        target_order
+
+    and d.status =
+        'out_for_delivery'
+
+  order by
+    d.created_at desc
+
+  limit 1
+
+  for update;
+
+  if v_delivery is null then
+
+    if exists (
+      select 1
+
+      from public.deliveries d
+
+      where d.company_id =
+            target_company
+
+        and d.order_id =
+            target_order
+
+        and d.status =
+            'failed'
+
+        and d.failure_reason =
+            trim(target_reason)
+    ) then
+      return;
+    end if;
+
+    raise exception
+      'Active delivery not found';
+  end if;
+
+  if exists (
+    select 1
+
+    from public.sales_invoice_delivery_links l
+
+    where l.delivery_id =
+          v_delivery
+  ) then
+    raise exception
+      'Delivered or invoiced delivery cannot be failed';
+  end if;
+
+  update public.deliveries
+  set
+    status =
+      'failed',
+
+    failed_at =
+      now(),
+
+    failed_by =
+      auth.uid(),
+
+    failure_reason =
+      trim(target_reason),
+
+    notes =
+      coalesce(
+        notes,
+        nullif(
+          trim(target_reason),
+          ''
+        )
+      ),
+
+    updated_at =
+      now()
+
+  where id =
+        v_delivery;
+
+  update public.sales_orders
+  set
+    status =
+      'new',
+
+    delivered_at =
+      null,
+
+    updated_at =
+      now()
+
+  where id =
+        target_order
+
+    and company_id =
+        target_company;
+
+  perform
+    public.refresh_sales_order_inventory_status(
+      target_order
+    );
+end;
+$$;
+
+revoke all
+on function public.fail_order_delivery(
+  uuid,
+  uuid,
+  text
+)
+from public;
+
+grant execute
+on function public.fail_order_delivery(
+  uuid,
+  uuid,
+  text
+)
+to authenticated;
 -- ============================================================
 -- AUDIT RESERVATIONS
 -- ============================================================

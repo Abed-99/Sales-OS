@@ -4,43 +4,16 @@ import {
   useMemo,
   useState,
 } from "react";
-
-import { useRouter } from "next/navigation";
+import type {
+  FormEvent,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
-
-type Relation<T> =
-  | T
-  | T[]
-  | null;
-
-function oneRelation<T>(
-  value: Relation<T>
-) {
-  return Array.isArray(value)
-    ? value[0] ?? null
-    : value;
-}
-
-function numeric(
-  value: unknown
-) {
-  const result =
-    Number(value || 0);
-
-  return Number.isFinite(
-    result
-  )
-    ? result
-    : 0;
-}
-
-function todayInput() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
-}
 
 export type InventoryWarehouse = {
   id: string;
@@ -70,59 +43,29 @@ export type InventoryStockRow = {
   on_hand: number;
   reserved: number;
   available: number;
-  average_cost: number;
-  stock_value: number;
+  average_cost: number | null;
+  stock_value: number | null;
   updated_at: string;
 };
 
-type SupplierRelation = {
-  id: string;
-  name: string;
-};
-
-type ProductRelation = {
-  name: string;
-  sku: string | null;
-  unit: string | null;
-};
-
-export type InventoryPurchaseItem = {
-  id: string;
-  product_id: string;
-  description: string | null;
-  quantity: number;
-  unit_cost: number;
-  products:
-    Relation<ProductRelation>;
-};
-
-export type InventoryPurchaseInvoice = {
-  id: string;
+export type InventoryReceivableItem = {
+  invoice_id: string;
   supplier_id: string;
   invoice_number: string;
-  supplier_invoice_number:
-    string | null;
+  supplier_invoice_number: string | null;
   currency: string;
   invoice_date: string;
-  total: number;
-  status: string;
-  suppliers:
-    Relation<SupplierRelation>;
-  purchase_invoice_items:
-    InventoryPurchaseItem[];
-};
-
-type ReceiptRelation = {
-  id: string;
-  status: string;
-};
-
-export type InventoryReceiptItem = {
-  id: string;
-  purchase_invoice_item_id: string;
-  quantity: number;
-  goods_receipts:
-    Relation<ReceiptRelation>;
+  invoice_total: number;
+  supplier_name: string;
+  item_id: string;
+  product_id: string;
+  description: string | null;
+  invoiced_quantity: number;
+  received_quantity: number;
+  remaining_quantity: number;
+  product_name: string;
+  sku: string | null;
+  unit: string | null;
 };
 
 export type InventoryReceiptRow = {
@@ -133,6 +76,7 @@ export type InventoryReceiptRow = {
   status: string;
   receipt_date: string;
   notes: string | null;
+  cancellation_reason: string | null;
   created_at: string;
 };
 
@@ -144,6 +88,7 @@ export type InventoryTransferRow = {
   status: string;
   transfer_date: string;
   notes: string | null;
+  reversal_reason: string | null;
   created_at: string;
 };
 
@@ -154,31 +99,324 @@ export type InventoryCountRow = {
   count_date: string;
   status: string;
   notes: string | null;
+  reversal_reason: string | null;
   created_at: string;
 };
 
+type InventoryStats = {
+  warehouseCount: number;
+  reservedLines: number;
+  outOfStock: number;
+  stockValue: number;
+  pendingReceiptInvoices: number;
+};
+
+type ReceivableInvoice = {
+  id: string;
+  supplier_id: string;
+  invoice_number: string;
+  supplier_invoice_number: string | null;
+  currency: string;
+  invoice_date: string;
+  invoice_total: number;
+  supplier_name: string;
+  items: InventoryReceivableItem[];
+};
+
 type TransferDraft = {
+  key: string;
   productId: string;
   quantity: string;
 };
 
 type CountDraft = {
   productId: string;
+  productName: string;
+  sku: string | null;
   countedQuantity: string;
   unitCost: string;
 };
+
+type ReverseKind =
+  | "receipt"
+  | "transfer"
+  | "count";
+
+type ReverseTarget = {
+  kind: ReverseKind;
+  id: string;
+  number: string;
+};
+
+type Notice = {
+  type: "success" | "error";
+  text: string;
+};
+
+function numeric(
+  value: unknown
+) {
+  const result =
+    Number(value ?? 0);
+
+  return Number.isFinite(
+    result
+  )
+    ? result
+    : 0;
+}
+
+function businessDateInput() {
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const get = (
+    type: string
+  ) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function newKey() {
+  return crypto.randomUUID();
+}
+
+function money(
+  value: number,
+  currency: string
+) {
+  return `${new Intl.NumberFormat(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  ).format(
+    numeric(value)
+  )} ${currency}`;
+}
+
+function statusLabel(
+  status: string
+) {
+  if (status === "posted") {
+    return "مرحّل";
+  }
+
+  if (status === "reversed") {
+    return "معكوس";
+  }
+
+  if (status === "cancelled") {
+    return "ملغى";
+  }
+
+  return status;
+}
+
+function friendlyError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action:
+    | "receive"
+    | "warehouse"
+    | "transfer"
+    | "count"
+    | "reverse"
+) {
+  const raw =
+    error?.message ?? "";
+
+  const message =
+    raw.toLowerCase();
+
+  if (
+    error?.code === "42501" ||
+    message.includes(
+      "not allowed"
+    ) ||
+    message.includes(
+      "permission"
+    )
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
+  }
+
+  if (
+    message.includes(
+      "invalid warehouse"
+    )
+  ) {
+    return "المستودع المختار غير صالح أو غير فعال.";
+  }
+
+  if (
+    message.includes(
+      "invalid product"
+    )
+  ) {
+    return "أحد الأصناف غير صالح.";
+  }
+
+  if (
+    message.includes(
+      "receipt exceeds purchased quantity"
+    )
+  ) {
+    return "الكمية المستلمة أكبر من الكمية المتبقية في فاتورة الشراء.";
+  }
+
+  if (
+    message.includes(
+      "purchase invoice is not posted"
+    )
+  ) {
+    return "فاتورة الشراء لم تعد متاحة للاستلام.";
+  }
+
+  if (
+    message.includes(
+      "transfer exceeds available stock"
+    )
+  ) {
+    return "الكمية المطلوبة للتحويل أكبر من المخزون المتاح بعد الحجوزات.";
+  }
+
+  if (
+    message.includes(
+      "duplicate transfer product"
+    )
+  ) {
+    return "لا يمكن تكرار نفس الصنف في التحويل.";
+  }
+
+  if (
+    message.includes(
+      "counted quantity is below reserved stock"
+    )
+  ) {
+    return "نتيجة الجرد أقل من الكمية المحجوزة ولا يمكن ترحيلها.";
+  }
+
+  if (
+    message.includes(
+      "unit cost is required"
+    )
+  ) {
+    return "هذا الصنف لا يملك كلفة مخزون سابقة أو سعر شراء مرجعي. يلزم إدخال كلفة صحيحة بواسطة مستخدم مخوّل.";
+  }
+
+  if (
+    message.includes(
+      "not allowed to set inventory cost"
+    )
+  ) {
+    return "لا تملك صلاحية إدخال كلفة لمخزون جديد.";
+  }
+
+  if (
+    message.includes(
+      "inventory value would become negative"
+    )
+  ) {
+    return "تعذر عكس الحركة لأن قيمة المخزون الناتجة ستصبح غير صحيحة.";
+  }
+
+  if (
+    message.includes(
+      "cannot reverse receipt"
+    )
+  ) {
+    return "لا يمكن عكس الاستلام لأن جزءاً من البضاعة تم حجزه أو نقله أو استخدامه.";
+  }
+
+  if (
+    message.includes(
+      "cannot reverse transfer"
+    )
+  ) {
+    return "لا يمكن عكس التحويل لأن مخزون مستودع الوجهة تم حجزه أو استخدامه.";
+  }
+
+  if (
+    message.includes(
+      "cannot reverse stock count"
+    )
+  ) {
+    return "لا يمكن عكس الجرد لأن جزءاً من الكمية المعدلة تم حجزه أو استخدامه.";
+  }
+
+  if (
+    message.includes(
+      "reversal reason"
+    )
+  ) {
+    return "سبب العكس مطلوب.";
+  }
+
+  if (
+    action === "receive"
+  ) {
+    return "تعذر تسجيل استلام البضاعة. راجع البيانات وحاول مرة ثانية.";
+  }
+
+  if (
+    action === "warehouse"
+  ) {
+    return "تعذر حفظ بيانات المستودع.";
+  }
+
+  if (
+    action === "transfer"
+  ) {
+    return "تعذر ترحيل تحويل المخزون.";
+  }
+
+  if (
+    action === "count"
+  ) {
+    return "تعذر ترحيل الجرد.";
+  }
+
+  return "تعذر عكس حركة المخزون.";
+}
 
 export function InventoryClient({
   companyId,
   currency,
   warehouses,
   stock,
+  stockTotalCount,
+  stockPage,
+  pageSize,
+  searchQuery,
+  warehouseFilter,
+  stockStats,
   products,
-  purchaseInvoices,
-  receiptItems,
+  receivableItems,
   receipts,
   transfers,
   counts,
+  initialError,
   canReceive,
   canReverseReceipt,
   canAdjust,
@@ -186,22 +424,20 @@ export function InventoryClient({
 }: {
   companyId: string;
   currency: string;
-  warehouses:
-    InventoryWarehouse[];
-  stock:
-    InventoryStockRow[];
-  products:
-    InventoryProduct[];
-  purchaseInvoices:
-    InventoryPurchaseInvoice[];
-  receiptItems:
-    InventoryReceiptItem[];
-  receipts:
-    InventoryReceiptRow[];
-  transfers:
-    InventoryTransferRow[];
-  counts:
-    InventoryCountRow[];
+  warehouses: InventoryWarehouse[];
+  stock: InventoryStockRow[];
+  stockTotalCount: number;
+  stockPage: number;
+  pageSize: number;
+  searchQuery: string;
+  warehouseFilter: string;
+  stockStats: InventoryStats;
+  products: InventoryProduct[];
+  receivableItems: InventoryReceivableItem[];
+  receipts: InventoryReceiptRow[];
+  transfers: InventoryTransferRow[];
+  counts: InventoryCountRow[];
+  initialError: string | null;
   canReceive: boolean;
   canReverseReceipt: boolean;
   canAdjust: boolean;
@@ -209,63 +445,122 @@ export function InventoryClient({
 }) {
   const [supabase] =
     useState(
-      () => createClient()
+      () =>
+        createClient()
     );
 
   const router =
     useRouter();
 
+  const searchParams =
+    useSearchParams();
+
   const [
-    warehouseFilter,
-    setWarehouseFilter,
-  ] = useState("all");
+    notice,
+    setNotice,
+  ] =
+    useState<Notice | null>(
+      initialError
+        ? {
+            type: "error",
+            text: initialError,
+          }
+        : null
+    );
 
   const [
     search,
     setSearch,
-  ] = useState("");
+  ] =
+    useState(
+      searchQuery
+    );
+
+  const [
+    warehouseSearch,
+    setWarehouseSearch,
+  ] =
+    useState(
+      warehouseFilter
+    );
 
   const [
     saving,
     setSaving,
-  ] = useState(false);
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // WAREHOUSE
+  // ==========================================================
 
   const [
-    message,
-    setMessage,
-  ] = useState("");
+    warehouseOpen,
+    setWarehouseOpen,
+  ] =
+    useState(false);
 
   const [
-    reversingId,
-    setReversingId,
-  ] = useState<string | null>(
-    null
-  );
+    warehouseName,
+    setWarehouseName,
+  ] =
+    useState("");
+
+  const [
+    warehouseCode,
+    setWarehouseCode,
+  ] =
+    useState("");
+
+  const [
+    warehouseAddress,
+    setWarehouseAddress,
+  ] =
+    useState("");
+
+  const [
+    warehouseDefault,
+    setWarehouseDefault,
+  ] =
+    useState(false);
+
+  const [
+    warehouseMessage,
+    setWarehouseMessage,
+  ] =
+    useState("");
+
+  // ==========================================================
+  // RECEIPT
+  // ==========================================================
 
   const [
     selectedInvoice,
     setSelectedInvoice,
   ] =
-    useState<
-      InventoryPurchaseInvoice | null
-    >(null);
+    useState<ReceivableInvoice | null>(
+      null
+    );
 
   const [
     receiptWarehouse,
     setReceiptWarehouse,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     receiptDate,
     setReceiptDate,
-  ] = useState(
-    todayInput()
-  );
+  ] =
+    useState(
+      businessDateInput()
+    );
 
   const [
     receiptNotes,
     setReceiptNotes,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     receiptQuantities,
@@ -276,56 +571,46 @@ export function InventoryClient({
     >({});
 
   const [
-    warehouseOpen,
-    setWarehouseOpen,
-  ] = useState(false);
+    receiptMessage,
+    setReceiptMessage,
+  ] =
+    useState("");
 
-  const [
-    warehouseName,
-    setWarehouseName,
-  ] = useState("");
-
-  const [
-    warehouseCode,
-    setWarehouseCode,
-  ] = useState("");
-
-  const [
-    warehouseAddress,
-    setWarehouseAddress,
-  ] = useState("");
-
-  const [
-    warehouseDefault,
-    setWarehouseDefault,
-  ] = useState(false);
+  // ==========================================================
+  // TRANSFER
+  // ==========================================================
 
   const [
     transferOpen,
     setTransferOpen,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     transferSource,
     setTransferSource,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     transferDestination,
     setTransferDestination,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     transferDate,
     setTransferDate,
-  ] = useState(
-    todayInput()
-  );
+  ] =
+    useState(
+      businessDateInput()
+    );
 
   const [
     transferNotes,
     setTransferNotes,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     transferLines,
@@ -333,34 +618,43 @@ export function InventoryClient({
   ] =
     useState<
       TransferDraft[]
-    >([
-      {
-        productId: "",
-        quantity: "",
-      },
-    ]);
+    >([]);
+
+  const [
+    transferMessage,
+    setTransferMessage,
+  ] =
+    useState("");
+
+  // ==========================================================
+  // COUNT
+  // ==========================================================
 
   const [
     countOpen,
     setCountOpen,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     countWarehouse,
     setCountWarehouse,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     countDate,
     setCountDate,
-  ] = useState(
-    todayInput()
-  );
+  ] =
+    useState(
+      businessDateInput()
+    );
 
   const [
     countNotes,
     setCountNotes,
-  ] = useState("");
+  ] =
+    useState("");
 
   const [
     countLines,
@@ -370,359 +664,216 @@ export function InventoryClient({
       CountDraft[]
     >([]);
 
-  const receivedByItem =
+  const [
+    countMessage,
+    setCountMessage,
+  ] =
+    useState("");
+
+  const [
+    loadingCount,
+    setLoadingCount,
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // REVERSAL
+  // ==========================================================
+
+  const [
+    reverseTarget,
+    setReverseTarget,
+  ] =
+    useState<ReverseTarget | null>(
+      null
+    );
+
+  const [
+    reverseReason,
+    setReverseReason,
+  ] =
+    useState("");
+
+  const [
+    reverseMessage,
+    setReverseMessage,
+  ] =
+    useState("");
+
+  const [
+    reversing,
+    setReversing,
+  ] =
+    useState(false);
+
+  // ==========================================================
+  // DERIVED DATA
+  // ==========================================================
+
+  const receivableInvoices =
     useMemo(() => {
       const map =
         new Map<
           string,
-          number
+          ReceivableInvoice
         >();
 
       for (
-        const row of
-        receiptItems
+        const item of
+        receivableItems
       ) {
-        const receipt =
-          oneRelation(
-            row.goods_receipts
+        const existing =
+          map.get(
+            item.invoice_id
           );
 
-        if (
-          receipt?.status !==
-          "posted"
-        ) {
+        if (existing) {
+          existing.items.push(
+            item
+          );
+
           continue;
         }
 
         map.set(
-          row.purchase_invoice_item_id,
-          (
-            map.get(
-              row.purchase_invoice_item_id
-            ) || 0
-          ) +
-            numeric(
-              row.quantity
-            )
+          item.invoice_id,
+          {
+            id:
+              item.invoice_id,
+
+            supplier_id:
+              item.supplier_id,
+
+            invoice_number:
+              item.invoice_number,
+
+            supplier_invoice_number:
+              item.supplier_invoice_number,
+
+            currency:
+              item.currency,
+
+            invoice_date:
+              item.invoice_date,
+
+            invoice_total:
+              item.invoice_total,
+
+            supplier_name:
+              item.supplier_name,
+
+            items: [
+              item,
+            ],
+          }
         );
       }
 
-      return map;
-    }, [receiptItems]);
-
-  function remainingPurchaseItem(
-    item:
-      InventoryPurchaseItem
-  ) {
-    return Math.max(
-      0,
-      numeric(
-        item.quantity
-      ) -
-        (
-          receivedByItem.get(
-            item.id
-          ) || 0
-        )
-    );
-  }
-
-  const pendingInvoices =
-    useMemo(
-      () =>
-        purchaseInvoices.filter(
-          (invoice) =>
-            invoice
-              .purchase_invoice_items
-              .some(
-                (item) =>
-                  remainingPurchaseItem(
-                    item
-                  ) > 0
-              )
-        ),
-      [
-        purchaseInvoices,
-        receivedByItem,
-      ]
-    );
-
-  const filteredStock =
-    useMemo(() => {
-      const q =
-        search
-          .trim()
-          .toLowerCase();
-
-      return stock.filter(
-        (row) => {
-          if (
-            warehouseFilter !==
-              "all" &&
-            row.warehouse_id !==
-              warehouseFilter
-          ) {
-            return false;
-          }
-
-          if (!q) {
-            return true;
-          }
-
-          return [
-            row.product_name,
-            row.sku,
-            row.warehouse_name,
-          ].some(
-            (value) =>
-              value
-                ?.toLowerCase()
-                .includes(q)
-          );
-        }
+      return Array.from(
+        map.values()
       );
     }, [
-      stock,
-      search,
-      warehouseFilter,
+      receivableItems,
     ]);
 
-  const stockValue =
-    filteredStock.reduce(
-      (sum, row) =>
-        sum +
-        numeric(
-          row.stock_value
-        ),
-      0
+  const stockPageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        stockTotalCount /
+          pageSize
+      )
     );
-
-  const reservedLines =
-    filteredStock.filter(
-      (row) =>
-        numeric(
-          row.reserved
-        ) > 0
-    ).length;
-
-  const outOfStock =
-    filteredStock.filter(
-      (row) =>
-        numeric(
-          row.available
-        ) <= 0
-    ).length;
 
   function warehouseNameById(
     id: string
   ) {
     return (
       warehouses.find(
-        (row) =>
-          row.id === id
-      )?.name ||
+        (warehouse) =>
+          warehouse.id ===
+          id
+      )?.name ??
       "مستودع"
     );
   }
 
-  function stockFor(
-    warehouseId: string,
-    productId: string
+  // ==========================================================
+  // STOCK NAVIGATION
+  // ==========================================================
+
+  function navigateStock(
+    nextSearch: string,
+    nextWarehouse: string,
+    nextPage = 1
   ) {
-    return stock.find(
-      (row) =>
-        row.warehouse_id ===
-          warehouseId &&
-        row.product_id ===
-          productId
-    );
-  }
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
 
-    function openReceipt(
-    invoice:
-      InventoryPurchaseInvoice
-  ) {
-    const defaultWarehouse =
-      warehouses.find(
-        (row) =>
-          row.is_default
-      ) ??
-      warehouses[0];
+    const clean =
+      nextSearch.trim();
 
-    const next:
-      Record<
-        string,
-        string
-      > = {};
+    if (clean) {
+      params.set(
+        "q",
+        clean
+      );
+    } else {
+      params.delete(
+        "q"
+      );
+    }
 
-    for (
-      const item of
-      invoice.purchase_invoice_items
+    if (
+      nextWarehouse &&
+      nextWarehouse !==
+        "all"
     ) {
-      next[item.id] =
+      params.set(
+        "warehouse",
+        nextWarehouse
+      );
+    } else {
+      params.delete(
+        "warehouse"
+      );
+    }
+
+    if (
+      nextPage > 1
+    ) {
+      params.set(
+        "page",
         String(
-          remainingPurchaseItem(
-            item
-          )
-        );
+          nextPage
+        )
+      );
+    } else {
+      params.delete(
+        "page"
+      );
     }
 
-    setReceiptWarehouse(
-      defaultWarehouse?.id ||
-        ""
-    );
+    const query =
+      params.toString();
 
-    setReceiptDate(
-      todayInput()
-    );
-
-    setReceiptNotes("");
-    setReceiptQuantities(
-      next
-    );
-
-    setMessage("");
-    setSelectedInvoice(
-      invoice
+    router.push(
+      query
+        ? `/inventory?${query}`
+        : "/inventory"
     );
   }
 
-  async function saveReceipt(
-    event:
-      React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
+  // ==========================================================
+  // WAREHOUSE ACTIONS
+  // ==========================================================
 
-    if (
-      !selectedInvoice ||
-      !receiptWarehouse
-    ) {
+  function openWarehouse() {
+    if (!canAdjust) {
       return;
     }
-
-    const items =
-      selectedInvoice.purchase_invoice_items
-        .map((item) => ({
-          purchase_invoice_item_id:
-            item.id,
-
-          quantity:
-            numeric(
-              receiptQuantities[
-                item.id
-              ]
-            ),
-        }))
-        .filter(
-          (item) =>
-            item.quantity >
-            0
-        );
-
-    if (!items.length) {
-      setMessage(
-        "حدد كمية مستلمة."
-      );
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-
-    const { error } =
-      await supabase.rpc(
-        "receive_purchase_invoice",
-        {
-          target_company:
-            companyId,
-
-          target_invoice:
-            selectedInvoice.id,
-
-          target_warehouse:
-            receiptWarehouse,
-
-          target_receipt_date:
-            receiptDate,
-
-          target_notes:
-            receiptNotes.trim() ||
-            null,
-
-          items_payload:
-            items,
-        }
-      );
-
-    setSaving(false);
-
-    if (error) {
-      setMessage(
-        error.message
-      );
-      return;
-    }
-
-    setSelectedInvoice(
-      null
-    );
-
-    router.refresh();
-  }
-
-  async function saveWarehouse(
-    event:
-      React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
-
-    if (
-      !warehouseName.trim()
-    ) {
-      setMessage(
-        "اسم المستودع مطلوب."
-      );
-      return;
-    }
-
-    setSaving(true);
-    setMessage("");
-
-    const { error } =
-      await supabase.rpc(
-        "create_warehouse",
-        {
-          target_company:
-            companyId,
-
-          target_name:
-            warehouseName.trim(),
-
-          target_code:
-            warehouseCode.trim() ||
-            null,
-
-          target_address:
-            warehouseAddress.trim() ||
-            null,
-
-          target_is_default:
-            warehouseDefault,
-        }
-      );
-
-    setSaving(false);
-
-    if (error) {
-      setMessage(
-        error.message
-      );
-      return;
-    }
-
-    setWarehouseOpen(
-      false
-    );
 
     setWarehouseName("");
     setWarehouseCode("");
@@ -730,95 +881,426 @@ export function InventoryClient({
     setWarehouseDefault(
       false
     );
+    setWarehouseMessage("");
+    setWarehouseOpen(
+      true
+    );
+  }
 
-    router.refresh();
+  async function saveWarehouse(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!canAdjust) {
+      return;
+    }
+
+    if (
+      !warehouseName.trim()
+    ) {
+      setWarehouseMessage(
+        "اسم المستودع مطلوب."
+      );
+      return;
+    }
+
+    setSaving(true);
+    setWarehouseMessage("");
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "create_warehouse",
+          {
+            target_company:
+              companyId,
+
+            target_name:
+              warehouseName.trim(),
+
+            target_code:
+              warehouseCode.trim() ||
+              null,
+
+            target_address:
+              warehouseAddress.trim() ||
+              null,
+
+            target_is_default:
+              warehouseDefault,
+          }
+        );
+
+      if (error) {
+        setWarehouseMessage(
+          friendlyError(
+            error,
+            "warehouse"
+          )
+        );
+        return;
+      }
+
+      setWarehouseOpen(
+        false
+      );
+
+      setNotice({
+        type: "success",
+        text:
+          "تم إنشاء المستودع بنجاح.",
+      });
+
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function makeDefaultWarehouse(
     warehouseId: string
   ) {
+    if (!canAdjust) {
+      return;
+    }
+
     setSaving(true);
 
-    const { error } =
-      await supabase.rpc(
-        "set_default_warehouse",
-        {
-          target_company:
-            companyId,
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "set_default_warehouse",
+          {
+            target_company:
+              companyId,
 
-          target_warehouse:
-            warehouseId,
-        }
-      );
+            target_warehouse:
+              warehouseId,
+          }
+        );
 
-    setSaving(false);
+      if (error) {
+        setNotice({
+          type: "error",
+          text:
+            friendlyError(
+              error,
+              "warehouse"
+            ),
+        });
+        return;
+      }
 
-    if (error) {
-      window.alert(
-        error.message
+      setNotice({
+        type: "success",
+        text:
+          "تم تغيير المستودع الرئيسي.",
+      });
+
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ==========================================================
+  // GOODS RECEIPT
+  // ==========================================================
+
+  function openReceipt(
+    invoice: ReceivableInvoice
+  ) {
+    if (!canReceive) {
+      return;
+    }
+
+    const defaultWarehouse =
+      warehouses.find(
+        (warehouse) =>
+          warehouse.is_default
+      ) ??
+      warehouses[0];
+
+    const quantities:
+      Record<string, string> =
+      {};
+
+    for (
+      const item of
+      invoice.items
+    ) {
+      quantities[
+        item.item_id
+      ] =
+        numeric(
+          item.remaining_quantity
+        ).toFixed(3);
+    }
+
+    setSelectedInvoice(
+      invoice
+    );
+
+    setReceiptWarehouse(
+      defaultWarehouse?.id ??
+        ""
+    );
+
+    setReceiptDate(
+      businessDateInput()
+    );
+
+    setReceiptNotes(
+      ""
+    );
+
+    setReceiptQuantities(
+      quantities
+    );
+
+    setReceiptMessage(
+      ""
+    );
+  }
+
+  async function saveReceipt(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      !selectedInvoice ||
+      !canReceive
+    ) {
+      return;
+    }
+
+    if (
+      !receiptWarehouse
+    ) {
+      setReceiptMessage(
+        "اختر المستودع."
       );
       return;
     }
 
-    router.refresh();
+    const items:
+      Array<{
+        purchase_invoice_item_id: string;
+        quantity: number;
+      }> = [];
+
+    for (
+      const item of
+      selectedInvoice.items
+    ) {
+      const quantity =
+        numeric(
+          receiptQuantities[
+            item.item_id
+          ]
+        );
+
+      if (
+        quantity < 0
+      ) {
+        setReceiptMessage(
+          "كمية الاستلام لا يمكن أن تكون سالبة."
+        );
+        return;
+      }
+
+      if (
+        quantity >
+        numeric(
+          item.remaining_quantity
+        ) +
+          0.0005
+      ) {
+        setReceiptMessage(
+          `كمية ${item.product_name} أكبر من الكمية المتبقية.`
+        );
+        return;
+      }
+
+      if (
+        quantity > 0
+      ) {
+        items.push({
+          purchase_invoice_item_id:
+            item.item_id,
+
+          quantity:
+            Number(
+              quantity.toFixed(
+                3
+              )
+            ),
+        });
+      }
+    }
+
+    if (!items.length) {
+      setReceiptMessage(
+        "حدد كمية مستلمة لصنف واحد على الأقل."
+      );
+      return;
+    }
+
+    setSaving(true);
+    setReceiptMessage("");
+
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "receive_purchase_invoice",
+          {
+            target_company:
+              companyId,
+
+            target_invoice:
+              selectedInvoice.id,
+
+            target_warehouse:
+              receiptWarehouse,
+
+            target_receipt_date:
+              receiptDate,
+
+            target_notes:
+              receiptNotes.trim() ||
+              null,
+
+            items_payload:
+              items,
+          }
+        );
+
+      if (error) {
+        setReceiptMessage(
+          friendlyError(
+            error,
+            "receive"
+          )
+        );
+        return;
+      }
+
+      setSelectedInvoice(
+        null
+      );
+
+      setNotice({
+        type: "success",
+        text:
+          "تم استلام البضاعة وتحديث المخزون.",
+      });
+
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
   }
 
+  // ==========================================================
+  // TRANSFER
+  // ==========================================================
+
   function openTransfer() {
+    if (!canAdjust) {
+      return;
+    }
+
     const source =
       warehouses.find(
-        (row) =>
-          row.is_default
+        (warehouse) =>
+          warehouse.is_default
       ) ??
       warehouses[0];
 
     const destination =
       warehouses.find(
-        (row) =>
-          row.id !==
+        (warehouse) =>
+          warehouse.id !==
           source?.id
       );
 
     setTransferSource(
-      source?.id ||
+      source?.id ??
         ""
     );
 
     setTransferDestination(
-      destination?.id ||
+      destination?.id ??
         ""
     );
 
     setTransferDate(
-      todayInput()
+      businessDateInput()
     );
 
-    setTransferNotes("");
+    setTransferNotes(
+      ""
+    );
 
     setTransferLines([
       {
-        productId: "",
-        quantity: "",
+        key:
+          newKey(),
+        productId:
+          "",
+        quantity:
+          "",
       },
     ]);
 
-    setMessage("");
+    setTransferMessage(
+      ""
+    );
+
     setTransferOpen(
       true
     );
   }
 
+  function addTransferLine() {
+    setTransferLines(
+      (current) => [
+        ...current,
+        {
+          key:
+            newKey(),
+          productId:
+            "",
+          quantity:
+            "",
+        },
+      ]
+    );
+  }
+
   async function saveTransfer(
-    event:
-      React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
+
+    if (!canAdjust) {
+      return;
+    }
 
     if (
       !transferSource ||
       !transferDestination
     ) {
-      setMessage(
-        "اختار مستودع المصدر والوجهة."
+      setTransferMessage(
+        "اختر مستودع المصدر والوجهة."
       );
       return;
     }
@@ -827,84 +1309,270 @@ export function InventoryClient({
       transferSource ===
       transferDestination
     ) {
-      setMessage(
-        "مستودع المصدر والوجهة لازم يكونوا مختلفين."
+      setTransferMessage(
+        "مستودع المصدر والوجهة يجب أن يكونا مختلفين."
       );
       return;
     }
 
-    const items =
+    const selectedProducts =
       transferLines
         .map(
-          (line) => ({
-            product_id:
-              line.productId,
-
-            quantity:
-              numeric(
-                line.quantity
-              ),
-          })
-        )
-        .filter(
           (line) =>
-            line.product_id &&
-            line.quantity >
-              0
+            line.productId
+        )
+        .filter(Boolean);
+
+    if (
+      new Set(
+        selectedProducts
+      ).size !==
+      selectedProducts.length
+    ) {
+      setTransferMessage(
+        "لا يمكن تكرار نفس الصنف في التحويل."
+      );
+      return;
+    }
+
+    const items:
+      Array<{
+        product_id: string;
+        quantity: number;
+      }> = [];
+
+    for (
+      const line of
+      transferLines
+    ) {
+      const quantity =
+        numeric(
+          line.quantity
         );
 
+      if (
+        !line.productId ||
+        quantity <= 0
+      ) {
+        setTransferMessage(
+          "راجع الأصناف والكميات في التحويل."
+        );
+        return;
+      }
+
+      items.push({
+        product_id:
+          line.productId,
+
+        quantity:
+          Number(
+            quantity.toFixed(
+              3
+            )
+          ),
+      });
+    }
+
     if (!items.length) {
-      setMessage(
-        "أضف صنف وكمية للتحويل."
+      setTransferMessage(
+        "أضف صنفاً واحداً على الأقل."
       );
       return;
     }
 
     setSaving(true);
-    setMessage("");
+    setTransferMessage("");
 
-    const { error } =
-      await supabase.rpc(
-        "post_inventory_transfer",
-        {
-          target_company:
-            companyId,
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "post_inventory_transfer",
+          {
+            target_company:
+              companyId,
 
-          target_source_warehouse:
-            transferSource,
+            target_source_warehouse:
+              transferSource,
 
-          target_destination_warehouse:
-            transferDestination,
+            target_destination_warehouse:
+              transferDestination,
 
-          target_transfer_date:
-            transferDate,
+            target_transfer_date:
+              transferDate,
 
-          target_notes:
-            transferNotes.trim() ||
-            null,
+            target_notes:
+              transferNotes.trim() ||
+              null,
 
-          items_payload:
-            items,
-        }
+            items_payload:
+              items,
+          }
+        );
+
+      if (error) {
+        setTransferMessage(
+          friendlyError(
+            error,
+            "transfer"
+          )
+        );
+        return;
+      }
+
+      setTransferOpen(
+        false
       );
 
-    setSaving(false);
+      setNotice({
+        type: "success",
+        text:
+          "تم ترحيل تحويل المخزون.",
+      });
 
-    if (error) {
-      setMessage(
-        error.message
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ==========================================================
+  // PHYSICAL COUNT
+  // ==========================================================
+
+  async function loadCountWarehouse(
+    warehouseId: string
+  ) {
+    setCountWarehouse(
+      warehouseId
+    );
+
+    setCountMessage(
+      ""
+    );
+
+    if (!warehouseId) {
+      setCountLines(
+        []
       );
       return;
     }
 
-    setTransferOpen(
-      false
+    setLoadingCount(
+      true
     );
 
-    router.refresh();
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            "inventory_summary"
+          )
+          .select(
+            "product_id,on_hand,average_cost"
+          )
+          .eq(
+            "company_id",
+            companyId
+          )
+          .eq(
+            "warehouse_id",
+            warehouseId
+          );
+
+      if (error) {
+        setCountMessage(
+          "تعذر تحميل رصيد المستودع للجرد."
+        );
+        return;
+      }
+
+      const current =
+        new Map<
+          string,
+          {
+            onHand: number;
+            averageCost:
+              number | null;
+          }
+        >();
+
+      for (
+        const row of
+        data ?? []
+      ) {
+        current.set(
+          row.product_id,
+          {
+            onHand:
+              numeric(
+                row.on_hand
+              ),
+
+            averageCost:
+              row.average_cost ==
+              null
+                ? null
+                : numeric(
+                    row.average_cost
+                  ),
+          }
+        );
+      }
+
+      setCountLines(
+        products.map(
+          (product) => {
+            const balance =
+              current.get(
+                product.id
+              );
+
+            return {
+              productId:
+                product.id,
+
+              productName:
+                product.name,
+
+              sku:
+                product.sku,
+
+              countedQuantity:
+                numeric(
+                  balance?.onHand
+                ).toFixed(
+                  3
+                ),
+
+              unitCost:
+                canViewCost &&
+                balance?.averageCost !=
+                  null
+                  ? balance.averageCost.toFixed(
+                      4
+                    )
+                  : "",
+            };
+          }
+        )
+      );
+    } finally {
+      setLoadingCount(
+        false
+      );
+    }
   }
 
-  function openCount() {
+  async function openCount() {
+    if (!canAdjust) {
+      return;
+    }
+
     const warehouse =
       warehouses.find(
         (row) =>
@@ -912,287 +1580,361 @@ export function InventoryClient({
       ) ??
       warehouses[0];
 
-    const warehouseId =
-      warehouse?.id ||
-      "";
-
-    setCountWarehouse(
-      warehouseId
-    );
-
     setCountDate(
-      todayInput()
+      businessDateInput()
     );
 
-    setCountNotes("");
-
-    setCountLines(
-      products.map(
-        (product) => {
-          const current =
-            stockFor(
-              warehouseId,
-              product.id
-            );
-
-          return {
-            productId:
-              product.id,
-
-            countedQuantity:
-              String(
-                numeric(
-                  current?.on_hand
-                )
-              ),
-
-            unitCost:
-              String(
-                numeric(
-                  current?.average_cost
-                )
-              ),
-          };
-        }
-      )
+    setCountNotes(
+      ""
     );
 
-    setMessage("");
-    setCountOpen(true);
-  }
-
-  function changeCountWarehouse(
-    warehouseId: string
-  ) {
-    setCountWarehouse(
-      warehouseId
+    setCountMessage(
+      ""
     );
 
-    setCountLines(
-      products.map(
-        (product) => {
-          const current =
-            stockFor(
-              warehouseId,
-              product.id
-            );
+    setCountOpen(
+      true
+    );
 
-          return {
-            productId:
-              product.id,
-
-            countedQuantity:
-              String(
-                numeric(
-                  current?.on_hand
-                )
-              ),
-
-            unitCost:
-              String(
-                numeric(
-                  current?.average_cost
-                )
-              ),
-          };
-        }
-      )
+    await loadCountWarehouse(
+      warehouse?.id ??
+        ""
     );
   }
 
   async function saveCount(
-    event:
-      React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
-    if (!countWarehouse) {
-      setMessage(
-        "اختار المستودع."
+    if (!canAdjust) {
+      return;
+    }
+
+    if (
+      !countWarehouse
+    ) {
+      setCountMessage(
+        "اختر المستودع."
       );
       return;
     }
 
-    const items =
-      countLines.map(
-        (line) => ({
-          product_id:
-            line.productId,
-
-          counted_quantity:
-            numeric(
-              line.countedQuantity
-            ),
-
-          unit_cost:
-            line.unitCost
-              ? numeric(
-                  line.unitCost
-                )
-              : null,
-        })
-      );
-
-    if (!items.length) {
-      setMessage(
-        "ما في أصناف للجرد."
+    if (
+      !countLines.length
+    ) {
+      setCountMessage(
+        "لا توجد أصناف للجرد."
       );
       return;
+    }
+
+    const items:
+      Array<{
+        product_id: string;
+        counted_quantity: number;
+        unit_cost: number | null;
+      }> = [];
+
+    for (
+      const line of
+      countLines
+    ) {
+      const quantity =
+        Number(
+          line.countedQuantity
+        );
+
+      if (
+        !Number.isFinite(
+          quantity
+        ) ||
+        quantity < 0
+      ) {
+        setCountMessage(
+          `راجع كمية ${line.productName}.`
+        );
+        return;
+      }
+
+      let unitCost:
+        number | null =
+        null;
+
+      if (
+        canViewCost &&
+        line.unitCost.trim()
+      ) {
+        const cost =
+          Number(
+            line.unitCost
+          );
+
+        if (
+          !Number.isFinite(
+            cost
+          ) ||
+          cost < 0
+        ) {
+          setCountMessage(
+            `راجع كلفة ${line.productName}.`
+          );
+          return;
+        }
+
+        unitCost =
+          Number(
+            cost.toFixed(
+              4
+            )
+          );
+      }
+
+      items.push({
+        product_id:
+          line.productId,
+
+        counted_quantity:
+          Number(
+            quantity.toFixed(
+              3
+            )
+          ),
+
+        unit_cost:
+          unitCost,
+      });
     }
 
     setSaving(true);
-    setMessage("");
+    setCountMessage("");
 
-    const { error } =
-      await supabase.rpc(
-        "post_inventory_count",
-        {
-          target_company:
-            companyId,
+    try {
+      const {
+        error,
+      } =
+        await supabase.rpc(
+          "post_inventory_count",
+          {
+            target_company:
+              companyId,
 
-          target_warehouse:
-            countWarehouse,
+            target_warehouse:
+              countWarehouse,
 
-          target_count_date:
-            countDate,
+            target_count_date:
+              countDate,
 
-          target_notes:
-            countNotes.trim() ||
-            null,
+            target_notes:
+              countNotes.trim() ||
+              null,
 
-          items_payload:
-            items,
-        }
+            items_payload:
+              items,
+          }
+        );
+
+      if (error) {
+        setCountMessage(
+          friendlyError(
+            error,
+            "count"
+          )
+        );
+        return;
+      }
+
+      setCountOpen(
+        false
       );
 
-    setSaving(false);
+      setNotice({
+        type: "success",
+        text:
+          "تم ترحيل الجرد وتسجيل فروقات المخزون.",
+      });
 
-    if (error) {
-      setMessage(
-        error.message
-      );
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ==========================================================
+  // REVERSALS
+  // ==========================================================
+
+  function openReverse(
+    target: ReverseTarget
+  ) {
+    if (
+      target.kind ===
+        "receipt" &&
+      !canReverseReceipt
+    ) {
       return;
     }
 
-    setCountOpen(false);
-
-    router.refresh();
-  }
-
-  function inventoryDocumentStatusLabel(
-    status: string
-  ) {
-    if (status === "posted") {
-      return "?????";
-    }
-
     if (
-      status === "reversed" ||
-      status === "cancelled"
+      target.kind !==
+        "receipt" &&
+      !canAdjust
     ) {
-      return "?????";
+      return;
     }
 
-    return status;
-  }
-
-  async function reverseInventoryDocument(
-    kind: "receipt" | "transfer" | "count",
-    id: string,
-    number: string
-  ) {
-    const label =
-      kind === "receipt"
-        ? "????????"
-        : kind === "transfer"
-          ? "???????"
-          : "?????";
-
-    const reason = window.prompt(
-      `??? ??? ${label} ${number}:`
+    setReverseTarget(
+      target
     );
 
-    if (reason === null) return;
+    setReverseReason(
+      ""
+    );
 
-    if (!reason.trim()) {
-      window.alert("???? ??? ?????.");
+    setReverseMessage(
+      ""
+    );
+  }
+
+  async function saveReverse(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!reverseTarget) {
       return;
     }
 
-    if (
-      !window.confirm(
-        `????? ??? ${label} ${number}? ???? ????? ???? ????? ?? ???? ????? ??????.`
-      )
-    ) {
+    const reason =
+      reverseReason.trim();
+
+    if (!reason) {
+      setReverseMessage(
+        "اكتب سبب العكس."
+      );
       return;
     }
 
-    const operationId =
-      `${kind}:${id}`;
+    setReversing(
+      true
+    );
 
-    setReversingId(operationId);
+    setReverseMessage(
+      ""
+    );
 
     try {
       let error:
-        { message: string } | null =
+        {
+          code?: string;
+          message?: string;
+        } | null =
         null;
 
-      if (kind === "receipt") {
+      if (
+        reverseTarget.kind ===
+        "receipt"
+      ) {
         const result =
           await supabase.rpc(
             "reverse_goods_receipt",
             {
-              target_company: companyId,
-              target_receipt: id,
+              target_company:
+                companyId,
+
+              target_receipt:
+                reverseTarget.id,
+
               target_reason:
-                reason.trim(),
+                reason,
             }
           );
 
-        error = result.error;
+        error =
+          result.error;
 
       } else if (
-        kind === "transfer"
+        reverseTarget.kind ===
+        "transfer"
       ) {
         const result =
           await supabase.rpc(
             "reverse_inventory_transfer",
             {
-              target_company: companyId,
-              target_transfer: id,
+              target_company:
+                companyId,
+
+              target_transfer:
+                reverseTarget.id,
+
               target_reason:
-                reason.trim(),
+                reason,
             }
           );
 
-        error = result.error;
+        error =
+          result.error;
 
       } else {
         const result =
           await supabase.rpc(
             "reverse_inventory_count",
             {
-              target_company: companyId,
-              target_count: id,
+              target_company:
+                companyId,
+
+              target_count:
+                reverseTarget.id,
+
               target_reason:
-                reason.trim(),
+                reason,
             }
           );
 
-        error = result.error;
+        error =
+          result.error;
       }
 
       if (error) {
-        window.alert(error.message);
+        setReverseMessage(
+          friendlyError(
+            error,
+            "reverse"
+          )
+        );
         return;
       }
 
-      router.refresh();
+      setReverseTarget(
+        null
+      );
 
+      setNotice({
+        type: "success",
+        text:
+          "تم تسجيل الحركة العكسية بنجاح.",
+      });
+
+      router.refresh();
     } finally {
-      setReversingId(null);
+      setReversing(
+        false
+      );
     }
   }
+
+  const reverseLabel =
+    reverseTarget?.kind ===
+    "receipt"
+      ? "الاستلام"
+      : reverseTarget?.kind ===
+          "transfer"
+        ? "التحويل"
+        : "الجرد";
+
+  // ==========================================================
+  // RENDER
+  // ==========================================================
 
   return (
     <div className="page">
@@ -1207,22 +1949,18 @@ export function InventoryClient({
           </h2>
 
           <p className="muted">
-            المخزون الفعلي، الحجوزات، الاستلام،
-            التحويل بين المستودعات والجرد.
+            المخزون الفعلي، الحجوزات، الاستلام، التحويل والجرد.
           </p>
         </div>
 
-        {canAdjust && (
+        {canAdjust ? (
           <div className="rowActions">
             <button
               type="button"
               className="softButton"
-              onClick={() => {
-                setMessage("");
-                setWarehouseOpen(
-                  true
-                );
-              }}
+              onClick={
+                openWarehouse
+              }
             >
               <Icons.plus
                 size={14}
@@ -1247,35 +1985,57 @@ export function InventoryClient({
             <button
               type="button"
               className="primaryButton"
-              onClick={
-                openCount
+              onClick={() =>
+                void openCount()
               }
             >
               جرد فعلي
             </button>
           </div>
-        )}
+        ) : null}
       </div>
+
+      {notice ? (
+        <div
+          className={
+            notice.type ===
+            "error"
+              ? "toastError"
+              : "panel panelPad"
+          }
+          role={
+            notice.type ===
+            "error"
+              ? "alert"
+              : "status"
+          }
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {notice.text}
+        </div>
+      ) : null}
 
       <section className="statsGrid">
         <Mini
           title="المستودعات"
           value={String(
-            warehouses.length
+            stockStats.warehouseCount
           )}
         />
 
         <Mini
           title="أصناف محجوزة"
           value={String(
-            reservedLines
+            stockStats.reservedLines
           )}
         />
 
         <Mini
           title="غير متاح"
           value={String(
-            outOfStock
+            stockStats.outOfStock
           )}
         />
 
@@ -1283,15 +2043,16 @@ export function InventoryClient({
           title={
             canViewCost
               ? "قيمة المخزون"
-              : "بانتظار الاستلام"
+              : "فواتير بانتظار الاستلام"
           }
           value={
             canViewCost
-              ? `${stockValue.toFixed(
-                  2
-                )} ${currency}`
+              ? money(
+                  stockStats.stockValue,
+                  currency
+                )
               : String(
-                  pendingInvoices.length
+                  stockStats.pendingReceiptInvoices
                 )
           }
         />
@@ -1310,66 +2071,73 @@ export function InventoryClient({
             </h2>
 
             <p>
-              نقاط التخزين الفعالة بالشركة
+              نقاط التخزين الفعالة بالشركة.
             </p>
           </div>
         </div>
 
-        <div className="quickList">
-          {warehouses.map(
-            (warehouse) => (
-              <div
-                className="quickItem"
-                key={
-                  warehouse.id
-                }
-              >
-                <div className="quickIcon">
-                  <Icons.box
-                    size={15}
-                  />
+        {!warehouses.length ? (
+          <p className="muted">
+            لا توجد مستودعات فعالة.
+          </p>
+        ) : (
+          <div className="quickList">
+            {warehouses.map(
+              (warehouse) => (
+                <div
+                  className="quickItem"
+                  key={
+                    warehouse.id
+                  }
+                >
+                  <div className="quickIcon">
+                    <Icons.box
+                      size={15}
+                    />
+                  </div>
+
+                  <div>
+                    <strong>
+                      {
+                        warehouse.name
+                      }
+                    </strong>
+
+                    <span>
+                      {warehouse.code ||
+                        "بدون كود"}
+
+                      {warehouse.address
+                        ? ` • ${warehouse.address}`
+                        : ""}
+                    </span>
+                  </div>
+
+                  {warehouse.is_default ? (
+                    <span className="chip green">
+                      رئيسي
+                    </span>
+                  ) : canAdjust ? (
+                    <button
+                      type="button"
+                      className="softButton"
+                      disabled={
+                        saving
+                      }
+                      onClick={() =>
+                        void makeDefaultWarehouse(
+                          warehouse.id
+                        )
+                      }
+                    >
+                      جعله رئيسي
+                    </button>
+                  ) : null}
                 </div>
-
-                <div>
-                  <strong>
-                    {
-                      warehouse.name
-                    }
-                  </strong>
-
-                  <span>
-                    {warehouse.code ||
-                      "بدون كود"}
-                    {warehouse.address
-                      ? ` • ${warehouse.address}`
-                      : ""}
-                  </span>
-                </div>
-
-                {warehouse.is_default ? (
-                  <span className="chip green">
-                    رئيسي
-                  </span>
-                ) : canAdjust ? (
-                  <button
-                    type="button"
-                    className="softButton"
-                    disabled={
-                      saving
-                    }
-                    onClick={() =>
-                      void makeDefaultWarehouse(
-                        warehouse.id
-                      )
-                    }
-                  >
-                    جعله رئيسي
-                  </button>
-                ) : null}
-              </div>
-            )
-          )}
-        </div>
+              )
+            )}
+          </div>
+        )}
       </section>
 
       <section
@@ -1378,50 +2146,87 @@ export function InventoryClient({
           marginTop: 14,
         }}
       >
-        <div className="filters">
+        <form
+          className="filters"
+          onSubmit={(
+            event
+          ) => {
+            event.preventDefault();
+
+            navigateStock(
+              search,
+              warehouseSearch,
+              1
+            );
+          }}
+        >
           <div className="searchBox">
             <Icons.search
               size={16}
             />
 
             <input
-              value={search}
+              value={
+                search
+              }
               onChange={(
                 event
               ) =>
                 setSearch(
-                  event.target
-                    .value
+                  event.target.value
                 )
               }
               placeholder="بحث بالصنف أو الكود..."
+              aria-label="بحث في المخزون"
             />
+
+            <button
+              type="submit"
+              className="softButton"
+            >
+              بحث
+            </button>
           </div>
 
           <select
             value={
-              warehouseFilter
+              warehouseSearch
             }
+            aria-label="تصفية حسب المستودع"
             onChange={(
               event
-            ) =>
-              setWarehouseFilter(
-                event.target
-                  .value
-              )
-            }
+            ) => {
+              const value =
+                event.target.value;
+
+              setWarehouseSearch(
+                value
+              );
+
+              navigateStock(
+                search,
+                value,
+                1
+              );
+            }}
           >
             <option value="all">
               كل المستودعات
             </option>
 
             {warehouses.map(
-              (row) => (
+              (warehouse) => (
                 <option
-                  value={row.id}
-                  key={row.id}
+                  key={
+                    warehouse.id
+                  }
+                  value={
+                    warehouse.id
+                  }
                 >
-                  {row.name}
+                  {
+                    warehouse.name
+                  }
                 </option>
               )
             )}
@@ -1430,26 +2235,19 @@ export function InventoryClient({
           <div />
 
           <div className="resultCount">
-            {
-              filteredStock.length
-            }{" "}
-            نتيجة
+            {stockTotalCount} نتيجة
           </div>
-        </div>
+        </form>
 
-        {!filteredStock.length ? (
+        {!stock.length ? (
           <div className="empty">
             <Icons.box
               size={30}
             />
 
             <h3>
-              ما في مخزون
+              لا توجد نتائج مخزون
             </h3>
-
-            <p>
-              أول استلام أو جرد رح يظهر هون.
-            </p>
           </div>
         ) : (
           <div className="tableWrap">
@@ -1462,21 +2260,22 @@ export function InventoryClient({
                   <th>المحجوز</th>
                   <th>المتاح</th>
 
-                  {canViewCost && (
+                  {canViewCost ? (
                     <>
                       <th>
                         متوسط التكلفة
                       </th>
+
                       <th>
                         القيمة
                       </th>
                     </>
-                  )}
+                  ) : null}
                 </tr>
               </thead>
 
               <tbody>
-                {filteredStock.map(
+                {stock.map(
                   (row) => (
                     <tr
                       key={`${row.warehouse_id}:${row.product_id}`}
@@ -1491,6 +2290,7 @@ export function InventoryClient({
                         <div className="muted">
                           {row.sku ||
                             "بدون كود"}
+
                           {row.unit
                             ? ` • ${row.unit}`
                             : ""}
@@ -1506,13 +2306,17 @@ export function InventoryClient({
                       <td>
                         {numeric(
                           row.on_hand
-                        ).toFixed(3)}
+                        ).toFixed(
+                          3
+                        )}
                       </td>
 
                       <td>
                         {numeric(
                           row.reserved
-                        ).toFixed(3)}
+                        ).toFixed(
+                          3
+                        )}
                       </td>
 
                       <td>
@@ -1527,31 +2331,36 @@ export function InventoryClient({
                         >
                           {numeric(
                             row.available
-                          ).toFixed(3)}
+                          ).toFixed(
+                            3
+                          )}
                         </span>
                       </td>
 
-                      {canViewCost && (
+                      {canViewCost ? (
                         <>
                           <td>
-                            {numeric(
-                              row.average_cost
-                            ).toFixed(
-                              4
-                            )}{" "}
-                            {currency}
+                            {row.average_cost ==
+                            null
+                              ? "—"
+                              : `${numeric(
+                                  row.average_cost
+                                ).toFixed(
+                                  4
+                                )} ${currency}`}
                           </td>
 
                           <td>
-                            {numeric(
-                              row.stock_value
-                            ).toFixed(
-                              2
-                            )}{" "}
-                            {currency}
+                            {row.stock_value ==
+                            null
+                              ? "—"
+                              : money(
+                                  row.stock_value,
+                                  currency
+                                )}
                           </td>
                         </>
-                      )}
+                      ) : null}
                     </tr>
                   )
                 )}
@@ -1559,97 +2368,166 @@ export function InventoryClient({
             </table>
           </div>
         )}
+
+        {stockPageCount >
+        1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                stockPage <=
+                1
+              }
+              onClick={() =>
+                navigateStock(
+                  searchQuery,
+                  warehouseFilter,
+                  stockPage -
+                    1
+                )
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {stockPage} من{" "}
+              {stockPageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                stockPage >=
+                stockPageCount
+              }
+              onClick={() =>
+                navigateStock(
+                  searchQuery,
+                  warehouseFilter,
+                  stockPage +
+                    1
+                )
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
       </section>
 
-      <section
-        className="panel panelPad"
-        style={{
-          marginTop: 14,
-        }}
-      >
-        <div className="panelHeader">
-          <div>
-            <h2>
-              مشتريات بانتظار الاستلام
-            </h2>
+      {canReceive ? (
+        <section
+          className="panel panelPad"
+          style={{
+            marginTop: 14,
+          }}
+        >
+          <div className="panelHeader">
+            <div>
+              <h2>
+                مشتريات بانتظار الاستلام
+              </h2>
 
-            <p>
-              الكميات المشتراة التي لم تدخل المخزن بالكامل
-            </p>
+              <p>
+                جميع فواتير الشراء التي ما زالت تحتوي على كميات غير مستلمة.
+              </p>
+            </div>
           </div>
-        </div>
 
-        {!pendingInvoices.length ? (
-          <p className="muted">
-            ما في مشتريات معلقة.
-          </p>
-        ) : (
-          <div className="tableWrap">
-            <table className="dataTable">
-              <thead>
-                <tr>
-                  <th>الفاتورة</th>
-                  <th>المورد</th>
-                  <th>التاريخ</th>
-                  <th>المتبقي</th>
-                  <th>الإجراء</th>
-                </tr>
-              </thead>
+          {!receivableInvoices.length ? (
+            <p className="muted">
+              لا توجد مشتريات معلقة للاستلام.
+            </p>
+          ) : (
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>الفاتورة</th>
+                    <th>المورد</th>
+                    <th>التاريخ</th>
+                    <th>الأصناف</th>
+                    <th>الكمية المتبقية</th>
+                    <th>إجراء</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                {pendingInvoices.map(
-                  (invoice) => {
-                    const supplier =
-                      oneRelation(
-                        invoice.suppliers
-                      );
-
-                    const remaining =
-                      invoice.purchase_invoice_items.reduce(
-                        (
-                          sum,
-                          item
-                        ) =>
-                          sum +
-                          remainingPurchaseItem(
+                <tbody>
+                  {receivableInvoices.map(
+                    (invoice) => {
+                      const remaining =
+                        invoice.items.reduce(
+                          (
+                            total,
                             item
-                          ),
-                        0
-                      );
+                          ) =>
+                            total +
+                            numeric(
+                              item.remaining_quantity
+                            ),
+                          0
+                        );
 
-                    return (
-                      <tr
-                        key={
-                          invoice.id
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              invoice.invoice_number
-                            }
-                          </strong>
-                        </td>
-
-                        <td>
-                          {supplier?.name ||
-                            "مورد"}
-                        </td>
-
-                        <td>
-                          {
-                            invoice.invoice_date
+                      return (
+                        <tr
+                          key={
+                            invoice.id
                           }
-                        </td>
+                        >
+                          <td>
+                            <strong>
+                              {
+                                invoice.invoice_number
+                              }
+                            </strong>
 
-                        <td>
-                          {remaining.toFixed(
-                            3
-                          )}
-                        </td>
+                            {invoice.supplier_invoice_number ? (
+                              <div className="muted">
+                                مورد:{" "}
+                                {
+                                  invoice.supplier_invoice_number
+                                }
+                              </div>
+                            ) : null}
+                          </td>
 
-                        <td>
-                          {canReceive && (
+                          <td>
+                            {
+                              invoice.supplier_name
+                            }
+                          </td>
+
+                          <td>
+                            {
+                              invoice.invoice_date
+                            }
+                          </td>
+
+                          <td>
+                            {
+                              invoice.items.length
+                            }
+                          </td>
+
+                          <td>
+                            <strong>
+                              {remaining.toFixed(
+                                3
+                              )}
+                            </strong>
+                          </td>
+
+                          <td>
                             <button
                               type="button"
                               className="primaryButton"
@@ -1661,107 +2539,130 @@ export function InventoryClient({
                             >
                               استلام
                             </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                          </td>
+                        </tr>
+                      );
+                    }
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section
         className="panel panelPad"
-        style={{ marginTop: 14 }}
+        style={{
+          marginTop: 14,
+        }}
       >
         <div className="panelHeader">
           <div>
-            <h2>??? ??????????</h2>
+            <h2>
+              آخر الاستلامات
+            </h2>
+
             <p>
-              ????? ????? ????????? ??? ???????
+              سجل استلام البضاعة من الموردين.
             </p>
           </div>
         </div>
 
         {!receipts.length ? (
           <p className="muted">
-            ?? ?? ???????? ?????.
+            لا توجد استلامات مسجلة.
           </p>
         ) : (
           <div className="quickList">
             {receipts
-              .slice(0, 10)
-              .map((row) => {
-                const operationId =
-                  `receipt:${row.id}`;
-
-                return (
+              .slice(
+                0,
+                15
+              )
+              .map(
+                (receipt) => (
                   <div
                     className="quickItem"
-                    key={row.id}
+                    key={
+                      receipt.id
+                    }
                   >
                     <div>
                       <strong>
-                        {row.receipt_number}
+                        {
+                          receipt.receipt_number
+                        }
                       </strong>
 
                       <span>
                         {warehouseNameById(
-                          row.warehouse_id
+                          receipt.warehouse_id
                         )}{" "}
-                        ? {row.receipt_date}
+                        •{" "}
+                        {
+                          receipt.receipt_date
+                        }
                       </span>
+
+                      {receipt.cancellation_reason ? (
+                        <span>
+                          السبب:{" "}
+                          {
+                            receipt.cancellation_reason
+                          }
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="rowActions">
                       <span
                         className={`chip ${
-                          row.status === "posted"
+                          receipt.status ===
+                          "posted"
                             ? "green"
                             : "gray"
                         }`}
                       >
-                        {inventoryDocumentStatusLabel(
-                          row.status
+                        {statusLabel(
+                          receipt.status
                         )}
                       </span>
 
                       {canReverseReceipt &&
-                        row.status ===
-                          "posted" && (
-                          <button
-                            type="button"
-                            className="softButton"
-                            disabled={
-                              reversingId ===
-                              operationId
-                            }
-                            onClick={() =>
-                              void reverseInventoryDocument(
+                      receipt.status ===
+                        "posted" ? (
+                        <button
+                          type="button"
+                          className="softButton"
+                          onClick={() =>
+                            openReverse({
+                              kind:
                                 "receipt",
-                                row.id,
-                                row.receipt_number
-                              )
-                            }
-                          >
-                            {reversingId ===
-                            operationId
-                              ? "?? ????..."
-                              : "??? ????????"}
-                          </button>
-                        )}
+                              id:
+                                receipt.id,
+                              number:
+                                receipt.receipt_number,
+                            })
+                          }
+                        >
+                          عكس الاستلام
+                        </button>
+                      ) : null}
                     </div>
                   </div>
-                );
-              })}
+                )
+              )}
           </div>
         )}
       </section>
 
-      <div className="pageGrid">
+      <div
+        className="pageGrid"
+        style={{
+          marginTop: 14,
+        }}
+      >
         <section className="panel panelPad">
           <div className="panelHeader">
             <div>
@@ -1773,41 +2674,89 @@ export function InventoryClient({
 
           {!transfers.length ? (
             <p className="muted">
-              ما في تحويلات لسا.
+              لا توجد تحويلات مسجلة.
             </p>
           ) : (
             <div className="quickList">
               {transfers
-                .slice(0, 10)
+                .slice(
+                  0,
+                  15
+                )
                 .map(
-                  (row) => (
+                  (transfer) => (
                     <div
                       className="quickItem"
                       key={
-                        row.id
+                        transfer.id
                       }
                     >
                       <div>
                         <strong>
                           {
-                            row.transfer_number
+                            transfer.transfer_number
                           }
                         </strong>
 
                         <span>
                           {warehouseNameById(
-                            row.source_warehouse_id
+                            transfer.source_warehouse_id
                           )}{" "}
                           ←{" "}
                           {warehouseNameById(
-                            row.destination_warehouse_id
-                          )}
+                            transfer.destination_warehouse_id
+                          )}{" "}
+                          •{" "}
+                          {
+                            transfer.transfer_date
+                          }
                         </span>
+
+                        {transfer.reversal_reason ? (
+                          <span>
+                            السبب:{" "}
+                            {
+                              transfer.reversal_reason
+                            }
+                          </span>
+                        ) : null}
                       </div>
 
-                      <span className="chip green">
-                        مرحّل
-                      </span>
+                      <div className="rowActions">
+                        <span
+                          className={`chip ${
+                            transfer.status ===
+                            "posted"
+                              ? "green"
+                              : "gray"
+                          }`}
+                        >
+                          {statusLabel(
+                            transfer.status
+                          )}
+                        </span>
+
+                        {canAdjust &&
+                        transfer.status ===
+                          "posted" ? (
+                          <button
+                            type="button"
+                            className="softButton"
+                            onClick={() =>
+                              openReverse({
+                                kind:
+                                  "transfer",
+                                id:
+                                  transfer.id,
+                                number:
+                                  transfer.transfer_number,
+                              })
+                            }
+                          >
+                            عكس
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   )
                 )}
@@ -1819,43 +2768,91 @@ export function InventoryClient({
           <div className="panelHeader">
             <div>
               <h2>
-                آخر الجرد
+                آخر عمليات الجرد
               </h2>
             </div>
           </div>
 
           {!counts.length ? (
             <p className="muted">
-              ما في جرد مسجل.
+              لا يوجد جرد مسجل.
             </p>
           ) : (
             <div className="quickList">
               {counts
-                .slice(0, 10)
+                .slice(
+                  0,
+                  15
+                )
                 .map(
-                  (row) => (
+                  (count) => (
                     <div
                       className="quickItem"
                       key={
-                        row.id
+                        count.id
                       }
                     >
                       <div>
                         <strong>
                           {
-                            row.count_number
+                            count.count_number
                           }
                         </strong>
 
                         <span>
                           {warehouseNameById(
-                            row.warehouse_id
+                            count.warehouse_id
                           )}{" "}
                           •{" "}
                           {
-                            row.count_date
+                            count.count_date
                           }
                         </span>
+
+                        {count.reversal_reason ? (
+                          <span>
+                            السبب:{" "}
+                            {
+                              count.reversal_reason
+                            }
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="rowActions">
+                        <span
+                          className={`chip ${
+                            count.status ===
+                            "posted"
+                              ? "green"
+                              : "gray"
+                          }`}
+                        >
+                          {statusLabel(
+                            count.status
+                          )}
+                        </span>
+
+                        {canAdjust &&
+                        count.status ===
+                          "posted" ? (
+                          <button
+                            type="button"
+                            className="softButton"
+                            onClick={() =>
+                              openReverse({
+                                kind:
+                                  "count",
+                                id:
+                                  count.id,
+                                number:
+                                  count.count_number,
+                              })
+                            }
+                          >
+                            عكس
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   )
@@ -1865,9 +2862,13 @@ export function InventoryClient({
         </aside>
       </div>
 
-      {warehouseOpen && (
+      {warehouseOpen ? (
         <div className="modalOverlay">
-          <section className="modal">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
             <div className="modalHeader">
               <div>
                 <span className="eyebrow">
@@ -1914,8 +2915,7 @@ export function InventoryClient({
                       event
                     ) =>
                       setWarehouseName(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -1934,8 +2934,7 @@ export function InventoryClient({
                       event
                     ) =>
                       setWarehouseCode(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -1954,8 +2953,7 @@ export function InventoryClient({
                       event
                     ) =>
                       setWarehouseAddress(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -1963,7 +2961,7 @@ export function InventoryClient({
 
                 <label className="field full">
                   <span>
-                    نوع المستودع
+                    النوع
                   </span>
 
                   <select
@@ -1976,8 +2974,7 @@ export function InventoryClient({
                       event
                     ) =>
                       setWarehouseDefault(
-                        event.target
-                          .value ===
+                        event.target.value ===
                           "yes"
                       )
                     }
@@ -1987,22 +2984,27 @@ export function InventoryClient({
                     </option>
 
                     <option value="yes">
-                      المستودع الرئيسي
+                      مستودع رئيسي
                     </option>
                   </select>
                 </label>
               </div>
 
-              {message && (
+              {warehouseMessage ? (
                 <div className="toastError">
-                  {message}
+                  {
+                    warehouseMessage
+                  }
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
+                  disabled={
+                    saving
+                  }
                   onClick={() =>
                     setWarehouseOpen(
                       false
@@ -2018,36 +3020,313 @@ export function InventoryClient({
                     saving
                   }
                 >
-                  حفظ المستودع
+                  {saving
+                    ? "جارٍ الحفظ..."
+                    : "حفظ المستودع"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
 
-      {transferOpen && (
+      {selectedInvoice ? (
         <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
-              maxWidth: 850,
+              maxWidth: 900,
+              width: "94vw",
             }}
           >
             <div className="modalHeader">
               <div>
                 <span className="eyebrow">
-                  Warehouse Transfer
+                  استلام بضاعة
                 </span>
 
                 <h2>
-                  تحويل مخزون
+                  {
+                    selectedInvoice.invoice_number
+                  }
                 </h2>
+
+                <p className="muted">
+                  {
+                    selectedInvoice.supplier_name
+                  }
+                </p>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  saving
+                }
+                onClick={() =>
+                  setSelectedInvoice(
+                    null
+                  )
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              onSubmit={
+                saveReceipt
+              }
+            >
+              <div className="formGrid">
+                <label className="field">
+                  <span>
+                    المستودع *
+                  </span>
+
+                  <select
+                    value={
+                      receiptWarehouse
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setReceiptWarehouse(
+                        event.target.value
+                      )
+                    }
+                  >
+                    <option value="">
+                      اختر
+                    </option>
+
+                    {warehouses.map(
+                      (warehouse) => (
+                        <option
+                          key={
+                            warehouse.id
+                          }
+                          value={
+                            warehouse.id
+                          }
+                        >
+                          {
+                            warehouse.name
+                          }
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span>
+                    تاريخ الاستلام
+                  </span>
+
+                  <input
+                    type="date"
+                    value={
+                      receiptDate
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setReceiptDate(
+                        event.target.value
+                      )
+                    }
+                  />
+                </label>
+              </div>
+
+              <div
+                className="tableWrap"
+                style={{
+                  marginTop: 14,
+                }}
+              >
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الصنف</th>
+                      <th>المشتراة</th>
+                      <th>مستلمة سابقاً</th>
+                      <th>المتبقي</th>
+                      <th>استلام الآن</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {selectedInvoice.items.map(
+                      (item) => (
+                        <tr
+                          key={
+                            item.item_id
+                          }
+                        >
+                          <td>
+                            <strong>
+                              {
+                                item.product_name
+                              }
+                            </strong>
+
+                            <div className="muted">
+                              {item.sku ||
+                                "بدون كود"}
+                            </div>
+                          </td>
+
+                          <td>
+                            {numeric(
+                              item.invoiced_quantity
+                            ).toFixed(
+                              3
+                            )}
+                          </td>
+
+                          <td>
+                            {numeric(
+                              item.received_quantity
+                            ).toFixed(
+                              3
+                            )}
+                          </td>
+
+                          <td>
+                            {numeric(
+                              item.remaining_quantity
+                            ).toFixed(
+                              3
+                            )}
+                          </td>
+
+                          <td>
+                            <input
+                              type="number"
+                              min="0"
+                              max={
+                                item.remaining_quantity
+                              }
+                              step="0.001"
+                              value={
+                                receiptQuantities[
+                                  item.item_id
+                                ] ??
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                setReceiptQuantities(
+                                  (
+                                    current
+                                  ) => ({
+                                    ...current,
+                                    [item.item_id]:
+                                      event.target.value,
+                                  })
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <label
+                className="field"
+                style={{
+                  marginTop: 14,
+                }}
+              >
+                <span>
+                  ملاحظات
+                </span>
+
+                <textarea
+                  value={
+                    receiptNotes
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setReceiptNotes(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              {receiptMessage ? (
+                <div className="toastError">
+                  {
+                    receiptMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    saving
+                  }
+                  onClick={() =>
+                    setSelectedInvoice(
+                      null
+                    )
+                  }
+                >
+                  إلغاء
+                </button>
+
+                <button
+                  className="primaryButton"
+                  disabled={
+                    saving
+                  }
+                >
+                  {saving
+                    ? "جارٍ الاستلام..."
+                    : "تأكيد الاستلام"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {transferOpen ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            style={{
+              maxWidth: 850,
+              width: "94vw",
+            }}
+          >
+            <div className="modalHeader">
+              <h2>
+                تحويل مخزون
+              </h2>
+
+              <button
+                type="button"
+                className="closeButton"
+                disabled={
+                  saving
+                }
                 onClick={() =>
                   setTransferOpen(
                     false
@@ -2066,7 +3345,7 @@ export function InventoryClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    من مستودع
+                    من مستودع *
                   </span>
 
                   <select
@@ -2077,22 +3356,23 @@ export function InventoryClient({
                       event
                     ) =>
                       setTransferSource(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   >
                     {warehouses.map(
-                      (row) => (
+                      (warehouse) => (
                         <option
                           key={
-                            row.id
+                            warehouse.id
                           }
                           value={
-                            row.id
+                            warehouse.id
                           }
                         >
-                          {row.name}
+                          {
+                            warehouse.name
+                          }
                         </option>
                       )
                     )}
@@ -2101,7 +3381,7 @@ export function InventoryClient({
 
                 <label className="field">
                   <span>
-                    إلى مستودع
+                    إلى مستودع *
                   </span>
 
                   <select
@@ -2112,22 +3392,23 @@ export function InventoryClient({
                       event
                     ) =>
                       setTransferDestination(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   >
                     {warehouses.map(
-                      (row) => (
+                      (warehouse) => (
                         <option
                           key={
-                            row.id
+                            warehouse.id
                           }
                           value={
-                            row.id
+                            warehouse.id
                           }
                         >
-                          {row.name}
+                          {
+                            warehouse.name
+                          }
                         </option>
                       )
                     )}
@@ -2148,8 +3429,7 @@ export function InventoryClient({
                       event
                     ) =>
                       setTransferDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
@@ -2170,118 +3450,99 @@ export function InventoryClient({
                     <div
                       className="quickItem"
                       key={
-                        index
+                        line.key
                       }
-                      style={{
-                        display:
-                          "grid",
-                        gridTemplateColumns:
-                          "1fr 160px auto",
-                      }}
                     >
-                      <label className="field">
-                        <span>
-                          الصنف
-                        </span>
-
-                        <select
-                          value={
-                            line.productId
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setTransferLines(
-                              (
-                                current
-                              ) =>
-                                current.map(
-                                  (
-                                    row,
-                                    rowIndex
-                                  ) =>
-                                    rowIndex ===
-                                    index
-                                      ? {
-                                          ...row,
-                                          productId:
-                                            event
-                                              .target
-                                              .value,
-                                        }
-                                      : row
-                                )
-                            )
-                          }
-                        >
-                          <option value="">
-                            اختار
-                          </option>
-
-                          {products.map(
+                      <select
+                        value={
+                          line.productId
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setTransferLines(
                             (
-                              product
-                            ) => (
-                              <option
-                                value={
-                                  product.id
-                                }
-                                key={
-                                  product.id
-                                }
-                              >
-                                {
-                                  product.name
-                                }
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </label>
+                              current
+                            ) =>
+                              current.map(
+                                (
+                                  row,
+                                  rowIndex
+                                ) =>
+                                  rowIndex ===
+                                  index
+                                    ? {
+                                        ...row,
+                                        productId:
+                                          event.target.value,
+                                      }
+                                    : row
+                              )
+                          )
+                        }
+                      >
+                        <option value="">
+                          اختر الصنف
+                        </option>
 
-                      <label className="field">
-                        <span>
-                          الكمية
-                        </span>
+                        {products.map(
+                          (product) => (
+                            <option
+                              key={
+                                product.id
+                              }
+                              value={
+                                product.id
+                              }
+                            >
+                              {
+                                product.name
+                              }
+                            </option>
+                          )
+                        )}
+                      </select>
 
-                        <input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          value={
-                            line.quantity
-                          }
-                          onChange={(
-                            event
-                          ) =>
-                            setTransferLines(
-                              (
-                                current
-                              ) =>
-                                current.map(
-                                  (
-                                    row,
-                                    rowIndex
-                                  ) =>
-                                    rowIndex ===
-                                    index
-                                      ? {
-                                          ...row,
-                                          quantity:
-                                            event
-                                              .target
-                                              .value,
-                                        }
-                                      : row
-                                )
-                            )
-                          }
-                        />
-                      </label>
+                      <input
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        placeholder="الكمية"
+                        value={
+                          line.quantity
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setTransferLines(
+                            (
+                              current
+                            ) =>
+                              current.map(
+                                (
+                                  row,
+                                  rowIndex
+                                ) =>
+                                  rowIndex ===
+                                  index
+                                    ? {
+                                        ...row,
+                                        quantity:
+                                          event.target.value,
+                                      }
+                                    : row
+                              )
+                          )
+                        }
+                      />
 
                       <button
                         type="button"
                         className="dangerButton"
+                        disabled={
+                          transferLines.length ===
+                          1
+                        }
                         onClick={() =>
                           setTransferLines(
                             (
@@ -2308,43 +3569,19 @@ export function InventoryClient({
               <button
                 type="button"
                 className="softButton"
-                style={{
-                  marginTop: 10,
-                }}
-                onClick={() =>
-                  setTransferLines(
-                    (
-                      current
-                    ) => [
-                      ...current,
-                      {
-                        productId:
-                          "",
-                        quantity:
-                          "",
-                      },
-                    ]
-                  )
+                onClick={
+                  addTransferLine
                 }
               >
-                <Icons.plus
-                  size={13}
-                />
                 إضافة صنف
               </button>
 
-              <label
-                className="field"
-                style={{
-                  marginTop: 14,
-                }}
-              >
+              <label className="field">
                 <span>
                   ملاحظات
                 </span>
 
                 <textarea
-                  rows={3}
                   value={
                     transferNotes
                   }
@@ -2352,23 +3589,27 @@ export function InventoryClient({
                     event
                   ) =>
                     setTransferNotes(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
               </label>
 
-              {message && (
+              {transferMessage ? (
                 <div className="toastError">
-                  {message}
+                  {
+                    transferMessage
+                  }
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
+                  disabled={
+                    saving
+                  }
                   onClick={() =>
                     setTransferOpen(
                       false
@@ -2384,36 +3625,38 @@ export function InventoryClient({
                     saving
                   }
                 >
-                  ترحيل التحويل
+                  {saving
+                    ? "جارٍ الترحيل..."
+                    : "ترحيل التحويل"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
 
-      {countOpen && (
+      {countOpen ? (
         <div className="modalOverlay">
           <section
             className="modal"
+            role="dialog"
+            aria-modal="true"
             style={{
-              maxWidth: 900,
+              maxWidth: 950,
+              width: "94vw",
             }}
           >
             <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  Stock Count
-                </span>
-
-                <h2>
-                  جرد فعلي
-                </h2>
-              </div>
+              <h2>
+                جرد فعلي
+              </h2>
 
               <button
                 type="button"
                 className="closeButton"
+                disabled={
+                  saving
+                }
                 onClick={() =>
                   setCountOpen(
                     false
@@ -2432,7 +3675,7 @@ export function InventoryClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    المستودع
+                    المستودع *
                   </span>
 
                   <select
@@ -2442,23 +3685,24 @@ export function InventoryClient({
                     onChange={(
                       event
                     ) =>
-                      changeCountWarehouse(
-                        event.target
-                          .value
+                      void loadCountWarehouse(
+                        event.target.value
                       )
                     }
                   >
                     {warehouses.map(
-                      (row) => (
+                      (warehouse) => (
                         <option
                           key={
-                            row.id
+                            warehouse.id
                           }
                           value={
-                            row.id
+                            warehouse.id
                           }
                         >
-                          {row.name}
+                          {
+                            warehouse.name
+                          }
                         </option>
                       )
                     )}
@@ -2479,63 +3723,52 @@ export function InventoryClient({
                       event
                     ) =>
                       setCountDate(
-                        event.target
-                          .value
+                        event.target.value
                       )
                     }
                   />
                 </label>
               </div>
 
-              <div
-                className="tableWrap"
-                style={{
-                  marginTop: 15,
-                }}
-              >
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>
-                        الصنف
-                      </th>
-                      <th>
-                        النظام
-                      </th>
-                      <th>
-                        العدد الفعلي
-                      </th>
-
-                      {canViewCost && (
+              {loadingCount ? (
+                <p className="muted">
+                  جارٍ تحميل رصيد المستودع...
+                </p>
+              ) : (
+                <div
+                  className="tableWrap"
+                  style={{
+                    marginTop: 14,
+                    maxHeight: 430,
+                    overflowY:
+                      "auto",
+                  }}
+                >
+                  <table className="dataTable">
+                    <thead>
+                      <tr>
                         <th>
-                          تكلفة
+                          الصنف
                         </th>
-                      )}
-                    </tr>
-                  </thead>
 
-                  <tbody>
-                    {countLines.map(
-                      (
-                        line,
-                        index
-                      ) => {
-                        const product =
-                          products.find(
-                            (
-                              row
-                            ) =>
-                              row.id ===
-                              line.productId
-                          );
+                        <th>
+                          الكمية الفعلية
+                        </th>
 
-                        const system =
-                          stockFor(
-                            countWarehouse,
-                            line.productId
-                          );
+                        {canViewCost ? (
+                          <th>
+                            كلفة المخزون الجديد فقط
+                          </th>
+                        ) : null}
+                      </tr>
+                    </thead>
 
-                        return (
+                    <tbody>
+                      {countLines.map(
+                        (
+                          line,
+                          index
+                        ) => (
                           <tr
                             key={
                               line.productId
@@ -2543,17 +3776,15 @@ export function InventoryClient({
                           >
                             <td>
                               <strong>
-                                {product?.name ||
-                                  "صنف"}
+                                {
+                                  line.productName
+                                }
                               </strong>
-                            </td>
 
-                            <td>
-                              {numeric(
-                                system?.on_hand
-                              ).toFixed(
-                                3
-                              )}
+                              <div className="muted">
+                                {line.sku ||
+                                  "بدون كود"}
+                              </div>
                             </td>
 
                             <td>
@@ -2581,9 +3812,7 @@ export function InventoryClient({
                                             ? {
                                                 ...row,
                                                 countedQuantity:
-                                                  event
-                                                    .target
-                                                    .value,
+                                                  event.target.value,
                                               }
                                             : row
                                       )
@@ -2592,7 +3821,7 @@ export function InventoryClient({
                               />
                             </td>
 
-                            {canViewCost && (
+                            {canViewCost ? (
                               <td>
                                 <input
                                   type="number"
@@ -2601,6 +3830,7 @@ export function InventoryClient({
                                   value={
                                     line.unitCost
                                   }
+                                  placeholder="تلقائي"
                                   onChange={(
                                     event
                                   ) =>
@@ -2618,9 +3848,7 @@ export function InventoryClient({
                                               ? {
                                                   ...row,
                                                   unitCost:
-                                                    event
-                                                      .target
-                                                      .value,
+                                                    event.target.value,
                                                 }
                                               : row
                                         )
@@ -2628,261 +3856,14 @@ export function InventoryClient({
                                   }
                                 />
                               </td>
-                            )}
+                            ) : null}
                           </tr>
-                        );
-                      }
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <label
-                className="field"
-                style={{
-                  marginTop: 14,
-                }}
-              >
-                <span>
-                  ملاحظات الجرد
-                </span>
-
-                <textarea
-                  rows={3}
-                  value={
-                    countNotes
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setCountNotes(
-                      event.target
-                        .value
-                    )
-                  }
-                />
-              </label>
-
-              {message && (
-                <div className="toastError">
-                  {message}
+                        )
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               )}
-
-              <div className="modalActions">
-                <button
-                  type="button"
-                  className="softButton"
-                  onClick={() =>
-                    setCountOpen(
-                      false
-                    )
-                  }
-                >
-                  إلغاء
-                </button>
-
-                <button
-                  className="primaryButton"
-                  disabled={
-                    saving
-                  }
-                >
-                  ترحيل الجرد
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {selectedInvoice && (
-        <div className="modalOverlay">
-          <section
-            className="modal"
-            style={{
-              maxWidth: 850,
-            }}
-          >
-            <div className="modalHeader">
-              <div>
-                <span className="eyebrow">
-                  Goods Receipt
-                </span>
-
-                <h2>
-                  استلام مشتريات
-                </h2>
-
-                <p className="muted">
-                  {
-                    selectedInvoice.invoice_number
-                  }
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="closeButton"
-                onClick={() =>
-                  setSelectedInvoice(
-                    null
-                  )
-                }
-              >
-                ×
-              </button>
-            </div>
-
-            <form
-              onSubmit={
-                saveReceipt
-              }
-            >
-              <div className="formGrid">
-                <label className="field">
-                  <span>
-                    المستودع
-                  </span>
-
-                  <select
-                    value={
-                      receiptWarehouse
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setReceiptWarehouse(
-                        event.target
-                          .value
-                      )
-                    }
-                  >
-                    {warehouses.map(
-                      (row) => (
-                        <option
-                          key={
-                            row.id
-                          }
-                          value={
-                            row.id
-                          }
-                        >
-                          {row.name}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>
-                    التاريخ
-                  </span>
-
-                  <input
-                    type="date"
-                    value={
-                      receiptDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setReceiptDate(
-                        event.target
-                          .value
-                      )
-                    }
-                  />
-                </label>
-              </div>
-
-              <div
-                className="quickList"
-                style={{
-                  marginTop: 14,
-                }}
-              >
-                {selectedInvoice.purchase_invoice_items
-                  .filter(
-                    (item) =>
-                      remainingPurchaseItem(
-                        item
-                      ) > 0
-                  )
-                  .map(
-                    (item) => {
-                      const product =
-                        oneRelation(
-                          item.products
-                        );
-
-                      const remaining =
-                        remainingPurchaseItem(
-                          item
-                        );
-
-                      return (
-                        <div
-                          className="quickItem"
-                          key={
-                            item.id
-                          }
-                        >
-                          <div>
-                            <strong>
-                              {product?.name ||
-                                item.description ||
-                                "صنف"}
-                            </strong>
-
-                            <span>
-                              باقي{" "}
-                              {remaining.toFixed(
-                                3
-                              )}
-                            </span>
-                          </div>
-
-                          <label className="field">
-                            <span>
-                              استلام الآن
-                            </span>
-
-                            <input
-                              type="number"
-                              min="0"
-                              max={
-                                remaining
-                              }
-                              step="0.001"
-                              value={
-                                receiptQuantities[
-                                  item.id
-                                ] ?? ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                setReceiptQuantities(
-                                  (
-                                    current
-                                  ) => ({
-                                    ...current,
-                                    [item.id]:
-                                      event
-                                        .target
-                                        .value,
-                                  })
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-                      );
-                    }
-                  )}
-              </div>
 
               <label
                 className="field"
@@ -2895,34 +3876,37 @@ export function InventoryClient({
                 </span>
 
                 <textarea
-                  rows={3}
                   value={
-                    receiptNotes
+                    countNotes
                   }
                   onChange={(
                     event
                   ) =>
-                    setReceiptNotes(
-                      event.target
-                        .value
+                    setCountNotes(
+                      event.target.value
                     )
                   }
                 />
               </label>
 
-              {message && (
+              {countMessage ? (
                 <div className="toastError">
-                  {message}
+                  {
+                    countMessage
+                  }
                 </div>
-              )}
+              ) : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
+                  disabled={
+                    saving
+                  }
                   onClick={() =>
-                    setSelectedInvoice(
-                      null
+                    setCountOpen(
+                      false
                     )
                   }
                 >
@@ -2932,16 +3916,109 @@ export function InventoryClient({
                 <button
                   className="primaryButton"
                   disabled={
-                    saving
+                    saving ||
+                    loadingCount
                   }
                 >
-                  تأكيد الاستلام
+                  {saving
+                    ? "جارٍ الترحيل..."
+                    : "ترحيل الجرد"}
                 </button>
               </div>
             </form>
           </section>
         </div>
-      )}
+      ) : null}
+
+      {reverseTarget ? (
+        <div className="modalOverlay">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="modalHeader">
+              <h2>
+                عكس {reverseLabel}
+              </h2>
+            </div>
+
+            <form
+              onSubmit={
+                saveReverse
+              }
+            >
+              <p>
+                المستند:{" "}
+                <strong>
+                  {
+                    reverseTarget.number
+                  }
+                </strong>
+              </p>
+
+              <p className="muted">
+                سيتم تسجيل حركة عكسية ولن يتم حذف السجل الأصلي.
+              </p>
+
+              <label className="field">
+                <span>
+                  سبب العكس *
+                </span>
+
+                <textarea
+                  value={
+                    reverseReason
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setReverseReason(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              {reverseMessage ? (
+                <div className="toastError">
+                  {
+                    reverseMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    reversing
+                  }
+                  onClick={() =>
+                    setReverseTarget(
+                      null
+                    )
+                  }
+                >
+                  رجوع
+                </button>
+
+                <button
+                  className="dangerButton"
+                  disabled={
+                    reversing
+                  }
+                >
+                  {reversing
+                    ? "جارٍ العكس..."
+                    : "تأكيد العكس"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

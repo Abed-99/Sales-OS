@@ -1,11 +1,17 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export function LoginClient() {
+type LoginClientProps = {
+  initialMessage?: string;
+};
+
+export function LoginClient({
+  initialMessage = "",
+}: LoginClientProps) {
   const router = useRouter();
 
   const [supabase] = useState(() => createClient());
@@ -14,11 +20,13 @@ export function LoginClient() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialMessage);
   const [success, setSuccess] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+
+    if (loading) return;
 
     setLoading(true);
     setMessage("");
@@ -26,8 +34,13 @@ export function LoginClient() {
 
     try {
       if (mode === "signup") {
+        if (name.trim().length < 2) {
+          setMessage("يرجى إدخال الاسم بشكل صحيح.");
+          return;
+        }
+
         if (password.length < 8) {
-          setMessage("كلمة المرور لازم تكون 8 محارف على الأقل.");
+          setMessage("كلمة المرور يجب أن تكون 8 محارف على الأقل.");
           return;
         }
 
@@ -46,14 +59,16 @@ export function LoginClient() {
         });
 
         if (error) {
-          setMessage(error.message);
+          setMessage(
+            "تعذر إنشاء الحساب. تحقق من البيانات وحاول مرة أخرى."
+          );
           return;
         }
 
         if (!data.session) {
           setSuccess(true);
           setMessage(
-            "تم إنشاء الحساب. افتح رسالة التأكيد في بريدك الإلكتروني، وبعد التأكيد سجل دخولك."
+            "تم إنشاء الحساب. تحقق من بريدك الإلكتروني لإكمال تفعيل الحساب."
           );
           return;
         }
@@ -71,6 +86,8 @@ export function LoginClient() {
 
       router.replace("/");
       router.refresh();
+    } catch {
+      setMessage("حدث خطأ أثناء الاتصال بالخادم. حاول مرة أخرى.");
     } finally {
       setLoading(false);
     }
@@ -80,6 +97,7 @@ export function LoginClient() {
     setMode(nextMode);
     setMessage("");
     setSuccess(false);
+    setPassword("");
   }
 
   return (
@@ -99,14 +117,11 @@ export function LoginClient() {
         </span>
 
         <h1>
-          {mode === "login"
-            ? "أهلًا بعودتك"
-            : "أنشئ حسابك"}
+          {mode === "login" ? "أهلًا بعودتك" : "أنشئ حسابك"}
         </h1>
 
         <p>
-          التجار، الموردين، الطلبات، المشتريات،
-          التوصيل والصندوق في نظام واحد.
+          التجار، الموردون، الطلبات، المشتريات، التوصيل والصندوق في نظام واحد.
         </p>
 
         <div className="authTabs">
@@ -114,6 +129,7 @@ export function LoginClient() {
             type="button"
             className={mode === "login" ? "active" : ""}
             onClick={() => changeMode("login")}
+            disabled={loading}
           >
             تسجيل الدخول
           </button>
@@ -122,6 +138,7 @@ export function LoginClient() {
             type="button"
             className={mode === "signup" ? "active" : ""}
             onClick={() => changeMode("signup")}
+            disabled={loading}
           >
             حساب جديد
           </button>
@@ -131,9 +148,11 @@ export function LoginClient() {
           {mode === "signup" && (
             <label className="field">
               <span>الاسم</span>
+
               <input
                 required
                 minLength={2}
+                autoComplete="name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="الاسم الكامل"
@@ -160,12 +179,10 @@ export function LoginClient() {
 
             <input
               type="password"
-              minLength={mode === "signup" ? 8 : 6}
               required
+              minLength={mode === "signup" ? 8 : 1}
               autoComplete={
-                mode === "login"
-                  ? "current-password"
-                  : "new-password"
+                mode === "login" ? "current-password" : "new-password"
               }
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -184,20 +201,21 @@ export function LoginClient() {
 
           {message && (
             <div
-              className={
-                success ? "toastSuccess" : "toastError"
-              }
+              className={success ? "toastSuccess" : "toastError"}
+              role={success ? "status" : "alert"}
+              aria-live="polite"
             >
               {message}
             </div>
           )}
 
           <button
+            type="submit"
             className="primaryButton authSubmit"
             disabled={loading}
           >
             {loading
-              ? "لحظة..."
+              ? "جارٍ التنفيذ..."
               : mode === "login"
                 ? "دخول إلى Sales OS"
                 : "إنشاء الحساب"}

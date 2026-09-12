@@ -1,12 +1,1929 @@
-﻿"use client";
-import Link from "next/link";import {useMemo,useState} from "react";import {useRouter} from "next/navigation";import {createClient} from "@/lib/supabase/client";import {normalizeSyrianMobile,syrianPhoneState} from "@/lib/phone";import {Icons} from "@/components/icons";
-type Status="new"|"contacted"|"interested"|"customer"|"inactive";type Trader={id:string;name:string;contact_name:string|null;phone:string|null;whatsapp:string|null;area:string|null;address:string|null;latitude:number|null;longitude:number|null;status:Status;notes:string|null;whatsapp_marketing_opt_in:boolean;credit_limit:number|null;payment_terms_days:number;created_at:string;updated_at:string};
-const labels:Record<Status,string>={new:"Ø¬Ø¯ÙŠØ¯",contacted:"ØªÙ… Ø§Ù„ØªÙˆØ§ØµÙ„",interested:"Ù…Ù‡ØªÙ…",customer:"Ø²Ø¨ÙˆÙ†",inactive:"ØºÙŠØ± Ù†Ø´Ø·"};const empty={name:"",contact_name:"",phone:"",whatsapp:"",area:"",address:"",latitude:"",longitude:"",status:"new" as Status,notes:"",optin:false,credit_limit:"",payment_terms_days:"0"};
-export function CustomersClient({companyId,initialTraders,initialError}:{companyId:string;initialTraders:Trader[];initialError:string|null}){const [supabase]=useState(()=>createClient());const router=useRouter();const [rows,setRows]=useState(initialTraders);const [search,setSearch]=useState("");const [status,setStatus]=useState("all");const [area,setArea]=useState("all");const [open,setOpen]=useState(false);const [editing,setEditing]=useState<Trader|null>(null);const [form,setForm]=useState(empty);const [msg,setMsg]=useState(initialError||"");const [saving,setSaving]=useState(false);const areas=useMemo(()=>Array.from(new Set(rows.map(r=>r.area).filter(Boolean) as string[])).sort((a,b)=>a.localeCompare(b,"ar")),[rows]);const filtered=useMemo(()=>{const q=search.trim().toLowerCase();return rows.filter(r=>(!q||[r.name,r.contact_name,r.phone,r.whatsapp,r.area].some(x=>x?.toLowerCase().includes(q)))&&(status==="all"||r.status===status)&&(area==="all"||r.area===area))},[rows,search,status,area]);
-function startAdd(){setEditing(null);setForm(empty);setMsg("");setOpen(true)}function startEdit(r:Trader){setEditing(r);setForm({name:r.name,contact_name:r.contact_name||"",phone:r.phone||"",whatsapp:r.whatsapp||"",area:r.area||"",address:r.address||"",latitude:r.latitude?.toString()||"",longitude:r.longitude?.toString()||"",status:r.status,notes:r.notes||"",optin:r.whatsapp_marketing_opt_in,credit_limit:r.credit_limit==null?"":String(r.credit_limit),payment_terms_days:String(r.payment_terms_days??0)});setMsg("");setOpen(true)}
-async function save(e:React.FormEvent){e.preventDefault();setMsg("");const phone=form.phone?normalizeSyrianMobile(form.phone):null,wa=form.whatsapp?normalizeSyrianMobile(form.whatsapp):null;if(!form.name.trim()){setMsg("Ø§Ø³Ù… Ø§Ù„ØªØ§Ø¬Ø± Ù…Ø·Ù„ÙˆØ¨");return}if(form.phone&&!phone){setMsg("Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø³ÙˆØ±ÙŠ ØºÙŠØ± ØµØ­ÙŠØ­");return}if(form.whatsapp&&!wa){setMsg("Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ Ø§Ù„Ø³ÙˆØ±ÙŠ ØºÙŠØ± ØµØ­ÙŠØ­");return}const dupe=rows.find(r=>r.id!==editing?.id&&((phone&&(r.phone===phone||r.whatsapp===phone))||(wa&&(r.phone===wa||r.whatsapp===wa))));if(dupe){setMsg(`Ø§Ù„Ø±Ù‚Ù… Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø³Ø¨Ù‚Ù‹Ø§ Ø¹Ù†Ø¯: ${dupe.name}`);return}const creditLimit=form.credit_limit.trim()===""?null:Number(form.credit_limit);const paymentTerms=Number(form.payment_terms_days||0);if(creditLimit!==null&&(!Number.isFinite(creditLimit)||creditLimit<0)){setMsg("Ø­Ø¯ Ø§Ù„Ø§Ø¦ØªÙ…Ø§Ù† Ù„Ø§Ø²Ù… ÙŠÙƒÙˆÙ† ØµÙØ± Ø£Ùˆ Ø£ÙƒØ¨Ø±");return}if(!Number.isInteger(paymentTerms)||paymentTerms<0||paymentTerms>3650){setMsg("Ù…Ù‡Ù„Ø© Ø§Ù„Ø¯ÙØ¹ Ù„Ø§Ø²Ù… ØªÙƒÙˆÙ† Ø¹Ø¯Ø¯ Ø£ÙŠØ§Ù… Ø¨ÙŠÙ† 0 Ùˆ 3650");return}setSaving(true);const payload={company_id:companyId,name:form.name.trim(),contact_name:form.contact_name.trim()||null,phone,whatsapp:wa,area:form.area.trim()||null,address:form.address.trim()||null,latitude:form.latitude?Number(form.latitude):null,longitude:form.longitude?Number(form.longitude):null,status:form.status,notes:form.notes.trim()||null,whatsapp_marketing_opt_in:form.optin,whatsapp_opt_in_at:form.optin?new Date().toISOString():null,whatsapp_opt_out_at:form.optin?null:new Date().toISOString(),credit_limit:creditLimit,payment_terms_days:paymentTerms};if(editing){const {data,error}=await supabase.from("traders").update(payload).eq("id",editing.id).eq("company_id",companyId).select().single();if(error){setSaving(false);setMsg(error.message);return}setRows(x=>x.map(r=>r.id===editing.id?(data as Trader):r))}else{const {data,error}=await supabase.from("traders").insert(payload).select().single();if(error){setSaving(false);setMsg(error.message);return}setRows(x=>[(data as Trader),...x])}setSaving(false);setOpen(false);router.refresh()}
-async function del(r:Trader){if(!confirm(`Ø­Ø°Ù ${r.name}ØŸ`))return;const {error}=await supabase.from("traders").delete().eq("id",r.id).eq("company_id",companyId);if(error)return alert(error.message);setRows(x=>x.filter(a=>a.id!==r.id));router.refresh()}
-function useLocation(){if(!navigator.geolocation)return setMsg("Ø§Ù„Ù…ØªØµÙØ­ Ù„Ø§ ÙŠØ¯Ø¹Ù… ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…ÙˆÙ‚Ø¹");navigator.geolocation.getCurrentPosition(p=>setForm(f=>({...f,latitude:p.coords.latitude.toFixed(7),longitude:p.coords.longitude.toFixed(7)})),()=>setMsg("Ù…Ø§ Ù‚Ø¯Ø±Ù†Ø§ Ù†Ø§Ø®Ø¯ Ø§Ù„Ù…ÙˆÙ‚Ø¹"),{enableHighAccuracy:true,timeout:8000})}
-return <div className="page"><div className="pageTitle"><div><span className="eyebrow">Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø³ÙˆÙ‚</span><h2>ÙƒÙ„ Ø§Ù„ØªØ¬Ø§Ø± Ø¨Ù…ÙƒØ§Ù† ÙˆØ§Ø­Ø¯</h2><p className="muted">Ø£Ø¶ÙØŒ Ø¹Ø¯Ù‘Ù„ØŒ ØªÙˆØ§ØµÙ„ ÙˆØ³Ø¬Ù„ Ø§Ù„Ù…ÙˆÙ‚Ø¹ ÙˆØ§Ù„ÙˆØ§ØªØ³Ø§Ø¨ Ù„ÙƒÙ„ ØªØ§Ø¬Ø±.</p></div><button className="primaryButton" onClick={startAdd}><Icons.plus size={15}/> Ø¥Ø¶Ø§ÙØ© ØªØ§Ø¬Ø±</button></div><section className="statsGrid"><Mini n={rows.length} t="ÙƒÙ„ Ø§Ù„ØªØ¬Ø§Ø±"/><Mini n={rows.filter(x=>x.status==="customer").length} t="Ø²Ø¨Ø§Ø¦Ù†"/><Mini n={rows.filter(x=>x.status==="interested").length} t="Ù…Ù‡ØªÙ…ÙŠÙ†"/><Mini n={rows.filter(x=>x.status==="new").length} t="Ø¬Ø¯Ø¯"/></section><section className="panel" style={{marginTop:14}}><div className="filters"><div className="searchBox"><Icons.search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ø±Ù‚Ù… Ø£Ùˆ Ø§Ù„Ù…Ù†Ø·Ù‚Ø©..."/></div><select value={status} onChange={e=>setStatus(e.target.value)}><option value="all">ÙƒÙ„ Ø§Ù„Ø­Ø§Ù„Ø§Øª</option>{Object.entries(labels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><select value={area} onChange={e=>setArea(e.target.value)}><option value="all">ÙƒÙ„ Ø§Ù„Ù…Ù†Ø§Ø·Ù‚</option>{areas.map(a=><option key={a}>{a}</option>)}</select><div className="resultCount">{filtered.length} Ù†ØªÙŠØ¬Ø©</div></div>{!filtered.length?<div className="empty"><Icons.users size={29}/><h3>{rows.length?"Ù…Ø§ Ù„Ù‚ÙŠÙ†Ø§ Ù†ØªØ§Ø¦Ø¬":"Ù„Ø³Ø§ Ù…Ø§ ÙÙŠ ØªØ¬Ø§Ø±"}</h3><p>{rows.length?"Ø¬Ø±Ù‘Ø¨ ØªØºÙŠÙ‘Ø± Ø§Ù„Ø¨Ø­Ø« Ø£Ùˆ Ø§Ù„ÙÙ„Ø§ØªØ±.":"Ø£Ø¶Ù Ø£ÙˆÙ„ ØªØ§Ø¬Ø± ÙˆØ¨Ù„Ù‘Ø´ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø³ÙˆÙ‚."}</p>{!rows.length&&<button className="primaryButton" onClick={startAdd}>Ø¥Ø¶Ø§ÙØ© Ø£ÙˆÙ„ ØªØ§Ø¬Ø±</button>}</div>:<div className="tableWrap"><table className="dataTable"><thead><tr><th>Ø§Ù„ØªØ§Ø¬Ø±</th><th>Ø§Ù„Ù…Ù†Ø·Ù‚Ø©</th><th>Ø§Ù„Ø­Ø§Ù„Ø©</th><th>Ø§Ù„Ø§Ø¦ØªÙ…Ø§Ù†</th><th>ÙˆØ§ØªØ³Ø§Ø¨</th><th>Ø§Ù„Ù…ÙˆÙ‚Ø¹</th><th>Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id}><td><div className="merchant"><div className="merchantLogo">{r.name.charAt(0)}</div><div><strong>{r.name}</strong><span>{r.contact_name||r.phone||"Ø¨Ø¯ÙˆÙ† ØªÙØ§ØµÙŠÙ„"}</span></div></div></td><td>{r.area||"â€”"}</td><td><span className={`chip ${r.status==="customer"?"green":r.status==="interested"?"orange":r.status==="inactive"?"gray":"blue"}`}>{labels[r.status]}</span></td><td><strong>{r.credit_limit==null?"Ø¨Ø¯ÙˆÙ† Ø­Ø¯":Number(r.credit_limit).toFixed(2)}</strong><span className="muted" style={{display:"block"}}>{r.payment_terms_days>0?`${r.payment_terms_days} ÙŠÙˆÙ…`:"Ù†Ù‚Ø¯ÙŠ"}</span></td><td>{r.whatsapp?<a className="softButton" target="_blank" href={`https://wa.me/${r.whatsapp.replace(/\D/g,"")}`}><Icons.whatsapp size={13}/> ÙˆØ§ØªØ³Ø§Ø¨</a>:"â€”"}</td><td>{r.latitude&&r.longitude?<Link className="softButton" href={`/map?trader=${r.id}`}><Icons.map size={13}/> Ø®Ø±ÙŠØ·Ø©</Link>:"â€”"}</td><td><div className="rowActions"><Link className="softButton" href={`/customers/${r.id}`}>ÙØªØ­</Link><button className="softButton" onClick={()=>startEdit(r)}><Icons.edit size={13}/></button><button className="dangerButton" onClick={()=>del(r)}><Icons.trash size={13}/></button></div></td></tr>)}</tbody></table></div>}</section>{open&&<div className="modalOverlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!saving)setOpen(false)}}><section className="modal"><div className="modalHeader"><div><span className="eyebrow">{editing?"ØªØ¹Ø¯ÙŠÙ„":"ØªØ§Ø¬Ø± Ø¬Ø¯ÙŠØ¯"}</span><h2>{editing?editing.name:"Ø¥Ø¶Ø§ÙØ© ØªØ§Ø¬Ø±"}</h2></div><button className="closeButton" onClick={()=>setOpen(false)}>Ã—</button></div><form onSubmit={save}><div className="formGrid"><F label="Ø§Ø³Ù… Ø§Ù„Ù…Ø­Ù„ / Ø§Ù„ØªØ§Ø¬Ø± *" v={form.name} set={v=>setForm(f=>({...f,name:v}))}/><F label="Ø§Ø³Ù… Ø§Ù„Ø´Ø®Øµ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„" v={form.contact_name} set={v=>setForm(f=>({...f,contact_name:v}))}/><Phone label="Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø³ÙˆØ±ÙŠ" v={form.phone} set={v=>setForm(f=>({...f,phone:v}))}/><Phone label="Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ Ø§Ù„Ø³ÙˆØ±ÙŠ" v={form.whatsapp} set={v=>setForm(f=>({...f,whatsapp:v}))}/><F label="Ø§Ù„Ù…Ù†Ø·Ù‚Ø©" v={form.area} set={v=>setForm(f=>({...f,area:v}))}/><label className="field"><span>Ø§Ù„Ø­Ø§Ù„Ø©</span><select value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value as Status}))}>{Object.entries(labels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><F label="Ø§Ù„Ø¹Ù†ÙˆØ§Ù†" v={form.address} set={v=>setForm(f=>({...f,address:v}))} full/><F label="Latitude" v={form.latitude} set={v=>setForm(f=>({...f,latitude:v}))}/><F label="Longitude" v={form.longitude} set={v=>setForm(f=>({...f,longitude:v}))}/><div className="field"><span>Ø§Ù„Ù…ÙˆÙ‚Ø¹</span><button type="button" className="softButton" onClick={useLocation}><Icons.map size={14}/> Ø§Ø³ØªØ®Ø¯Ù… Ù…ÙˆÙ‚Ø¹ÙŠ Ø§Ù„Ø­Ø§Ù„ÙŠ</button></div><label className="field"><span>Ø­Ù…Ù„Ø§Øª ÙˆØ§ØªØ³Ø§Ø¨</span><select value={form.optin?"yes":"no"} onChange={e=>setForm(f=>({...f,optin:e.target.value==="yes"}))}><option value="no">ØºÙŠØ± Ù…ÙˆØ§ÙÙ‚</option><option value="yes">Ù…ÙˆØ§ÙÙ‚ Ø¹Ù„Ù‰ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„</option></select></label><label className="field"><span>Ø­Ø¯ Ø§Ù„Ø§Ø¦ØªÙ…Ø§Ù†</span><input type="number" min="0" step="0.01" placeholder="Ø¨Ø¯ÙˆÙ† Ø­Ø¯" value={form.credit_limit} onChange={e=>setForm(f=>({...f,credit_limit:e.target.value}))}/><small className="helpText">Ø§ØªØ±ÙƒÙ‡ ÙØ§Ø±Øº Ø¥Ø°Ø§ Ù…Ø§ ÙÙŠ Ø­Ø¯ Ø§Ø¦ØªÙ…Ø§Ù†.</small></label><label className="field"><span>Ù…Ù‡Ù„Ø© Ø§Ù„Ø¯ÙØ¹ (ÙŠÙˆÙ…)</span><input type="number" min="0" max="3650" step="1" value={form.payment_terms_days} onChange={e=>setForm(f=>({...f,payment_terms_days:e.target.value}))}/><small className="helpText">0 ÙŠØ¹Ù†ÙŠ Ø§Ù„Ø¯ÙØ¹ Ù…Ø³ØªØ­Ù‚ Ø¨Ù†ÙØ³ Ø§Ù„ÙŠÙˆÙ….</small></label><label className="field full"><span>Ù…Ù„Ø§Ø­Ø¸Ø§Øª</span><textarea rows={4} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></label></div>{msg&&<div className="toastError" style={{marginTop:12}}>{msg}</div>}<div className="modalActions"><button type="button" className="softButton" onClick={()=>setOpen(false)}>Ø¥Ù„ØºØ§Ø¡</button><button className="primaryButton" disabled={saving}>{saving?"Ø¹Ù… Ù†Ø­ÙØ¸...":editing?"Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª":"Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØ§Ø¬Ø±"}</button></div></form></section></div>}</div>}
-function F({label,v,set,full=false}:{label:string;v:string;set:(v:string)=>void;full?:boolean}){return <label className={`field ${full?"full":""}`}><span>{label}</span><input value={v} onChange={e=>set(e.target.value)}/></label>}function Phone({label,v,set}:{label:string;v:string;set:(v:string)=>void}){const s=syrianPhoneState(v);return <label className="field"><span>{label}</span><input dir="ltr" placeholder="0944123456" value={v} onChange={e=>set(e.target.value)}/><small className={s==="valid"?"validText":s==="invalid"?"invalidText":"helpText"}>{s==="valid"?"âœ“ Ø±Ù‚Ù… Ø³ÙˆØ±ÙŠ ØµØ­ÙŠØ­":s==="invalid"?"Ø§Ù„Ø±Ù‚Ù… ØºÙŠØ± ØµØ­ÙŠØ­":"09xxxxxxxx Ø£Ùˆ +9639xxxxxxxx"}</small></label>}function Mini({n,t}:{n:number;t:string}){return <div className="statCard"><div className="statLabel">{t}</div><div className="statValue">{n}</div></div>}
+"use client";
 
+import Link from "next/link";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type {
+  FormEvent,
+} from "react";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+
+import { Icons } from "@/components/icons";
+import { createClient } from "@/lib/supabase/client";
+import {
+  normalizeSyrianMobile,
+  syrianPhoneState,
+} from "@/lib/phone";
+
+type Status =
+  | "new"
+  | "contacted"
+  | "interested"
+  | "customer"
+  | "inactive";
+
+export type Trader = {
+  id: string;
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  area: string | null;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  status: Status;
+  notes: string | null;
+  whatsapp_marketing_opt_in: boolean;
+  credit_limit: number | null;
+  payment_terms_days: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type Stats = {
+  all: number;
+  customers: number;
+  interested: number;
+  new: number;
+};
+
+const labels: Record<
+  Status,
+  string
+> = {
+  new: "جديد",
+  contacted: "تم التواصل",
+  interested: "مهتم",
+  customer: "عميل",
+  inactive: "مؤرشف",
+};
+
+function emptyForm() {
+  return {
+    name: "",
+    contact_name: "",
+    phone: "",
+    whatsapp: "",
+    area: "",
+    address: "",
+    latitude: "",
+    longitude: "",
+    status: "new" as Status,
+    notes: "",
+    optin: false,
+    credit_limit: "",
+    payment_terms_days: "0",
+  };
+}
+
+function friendlyDbError(
+  error:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | null,
+  action: "save" | "archive"
+) {
+  const message =
+    error?.message?.toLowerCase() ??
+    "";
+
+  if (
+    error?.code === "23505" ||
+    message.includes(
+      "مستخدم عند تاجر"
+    ) ||
+    message.includes("duplicate")
+  ) {
+    return "رقم الهاتف أو واتساب مستخدم عند عميل آخر.";
+  }
+
+  if (
+    error?.code === "42501" ||
+    message.includes(
+      "not allowed"
+    ) ||
+    message.includes(
+      "permission"
+    )
+  ) {
+    return "ما عندك صلاحية لتنفيذ هذه العملية.";
+  }
+
+  if (action === "archive") {
+    return "تعذر أرشفة العميل. حاول مرة ثانية.";
+  }
+
+  return "تعذر حفظ بيانات العميل. تحقق من البيانات وحاول مرة ثانية.";
+}
+
+function statusClass(
+  status: Status
+) {
+  if (status === "customer") {
+    return "green";
+  }
+
+  if (status === "interested") {
+    return "orange";
+  }
+
+  if (status === "inactive") {
+    return "gray";
+  }
+
+  return "blue";
+}
+
+export function CustomersClient({
+  companyId,
+  currency,
+  initialTraders,
+  initialError,
+  stats,
+  totalCount,
+  page,
+  pageSize,
+  searchQuery,
+  statusFilter,
+  canCreate,
+  canUpdate,
+  canArchive,
+  canViewMap,
+  canViewBalance,
+}: {
+  companyId: string;
+  currency: string;
+  initialTraders: Trader[];
+  initialError: string | null;
+  stats: Stats | null;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  searchQuery: string;
+  statusFilter: Status | "all";
+  canCreate: boolean;
+  canUpdate: boolean;
+  canArchive: boolean;
+  canViewMap: boolean;
+  canViewBalance: boolean;
+}) {
+  const [supabase] =
+    useState(() => createClient());
+
+  const router = useRouter();
+  const searchParams =
+    useSearchParams();
+
+  const [rows, setRows] =
+    useState(initialTraders);
+
+  const [search, setSearch] =
+    useState(searchQuery);
+
+  const [status, setStatus] =
+    useState<Status | "all">(
+      statusFilter
+    );
+
+  const [open, setOpen] =
+    useState(false);
+
+  const [
+    editing,
+    setEditing,
+  ] = useState<Trader | null>(
+    null
+  );
+
+  const [form, setForm] =
+    useState(emptyForm);
+
+  const [
+    formMessage,
+    setFormMessage,
+  ] = useState("");
+
+  const [
+    pageMessage,
+    setPageMessage,
+  ] = useState(
+    initialError ?? ""
+  );
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [
+    archivingId,
+    setArchivingId,
+  ] = useState<string | null>(
+    null
+  );
+
+  useEffect(() => {
+    setRows(initialTraders);
+  }, [initialTraders]);
+
+  useEffect(() => {
+    setSearch(searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setStatus(statusFilter);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    setPageMessage(
+      initialError ?? ""
+    );
+  }, [initialError]);
+
+  const pageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        totalCount / pageSize
+      )
+    );
+
+  const visibleFrom =
+    totalCount === 0
+      ? 0
+      : (page - 1) *
+          pageSize +
+        1;
+
+  const visibleTo =
+    Math.min(
+      page * pageSize,
+      totalCount
+    );
+
+  const statusOptions =
+    useMemo(
+      () =>
+        (
+          Object.entries(
+            labels
+          ) as [
+            Status,
+            string,
+          ][]
+        ).filter(
+          ([key]) =>
+            key !== "inactive" ||
+            canArchive ||
+            editing?.status ===
+              "inactive"
+        ),
+      [
+        canArchive,
+        editing?.status,
+      ]
+    );
+
+  function navigateFilters(
+    nextSearch: string,
+    nextStatus:
+      | Status
+      | "all",
+    nextPage = 1
+  ) {
+    const params =
+      new URLSearchParams(
+        searchParams.toString()
+      );
+
+    const cleanedSearch =
+      nextSearch.trim();
+
+    if (cleanedSearch) {
+      params.set(
+        "q",
+        cleanedSearch
+      );
+    } else {
+      params.delete("q");
+    }
+
+    if (
+      nextStatus !== "all"
+    ) {
+      params.set(
+        "status",
+        nextStatus
+      );
+    } else {
+      params.delete("status");
+    }
+
+    if (nextPage > 1) {
+      params.set(
+        "page",
+        String(nextPage)
+      );
+    } else {
+      params.delete("page");
+    }
+
+    const query =
+      params.toString();
+
+    router.push(
+      query
+        ? `/customers?${query}`
+        : "/customers"
+    );
+  }
+
+  function submitSearch(
+    event: FormEvent
+  ) {
+    event.preventDefault();
+
+    navigateFilters(
+      search,
+      status,
+      1
+    );
+  }
+
+  function startAdd() {
+    if (!canCreate) {
+      return;
+    }
+
+    setEditing(null);
+    setForm(emptyForm());
+    setFormMessage("");
+    setOpen(true);
+  }
+
+  function startEdit(
+    trader: Trader
+  ) {
+    if (!canUpdate) {
+      return;
+    }
+
+    setEditing(trader);
+
+    setForm({
+      name: trader.name,
+
+      contact_name:
+        trader.contact_name ??
+        "",
+
+      phone:
+        trader.phone ?? "",
+
+      whatsapp:
+        trader.whatsapp ?? "",
+
+      area:
+        trader.area ?? "",
+
+      address:
+        trader.address ?? "",
+
+      latitude:
+        trader.latitude != null
+          ? String(
+              trader.latitude
+            )
+          : "",
+
+      longitude:
+        trader.longitude !=
+        null
+          ? String(
+              trader.longitude
+            )
+          : "",
+
+      status: trader.status,
+
+      notes:
+        trader.notes ?? "",
+
+      optin:
+        trader.whatsapp_marketing_opt_in,
+
+      credit_limit:
+        trader.credit_limit ==
+        null
+          ? ""
+          : String(
+              trader.credit_limit
+            ),
+
+      payment_terms_days:
+        String(
+          trader.payment_terms_days ??
+            0
+        ),
+    });
+
+    setFormMessage("");
+    setOpen(true);
+  }
+
+  async function save(
+    event: FormEvent
+  ) {
+    event.preventDefault();
+    setFormMessage("");
+
+    if (
+      editing &&
+      !canUpdate
+    ) {
+      setFormMessage(
+        "ما عندك صلاحية تعديل العميل."
+      );
+      return;
+    }
+
+    if (
+      !editing &&
+      !canCreate
+    ) {
+      setFormMessage(
+        "ما عندك صلاحية إضافة عميل."
+      );
+      return;
+    }
+
+    const name =
+      form.name.trim();
+
+    if (!name) {
+      setFormMessage(
+        "اسم العميل أو المحل مطلوب."
+      );
+      return;
+    }
+
+    if (name.length > 200) {
+      setFormMessage(
+        "اسم العميل طويل جداً."
+      );
+      return;
+    }
+
+    if (
+      form.status ===
+        "inactive" &&
+      editing?.status !==
+        "inactive" &&
+      !canArchive
+    ) {
+      setFormMessage(
+        "ما عندك صلاحية أرشفة العميل."
+      );
+      return;
+    }
+
+    const phone =
+      form.phone.trim()
+        ? normalizeSyrianMobile(
+            form.phone
+          )
+        : null;
+
+    const whatsapp =
+      form.whatsapp.trim()
+        ? normalizeSyrianMobile(
+            form.whatsapp
+          )
+        : null;
+
+    if (
+      form.phone.trim() &&
+      !phone
+    ) {
+      setFormMessage(
+        "رقم الهاتف السوري غير صحيح."
+      );
+      return;
+    }
+
+    if (
+      form.whatsapp.trim() &&
+      !whatsapp
+    ) {
+      setFormMessage(
+        "رقم واتساب السوري غير صحيح."
+      );
+      return;
+    }
+
+    const duplicate =
+      rows.find(
+        (row) =>
+          row.id !==
+            editing?.id &&
+          Boolean(
+            (phone &&
+              (row.phone ===
+                phone ||
+                row.whatsapp ===
+                  phone)) ||
+              (whatsapp &&
+                (row.phone ===
+                  whatsapp ||
+                  row.whatsapp ===
+                    whatsapp))
+          )
+      );
+
+    if (duplicate) {
+      setFormMessage(
+        `الرقم مستخدم مسبقاً عند: ${duplicate.name}`
+      );
+      return;
+    }
+
+    const latitudeText =
+      form.latitude.trim();
+
+    const longitudeText =
+      form.longitude.trim();
+
+    if (
+      Boolean(latitudeText) !==
+      Boolean(longitudeText)
+    ) {
+      setFormMessage(
+        "يجب إدخال Latitude و Longitude معاً."
+      );
+      return;
+    }
+
+    let latitude:
+      | number
+      | null = null;
+
+    let longitude:
+      | number
+      | null = null;
+
+    if (
+      latitudeText &&
+      longitudeText
+    ) {
+      latitude =
+        Number(latitudeText);
+
+      longitude =
+        Number(longitudeText);
+
+      if (
+        !Number.isFinite(
+          latitude
+        ) ||
+        latitude < -90 ||
+        latitude > 90
+      ) {
+        setFormMessage(
+          "Latitude يجب أن يكون بين -90 و 90."
+        );
+        return;
+      }
+
+      if (
+        !Number.isFinite(
+          longitude
+        ) ||
+        longitude < -180 ||
+        longitude > 180
+      ) {
+        setFormMessage(
+          "Longitude يجب أن يكون بين -180 و 180."
+        );
+        return;
+      }
+    }
+
+    const payload:
+      Record<
+        string,
+        unknown
+      > = {
+      company_id: companyId,
+
+      name,
+
+      contact_name:
+        form.contact_name.trim() ||
+        null,
+
+      phone,
+
+      whatsapp,
+
+      area:
+        form.area.trim() ||
+        null,
+
+      address:
+        form.address.trim() ||
+        null,
+
+      latitude,
+
+      longitude,
+
+      status: form.status,
+
+      notes:
+        form.notes.trim() ||
+        null,
+
+      whatsapp_marketing_opt_in:
+        form.optin,
+    };
+
+    if (canViewBalance) {
+      const creditLimit =
+        form.credit_limit.trim() ===
+        ""
+          ? null
+          : Number(
+              form.credit_limit
+            );
+
+      const paymentTerms =
+        Number(
+          form.payment_terms_days ||
+            0
+        );
+
+      if (
+        creditLimit !== null &&
+        (!Number.isFinite(
+          creditLimit
+        ) ||
+          creditLimit < 0)
+      ) {
+        setFormMessage(
+          "حد الائتمان يجب أن يكون صفراً أو أكبر."
+        );
+        return;
+      }
+
+      if (
+        !Number.isInteger(
+          paymentTerms
+        ) ||
+        paymentTerms < 0 ||
+        paymentTerms > 3650
+      ) {
+        setFormMessage(
+          "مهلة الدفع يجب أن تكون بين 0 و 3650 يوماً."
+        );
+        return;
+      }
+
+      payload.credit_limit =
+        creditLimit;
+
+      payload.payment_terms_days =
+        paymentTerms;
+    }
+
+    setSaving(true);
+
+    try {
+      if (editing) {
+        const { error } =
+          await supabase
+            .from("traders")
+            .update(payload)
+            .eq(
+              "company_id",
+              companyId
+            )
+            .eq(
+              "id",
+              editing.id
+            );
+
+        if (error) {
+          setFormMessage(
+            friendlyDbError(
+              error,
+              "save"
+            )
+          );
+          return;
+        }
+      } else {
+        const { error } =
+          await supabase
+            .from("traders")
+            .insert(payload);
+
+        if (error) {
+          setFormMessage(
+            friendlyDbError(
+              error,
+              "save"
+            )
+          );
+          return;
+        }
+      }
+
+      setOpen(false);
+      setEditing(null);
+      setForm(emptyForm());
+      setPageMessage("");
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function archiveTrader(
+    trader: Trader
+  ) {
+    if (
+      !canArchive ||
+      trader.status ===
+        "inactive"
+    ) {
+      return;
+    }
+
+    if (
+      !confirm(
+        `أرشفة ${trader.name}؟ سيبقى السجل محفوظاً ويمكن إعادة تفعيله لاحقاً.`
+      )
+    ) {
+      return;
+    }
+
+    setPageMessage("");
+    setArchivingId(
+      trader.id
+    );
+
+    try {
+      const { error } =
+        await supabase.rpc(
+          "archive_trader",
+          {
+            target_company:
+              companyId,
+
+            target_trader:
+              trader.id,
+          }
+        );
+
+      if (error) {
+        setPageMessage(
+          friendlyDbError(
+            error,
+            "archive"
+          )
+        );
+        return;
+      }
+
+      setRows((current) =>
+        current.map((row) =>
+          row.id === trader.id
+            ? {
+                ...row,
+                status:
+                  "inactive",
+              }
+            : row
+        )
+      );
+
+      router.refresh();
+    } finally {
+      setArchivingId(
+        null
+      );
+    }
+  }
+
+  function useLocation() {
+    setFormMessage("");
+
+    if (
+      !navigator.geolocation
+    ) {
+      setFormMessage(
+        "المتصفح لا يدعم تحديد الموقع."
+      );
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setForm(
+          (current) => ({
+            ...current,
+
+            latitude:
+              position.coords.latitude.toFixed(
+                7
+              ),
+
+            longitude:
+              position.coords.longitude.toFixed(
+                7
+              ),
+          })
+        );
+      },
+
+      () => {
+        setFormMessage(
+          "تعذر الحصول على الموقع الحالي."
+        );
+      },
+
+      {
+        enableHighAccuracy:
+          true,
+        timeout: 8000,
+      }
+    );
+  }
+
+  return (
+    <div className="page">
+      <div className="pageTitle">
+        <div>
+          <span className="eyebrow">
+            قاعدة السوق
+          </span>
+
+          <h2>
+            العملاء والتجار
+          </h2>
+
+          <p className="muted">
+            إدارة بيانات العملاء والتواصل والموقع وشروط الائتمان.
+          </p>
+        </div>
+
+        {canCreate ? (
+          <button
+            className="primaryButton"
+            onClick={startAdd}
+          >
+            <Icons.plus
+              size={15}
+            />
+            إضافة عميل
+          </button>
+        ) : null}
+      </div>
+
+      {pageMessage ? (
+        <div
+          className="toastError"
+          role="alert"
+          aria-live="polite"
+          style={{
+            marginBottom: 14,
+          }}
+        >
+          {pageMessage}
+        </div>
+      ) : null}
+
+      <section className="statsGrid">
+        <Mini
+          n={
+            stats?.all ?? "—"
+          }
+          t="كل السجلات"
+        />
+
+        <Mini
+          n={
+            stats?.customers ??
+            "—"
+          }
+          t="عملاء"
+        />
+
+        <Mini
+          n={
+            stats?.interested ??
+            "—"
+          }
+          t="مهتمون"
+        />
+
+        <Mini
+          n={
+            stats?.new ?? "—"
+          }
+          t="جدد"
+        />
+      </section>
+
+      <section
+        className="panel"
+        style={{
+          marginTop: 14,
+        }}
+      >
+        <div className="filters">
+          <form
+            className="searchBox"
+            onSubmit={
+              submitSearch
+            }
+          >
+            <Icons.search
+              size={16}
+            />
+
+            <input
+              value={search}
+              onChange={(
+                event
+              ) =>
+                setSearch(
+                  event.target
+                    .value
+                )
+              }
+              placeholder="ابحث بالاسم، الرقم أو المنطقة..."
+              aria-label="بحث في العملاء"
+            />
+
+            <button
+              type="submit"
+              className="softButton"
+            >
+              بحث
+            </button>
+          </form>
+
+          <select
+            value={status}
+            aria-label="تصفية حسب الحالة"
+            onChange={(
+              event
+            ) => {
+              const value =
+                event.target
+                  .value as
+                  | Status
+                  | "all";
+
+              setStatus(value);
+
+              navigateFilters(
+                search,
+                value,
+                1
+              );
+            }}
+          >
+            <option value="all">
+              كل الحالات
+            </option>
+
+            {(
+              Object.entries(
+                labels
+              ) as [
+                Status,
+                string,
+              ][]
+            ).map(
+              ([
+                key,
+                value,
+              ]) => (
+                <option
+                  key={key}
+                  value={key}
+                >
+                  {value}
+                </option>
+              )
+            )}
+          </select>
+
+          <div className="resultCount">
+            {totalCount === 0
+              ? "0 نتيجة"
+              : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+          </div>
+        </div>
+
+        {!rows.length ? (
+          <div className="empty">
+            <Icons.users
+              size={29}
+            />
+
+            <h3>
+              لا توجد نتائج
+            </h3>
+
+            <p>
+              غيّر البحث أو حالة العميل وحاول مرة ثانية.
+            </p>
+
+            {canCreate &&
+            !searchQuery &&
+            statusFilter ===
+              "all" ? (
+              <button
+                className="primaryButton"
+                onClick={
+                  startAdd
+                }
+              >
+                إضافة أول عميل
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="tableWrap">
+            <table className="dataTable">
+              <thead>
+                <tr>
+                  <th>
+                    العميل
+                  </th>
+                  <th>
+                    المنطقة
+                  </th>
+                  <th>
+                    الحالة
+                  </th>
+
+                  {canViewBalance ? (
+                    <th>
+                      الائتمان
+                    </th>
+                  ) : null}
+
+                  <th>
+                    واتساب
+                  </th>
+
+                  {canViewMap ? (
+                    <th>
+                      الموقع
+                    </th>
+                  ) : null}
+
+                  <th>
+                    إجراءات
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rows.map(
+                  (trader) => (
+                    <tr
+                      key={
+                        trader.id
+                      }
+                    >
+                      <td>
+                        <div className="merchant">
+                          <div className="merchantLogo">
+                            {trader.name.charAt(
+                              0
+                            )}
+                          </div>
+
+                          <div>
+                            <strong>
+                              {
+                                trader.name
+                              }
+                            </strong>
+
+                            <span>
+                              {trader.contact_name ||
+                                trader.phone ||
+                                "بدون تفاصيل"}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td>
+                        {trader.area ||
+                          "—"}
+                      </td>
+
+                      <td>
+                        <span
+                          className={`chip ${statusClass(
+                            trader.status
+                          )}`}
+                        >
+                          {
+                            labels[
+                              trader
+                                .status
+                            ]
+                          }
+                        </span>
+                      </td>
+
+                      {canViewBalance ? (
+                        <td>
+                          <strong>
+                            {trader.credit_limit ==
+                            null
+                              ? "بدون حد"
+                              : `${Number(
+                                  trader.credit_limit
+                                ).toFixed(
+                                  2
+                                )} ${currency}`}
+                          </strong>
+
+                          <span
+                            className="muted"
+                            style={{
+                              display:
+                                "block",
+                            }}
+                          >
+                            {trader.payment_terms_days >
+                            0
+                              ? `${trader.payment_terms_days} يوم`
+                              : "نقدي"}
+                          </span>
+                        </td>
+                      ) : null}
+
+                      <td>
+                        {trader.whatsapp ? (
+                          <a
+                            className="softButton"
+                            target="_blank"
+                            rel="noreferrer"
+                            href={`https://wa.me/${trader.whatsapp.replace(
+                              /\D/g,
+                              ""
+                            )}`}
+                          >
+                            <Icons.whatsapp
+                              size={
+                                13
+                              }
+                            />
+                            واتساب
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+
+                      {canViewMap ? (
+                        <td>
+                          {trader.latitude !=
+                            null &&
+                          trader.longitude !=
+                            null ? (
+                            <Link
+                              className="softButton"
+                              href={`/map?trader=${trader.id}`}
+                            >
+                              <Icons.map
+                                size={
+                                  13
+                                }
+                              />
+                              خريطة
+                            </Link>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      ) : null}
+
+                      <td>
+                        <div className="rowActions">
+                          <Link
+                            className="softButton"
+                            href={`/customers/${trader.id}`}
+                          >
+                            فتح
+                          </Link>
+
+                          {canUpdate ? (
+                            <button
+                              type="button"
+                              className="softButton"
+                              aria-label={`تعديل ${trader.name}`}
+                              title="تعديل"
+                              onClick={() =>
+                                startEdit(
+                                  trader
+                                )
+                              }
+                            >
+                              <Icons.edit
+                                size={
+                                  13
+                                }
+                              />
+                            </button>
+                          ) : null}
+
+                          {canArchive &&
+                          trader.status !==
+                            "inactive" ? (
+                            <button
+                              type="button"
+                              className="dangerButton"
+                              aria-label={`أرشفة ${trader.name}`}
+                              title="أرشفة"
+                              disabled={
+                                archivingId ===
+                                trader.id
+                              }
+                              onClick={() =>
+                                archiveTrader(
+                                  trader
+                                )
+                              }
+                            >
+                              <Icons.box
+                                size={
+                                  13
+                                }
+                              />
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {pageCount > 1 ? (
+          <div
+            className="rowActions"
+            style={{
+              justifyContent:
+                "center",
+              padding: 16,
+            }}
+          >
+            <button
+              type="button"
+              className="softButton"
+              disabled={page <= 1}
+              onClick={() =>
+                navigateFilters(
+                  searchQuery,
+                  statusFilter,
+                  Math.max(
+                    1,
+                    page - 1
+                  )
+                )
+              }
+            >
+              السابق
+            </button>
+
+            <span className="muted">
+              صفحة {page} من{" "}
+              {pageCount}
+            </span>
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={
+                page >=
+                pageCount
+              }
+              onClick={() =>
+                navigateFilters(
+                  searchQuery,
+                  statusFilter,
+                  Math.min(
+                    pageCount,
+                    page + 1
+                  )
+                )
+              }
+            >
+              التالي
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      {open ? (
+        <div
+          className="modalOverlay"
+          onMouseDown={(
+            event
+          ) => {
+            if (
+              event.target ===
+                event.currentTarget &&
+              !saving
+            ) {
+              setOpen(false);
+            }
+          }}
+        >
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customer-modal-title"
+          >
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  {editing
+                    ? "تعديل العميل"
+                    : "عميل جديد"}
+                </span>
+
+                <h2 id="customer-modal-title">
+                  {editing
+                    ? editing.name
+                    : "إضافة عميل"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="closeButton"
+                aria-label="إغلاق"
+                disabled={
+                  saving
+                }
+                onClick={() =>
+                  setOpen(
+                    false
+                  )
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              onSubmit={save}
+            >
+              <div className="formGrid">
+                <Field
+                  label="اسم المحل / العميل *"
+                  value={
+                    form.name
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        name: value,
+                      })
+                    )
+                  }
+                />
+
+                <Field
+                  label="اسم الشخص المسؤول"
+                  value={
+                    form.contact_name
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        contact_name:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <PhoneField
+                  label="رقم الهاتف السوري"
+                  value={
+                    form.phone
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        phone:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <PhoneField
+                  label="رقم واتساب السوري"
+                  value={
+                    form.whatsapp
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        whatsapp:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <Field
+                  label="المنطقة"
+                  value={
+                    form.area
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        area: value,
+                      })
+                    )
+                  }
+                />
+
+                <label className="field">
+                  <span>
+                    الحالة
+                  </span>
+
+                  <select
+                    value={
+                      form.status
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setForm(
+                        (
+                          current
+                        ) => ({
+                          ...current,
+                          status:
+                            event
+                              .target
+                              .value as Status,
+                        })
+                      )
+                    }
+                  >
+                    {statusOptions.map(
+                      ([
+                        key,
+                        value,
+                      ]) => (
+                        <option
+                          key={
+                            key
+                          }
+                          value={
+                            key
+                          }
+                        >
+                          {
+                            value
+                          }
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+
+                <Field
+                  label="العنوان"
+                  value={
+                    form.address
+                  }
+                  full
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        address:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <Field
+                  label="Latitude"
+                  value={
+                    form.latitude
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        latitude:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <Field
+                  label="Longitude"
+                  value={
+                    form.longitude
+                  }
+                  onChange={(
+                    value
+                  ) =>
+                    setForm(
+                      (
+                        current
+                      ) => ({
+                        ...current,
+                        longitude:
+                          value,
+                      })
+                    )
+                  }
+                />
+
+                <div className="field">
+                  <span>
+                    الموقع
+                  </span>
+
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={
+                      useLocation
+                    }
+                  >
+                    <Icons.map
+                      size={14}
+                    />
+                    استخدم موقعي الحالي
+                  </button>
+                </div>
+
+                <label className="field">
+                  <span>
+                    حملات واتساب
+                  </span>
+
+                  <select
+                    value={
+                      form.optin
+                        ? "yes"
+                        : "no"
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setForm(
+                        (
+                          current
+                        ) => ({
+                          ...current,
+                          optin:
+                            event
+                              .target
+                              .value ===
+                            "yes",
+                        })
+                      )
+                    }
+                  >
+                    <option value="no">
+                      غير موافق
+                    </option>
+
+                    <option value="yes">
+                      موافق على الرسائل
+                    </option>
+                  </select>
+                </label>
+
+                {canViewBalance ? (
+                  <>
+                    <label className="field">
+                      <span>
+                        حد الائتمان
+                      </span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="بدون حد"
+                        value={
+                          form.credit_limit
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setForm(
+                            (
+                              current
+                            ) => ({
+                              ...current,
+                              credit_limit:
+                                event
+                                  .target
+                                  .value,
+                            })
+                          )
+                        }
+                      />
+
+                      <small className="helpText">
+                        اتركه فارغاً إذا لم يوجد حد ائتمان.
+                      </small>
+                    </label>
+
+                    <label className="field">
+                      <span>
+                        مهلة الدفع (يوم)
+                      </span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        max="3650"
+                        step="1"
+                        value={
+                          form.payment_terms_days
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setForm(
+                            (
+                              current
+                            ) => ({
+                              ...current,
+                              payment_terms_days:
+                                event
+                                  .target
+                                  .value,
+                            })
+                          )
+                        }
+                      />
+
+                      <small className="helpText">
+                        0 يعني الدفع مستحق بنفس اليوم.
+                      </small>
+                    </label>
+                  </>
+                ) : null}
+
+                <label className="field full">
+                  <span>
+                    ملاحظات
+                  </span>
+
+                  <textarea
+                    rows={4}
+                    value={
+                      form.notes
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setForm(
+                        (
+                          current
+                        ) => ({
+                          ...current,
+                          notes:
+                            event
+                              .target
+                              .value,
+                        })
+                      )
+                    }
+                  />
+                </label>
+              </div>
+
+              {formMessage ? (
+                <div
+                  className="toastError"
+                  role="alert"
+                  aria-live="polite"
+                  style={{
+                    marginTop: 12,
+                  }}
+                >
+                  {
+                    formMessage
+                  }
+                </div>
+              ) : null}
+
+              <div className="modalActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={
+                    saving
+                  }
+                  onClick={() =>
+                    setOpen(
+                      false
+                    )
+                  }
+                >
+                  إلغاء
+                </button>
+
+                <button
+                  className="primaryButton"
+                  disabled={
+                    saving
+                  }
+                >
+                  {saving
+                    ? "جارٍ الحفظ..."
+                    : editing
+                      ? "حفظ التعديلات"
+                      : "إضافة العميل"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  full = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (
+    value: string
+  ) => void;
+  full?: boolean;
+}) {
+  return (
+    <label
+      className={`field ${
+        full ? "full" : ""
+      }`}
+    >
+      <span>{label}</span>
+
+      <input
+        value={value}
+        onChange={(
+          event
+        ) =>
+          onChange(
+            event.target.value
+          )
+        }
+      />
+    </label>
+  );
+}
+
+function PhoneField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (
+    value: string
+  ) => void;
+}) {
+  const state =
+    syrianPhoneState(value);
+
+  return (
+    <label className="field">
+      <span>{label}</span>
+
+      <input
+        dir="ltr"
+        placeholder="0944123456"
+        value={value}
+        onChange={(
+          event
+        ) =>
+          onChange(
+            event.target.value
+          )
+        }
+      />
+
+      <small
+        className={
+          state === "valid"
+            ? "validText"
+            : state ===
+                "invalid"
+              ? "invalidText"
+              : "helpText"
+        }
+      >
+        {state === "valid"
+          ? "✓ رقم سوري صحيح"
+          : state ===
+              "invalid"
+            ? "الرقم غير صحيح"
+            : "09xxxxxxxx أو +9639xxxxxxxx"}
+      </small>
+    </label>
+  );
+}
+
+function Mini({
+  n,
+  t,
+}: {
+  n: number | string;
+  t: string;
+}) {
+  return (
+    <div className="statCard">
+      <div className="statLabel">
+        {t}
+      </div>
+
+      <div className="statValue">
+        {n}
+      </div>
+    </div>
+  );
+}

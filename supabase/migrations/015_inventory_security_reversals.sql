@@ -390,12 +390,9 @@ declare
 
   v_order uuid;
 begin
-  if not public.has_any_permission(
+  if not public.has_permission(
     target_company,
-    array[
-      'inventory.adjust',
-      'purchase_invoices.cancel'
-    ]::text[]
+    'inventory.adjust'
   ) then
     raise exception 'Not allowed';
   end if;

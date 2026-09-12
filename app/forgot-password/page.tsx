@@ -13,6 +13,8 @@ export default function ForgotPasswordPage() {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
 
+    if (busy) return;
+
     setBusy(true);
     setMessage("");
     setSuccess(false);
@@ -23,20 +25,27 @@ export default function ForgotPasswordPage() {
       const redirectTo =
         `${window.location.origin}/auth/callback?next=/reset-password`;
 
-      const { error } =
-        await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(),
+        {
           redirectTo,
-        });
+        }
+      );
 
       if (error) {
-        setMessage(error.message);
+        setMessage(
+          "تعذر إرسال رابط الاستعادة الآن. حاول مرة أخرى بعد قليل."
+        );
         return;
       }
 
       setSuccess(true);
+
       setMessage(
-        "أرسلنا رابط استعادة كلمة المرور إذا كان البريد مسجلًا لدينا."
+        "إذا كان البريد مسجلًا لدينا، فستصلك رسالة تحتوي على رابط لتعيين كلمة مرور جديدة."
       );
+    } catch {
+      setMessage("تعذر الاتصال بالخادم. حاول مرة أخرى.");
     } finally {
       setBusy(false);
     }
@@ -47,6 +56,7 @@ export default function ForgotPasswordPage() {
       <section className="authCard">
         <div className="brand">
           <div className="brandMark">S</div>
+
           <div>
             <strong>Sales OS</strong>
             <span>استعادة الحساب</span>
@@ -54,11 +64,11 @@ export default function ForgotPasswordPage() {
         </div>
 
         <span className="eyebrow">أمان الحساب</span>
+
         <h1>نسيت كلمة المرور؟</h1>
 
         <p>
-          اكتب بريدك الإلكتروني وسنرسل لك رابطًا لتعيين
-          كلمة مرور جديدة.
+          أدخل بريدك الإلكتروني وسنرسل لك رابطًا لتعيين كلمة مرور جديدة.
         </p>
 
         <form className="authForm" onSubmit={submit}>
@@ -72,24 +82,26 @@ export default function ForgotPasswordPage() {
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@email.com"
             />
           </label>
 
           {message && (
             <div
-              className={
-                success ? "toastSuccess" : "toastError"
-              }
+              className={success ? "toastSuccess" : "toastError"}
+              role={success ? "status" : "alert"}
+              aria-live="polite"
             >
               {message}
             </div>
           )}
 
           <button
+            type="submit"
             className="primaryButton authSubmit"
             disabled={busy}
           >
-            {busy ? "لحظة..." : "إرسال رابط الاستعادة"}
+            {busy ? "جارٍ الإرسال..." : "إرسال رابط الاستعادة"}
           </button>
 
           <Link className="authBackLink" href="/login">
