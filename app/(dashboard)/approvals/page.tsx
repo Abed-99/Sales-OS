@@ -57,9 +57,8 @@ export default async function ApprovalsPage() {
     .order("requested_at", { ascending: false })
     .limit(200);
 
-  if (error) {
-    throw new Error(error.message);
-  }
+  const pageError =
+    Boolean(error);
 
   return (
     <>
@@ -68,6 +67,17 @@ export default async function ApprovalsPage() {
         subtitle="الطلبات المعلقة والمقبولة والمرفوضة"
         companyName={context.companyName}
       />
+
+      {pageError && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض بيانات الموافقات. حاول تحديث الصفحة.
+          </div>
+        </div>
+      )}
 
       <ApprovalsClient
         companyId={context.companyId}

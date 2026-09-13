@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,7 +12,26 @@ function num(value: unknown) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const get = (type: string) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export type PartnerSummary = {
@@ -126,6 +145,29 @@ export function PartnersClient({
     (partner) => partner.active
   );
 
+  const transactionCurrencies =
+    [
+      ...new Set(
+        transactions.map(
+          (transaction) =>
+            transaction.currency
+              .trim()
+              .toUpperCase()
+        )
+      ),
+    ];
+
+  const completeTransactionHistory =
+    transactions.length < 150;
+
+  const safeSingleCurrencyTotals =
+    completeTransactionHistory &&
+    transactionCurrencies.length <= 1;
+
+  const partnerDisplayCurrency =
+    transactionCurrencies[0] ??
+    baseCurrency;
+
   const totalCapital = partners.reduce(
     (sum, partner) =>
       sum + num(partner.capital_contributions),
@@ -216,7 +258,7 @@ export function PartnersClient({
     setSaving(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage("تعذر تنفيذ عملية الشريك. تحقق من البيانات والصندوق والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -299,7 +341,7 @@ export function PartnersClient({
     setSaving(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage("تعذر تنفيذ عملية الشريك. تحقق من البيانات والصندوق والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -357,17 +399,17 @@ export function PartnersClient({
 
         <Mini
           title="رأس المال المدخل"
-          value={`${totalCapital.toFixed(2)} ${baseCurrency}`}
+          value={safeSingleCurrencyTotals ? `${totalCapital.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
         />
 
         <Mini
           title="المسحوبات"
-          value={`${totalDrawings.toFixed(2)} ${baseCurrency}`}
+          value={safeSingleCurrencyTotals ? `${totalDrawings.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
         />
 
         <Mini
           title="قروض الشركاء"
-          value={`${totalLoans.toFixed(2)} ${baseCurrency}`}
+          value={safeSingleCurrencyTotals ? `${totalLoans.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
         />
       </section>
 

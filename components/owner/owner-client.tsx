@@ -86,13 +86,14 @@ function readableError(message: string) {
     if (message.includes(needle)) return label;
   }
 
-  return message;
+  return "تعذر تنفيذ العملية. حاول مرة أخرى.";
 }
 
 function formatDate(value: string | null) {
   if (!value) return "—";
 
-  return new Intl.DateTimeFormat("ar-LB", {
+  return new Intl.DateTimeFormat("ar-SY", {
+    timeZone: "Asia/Damascus",
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));

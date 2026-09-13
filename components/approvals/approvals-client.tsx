@@ -131,9 +131,7 @@ export function ApprovalsClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ قرار الموافقة. تحقق من الصلاحيات وحالة الطلب وحاول مرة ثانية.");
       return;
     }
 
@@ -329,10 +327,19 @@ export function ApprovalsClient({
                       </td>
 
                       <td>
-                        {new Date(
-                          request.requested_at
-                        ).toLocaleDateString(
-                          "ar"
+                        {new Intl.DateTimeFormat(
+                          "ar-SY",
+                          {
+                            timeZone:
+                              "Asia/Damascus",
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                          }
+                        ).format(
+                          new Date(
+                            request.requested_at
+                          )
                         )}
                       </td>
 
@@ -437,10 +444,21 @@ export function ApprovalsClient({
 
               <Info
                 label="تاريخ الطلب"
-                value={new Date(
-                  selected.requested_at
-                ).toLocaleString(
-                  "ar"
+                value={new Intl.DateTimeFormat(
+                  "ar-SY",
+                  {
+                    timeZone:
+                      "Asia/Damascus",
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }
+                ).format(
+                  new Date(
+                    selected.requested_at
+                  )
                 )}
               />
             </div>

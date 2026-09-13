@@ -334,7 +334,7 @@ begin
     extract(
       year from coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -431,6 +431,37 @@ begin
     raise exception 'Invalid purchase cost';
   end if;
 
+  if coalesce(
+       target_salvage_value,
+       0
+     ) < 0
+  then
+    raise exception
+      'Invalid salvage value';
+  end if;
+
+  if upper(
+       trim(
+         coalesce(
+           target_currency,
+           ''
+         )
+       )
+     ) !~ '^[A-Z]{3}$'
+  then
+    raise exception
+      'Invalid asset currency';
+  end if;
+
+  if target_purchase_date is not null
+     and target_in_service_date is not null
+     and target_in_service_date <
+         target_purchase_date
+  then
+    raise exception
+      'In-service date cannot be before purchase date';
+  end if;
+
   if target_useful_life_months is null
      or target_useful_life_months <= 0
   then
@@ -452,7 +483,7 @@ begin
       target_company,
       coalesce(
         target_purchase_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -461,7 +492,7 @@ begin
       target_company,
       coalesce(
         target_purchase_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -487,12 +518,12 @@ begin
     nullif(trim(target_description),''),
     coalesce(
       target_purchase_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     coalesce(
       target_in_service_date,
       target_purchase_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     upper(
       coalesce(
@@ -903,7 +934,7 @@ create table if not exists public.partner_transactions(
     references public.cashboxes(id)
     on delete restrict,
 
-  transaction_date date not null default current_date,
+  transaction_date date not null default (now() at time zone 'Asia/Damascus')::date,
 
   notes text,
 
@@ -1211,7 +1242,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -1389,7 +1420,7 @@ begin
     target_cashbox,
     coalesce(
       target_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     nullif(
       trim(target_notes),
@@ -1404,7 +1435,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       ),
       'حركة شريك',
       target_currency,
@@ -1441,10 +1472,13 @@ begin
       ),
       'حركة شريك'
     ),
-    coalesce(
-      target_date,
-      current_date
-    )::timestamptz
+    (
+      coalesce(
+        target_date,
+        (now() at time zone 'Asia/Damascus')::date
+      )::timestamp
+      at time zone 'Asia/Damascus'
+    )
   );
 
   return v_id;
@@ -1600,7 +1634,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -1634,7 +1668,7 @@ begin
     v_currency,
     coalesce(
       target_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     )
   )
   returning id
@@ -1645,7 +1679,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       ),
       'صرف سلفة أو قرض موظف',
       v_currency,
@@ -1715,10 +1749,13 @@ begin
     v_amount,
     v_employee,
     'صرف سلفة أو قرض موظف',
-    coalesce(
-      target_date,
-      current_date
-    )::timestamptz
+    (
+      coalesce(
+        target_date,
+        (now() at time zone 'Asia/Damascus')::date
+      )::timestamp
+      at time zone 'Asia/Damascus'
+    )
   );
 
   return v_id;
@@ -1790,7 +1827,14 @@ select
       case
         when pt.transaction_type =
              'capital_contribution'
-          then pt.amount
+          then (
+            pt.amount *
+            public.finance_rate_to_base(
+              p.company_id,
+              pt.currency,
+              pt.transaction_date
+            )
+          )
         else 0
       end
     ),
@@ -1803,7 +1847,14 @@ select
       case
         when pt.transaction_type =
              'drawing'
-          then pt.amount
+          then (
+            pt.amount *
+            public.finance_rate_to_base(
+              p.company_id,
+              pt.currency,
+              pt.transaction_date
+            )
+          )
         else 0
       end
     ),
@@ -1816,11 +1867,25 @@ select
       case
         when pt.transaction_type =
              'partner_loan_in'
-          then pt.amount
+          then (
+            pt.amount *
+            public.finance_rate_to_base(
+              p.company_id,
+              pt.currency,
+              pt.transaction_date
+            )
+          )
 
         when pt.transaction_type =
              'partner_loan_repayment'
-          then -pt.amount
+          then -(
+            pt.amount *
+            public.finance_rate_to_base(
+              p.company_id,
+              pt.currency,
+              pt.transaction_date
+            )
+          )
 
         else 0
       end
@@ -1834,7 +1899,14 @@ select
       case
         when pt.transaction_type =
              'profit_distribution'
-          then pt.amount
+          then (
+            pt.amount *
+            public.finance_rate_to_base(
+              p.company_id,
+              pt.currency,
+              pt.transaction_date
+            )
+          )
         else 0
       end
     ),

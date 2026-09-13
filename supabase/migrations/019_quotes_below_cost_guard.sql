@@ -322,7 +322,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
   v_current text;
   v_valid_until date;
@@ -423,7 +423,7 @@ begin
     and company_id =
         target_company;
 end;
-$;
+$$;
 
 revoke all
 on function public.set_sales_quote_status(
@@ -602,7 +602,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
   v_item jsonb;
   v_product uuid;
@@ -932,7 +932,7 @@ begin
       null
     );
 end;
-$;
+$$;
 
 revoke all on function public.create_sales_order_v2(uuid,uuid,text,jsonb,uuid) from public;
 grant execute on function public.create_sales_order_v2(uuid,uuid,text,jsonb,uuid) to authenticated;
@@ -1016,7 +1016,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
   v_type text;
   v_payload jsonb;
@@ -1243,7 +1243,7 @@ begin
     and company_id =
         target_company;
 end;
-$;
+$$;
 
 revoke all
 on function public.resolve_approval_request(

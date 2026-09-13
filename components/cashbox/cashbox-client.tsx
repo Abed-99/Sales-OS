@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -69,6 +69,8 @@ const movementLabels: Record<string, string> = {
   expense: "مصروف",
   adjustment_in: "تسوية داخلة",
   adjustment_out: "تسوية خارجة",
+  customer_payment_reversal: "عكس قبض من زبون",
+  supplier_payment_reversal: "عكس دفعة مورد",
   payroll_payment: "دفع راتب",
   employee_advance: "سلفة موظف",
   employee_loan: "قرض موظف",
@@ -83,6 +85,25 @@ function one<T>(value: T | T[] | null | undefined) {
   return value ?? null;
 }
 
+function formatDamascusDateTime(value: string) {
+  return new Intl.DateTimeFormat("ar", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatDamascusDate(value: string) {
+  return new Intl.DateTimeFormat("ar", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
 function formatSummary(
   rows: SummaryRow[],
   field: "balance" | "today_in" | "today_out" | "month_expense",
@@ -107,6 +128,17 @@ export function CashboxClient({
   initialTransactions,
   initialExpenses,
   summary,
+  canViewExpenses,
+  canWriteCashbox,
+  canWriteExpenses,
+  pageError,
+  txPage,
+  txTotalPages,
+  expensePage,
+  expenseTotalPages,
+  q,
+  type,
+  cashboxFilter,
 }: {
   companyId: string;
   defaultCurrency: string;
@@ -114,6 +146,17 @@ export function CashboxClient({
   initialTransactions: CashTransactionRow[];
   initialExpenses: ExpenseRow[];
   summary: SummaryRow[];
+  canViewExpenses: boolean;
+  canWriteCashbox: boolean;
+  canWriteExpenses: boolean;
+  pageError: string | null;
+  txPage: number;
+  txTotalPages: number;
+  expensePage: number;
+  expenseTotalPages: number;
+  q: string;
+  type: string;
+  cashboxFilter: string;
 }) {
   const [supabase] = useState(() => createClient());
   const router = useRouter();
@@ -138,8 +181,15 @@ export function CashboxClient({
   const [cashboxId, setCashboxId] = useState(defaultCashboxId);
   const [movementType, setMovementType] = useState("adjustment_in");
   const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   function openExpense() {
+    if (!canWriteExpenses) {
+      setFeedback("ما عندك صلاحية لإضافة مصروف.");
+      return;
+    }
+
+    setFeedback(null);
     setAmount("");
     setNotes("");
     setCashboxId(defaultCashboxId);
@@ -147,6 +197,12 @@ export function CashboxClient({
   }
 
   function openMovement() {
+    if (!canWriteCashbox) {
+      setFeedback("ما عندك صلاحية لإجراء تسوية صندوق.");
+      return;
+    }
+
+    setFeedback(null);
     setAmount("");
     setNotes("");
     setCashboxId(defaultCashboxId);
@@ -160,15 +216,16 @@ export function CashboxClient({
     event.preventDefault();
 
     if (!cashboxId) {
-      alert("اختار صندوق أولاً");
+      setFeedback("اختار صندوق أولاً.");
       return;
     }
 
     if (Number(amount) <= 0) {
-      alert("اكتب مبلغ صحيح");
+      setFeedback("اكتب مبلغ صحيح أكبر من صفر.");
       return;
     }
 
+    setFeedback(null);
     setSaving(true);
 
     const { error } = await supabase.rpc("record_expense", {
@@ -182,7 +239,7 @@ export function CashboxClient({
     setSaving(false);
 
     if (error) {
-      alert(error.message);
+      setFeedback("تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -198,15 +255,16 @@ export function CashboxClient({
     event.preventDefault();
 
     if (!cashboxId) {
-      alert("اختار صندوق أولاً");
+      setFeedback("اختار صندوق أولاً.");
       return;
     }
 
     if (Number(amount) <= 0) {
-      alert("اكتب مبلغ صحيح");
+      setFeedback("اكتب مبلغ صحيح أكبر من صفر.");
       return;
     }
 
+    setFeedback(null);
     setSaving(true);
 
     const { error } = await supabase.rpc("record_cash_movement", {
@@ -220,7 +278,7 @@ export function CashboxClient({
     setSaving(false);
 
     if (error) {
-      alert(error.message);
+      setFeedback("تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -232,8 +290,42 @@ export function CashboxClient({
 
   const hasCashboxes = cashboxes.length > 0;
 
+  function pageHref(kind: "tx" | "expense", page: number) {
+    const params = new URLSearchParams();
+
+    if (q) params.set("q", q);
+    if (type) params.set("type", type);
+    if (cashboxFilter) params.set("cashbox", cashboxFilter);
+
+    if (kind === "tx" && page > 1) {
+      params.set("txPage", String(page));
+    }
+
+    if (kind === "expense" && page > 1) {
+      params.set("expensePage", String(page));
+    }
+
+    if (kind !== "tx" && txPage > 1) {
+      params.set("txPage", String(txPage));
+    }
+
+    if (kind !== "expense" && expensePage > 1) {
+      params.set("expensePage", String(expensePage));
+    }
+
+    const query = params.toString();
+    return query ? `/cashbox?${query}` : "/cashbox";
+  }
+
   return (
     <div className="page">
+      {(pageError || feedback) && (
+        <div className="panel panelPad" role="alert" aria-live="polite">
+          <strong>تنبيه</strong>
+          <p className="muted">{feedback || pageError}</p>
+        </div>
+      )}
+
       <div className="pageTitle">
         <div>
           <span className="eyebrow">المحاسبة اليومية</span>
@@ -244,21 +336,27 @@ export function CashboxClient({
         </div>
 
         <div className="rowActions">
-          <button
-            className="softButton"
-            onClick={openMovement}
-            disabled={!hasCashboxes}
-          >
-            <Icons.money size={14} /> تسوية صندوق
-          </button>
+          {canWriteCashbox && (
+            <button
+              type="button"
+              className="softButton"
+              onClick={openMovement}
+              disabled={!hasCashboxes || saving}
+            >
+              <Icons.money size={14} /> تسوية صندوق
+            </button>
+          )}
 
-          <button
-            className="primaryButton"
-            onClick={openExpense}
-            disabled={!hasCashboxes}
-          >
-            <Icons.plus size={14} /> مصروف
-          </button>
+          {canWriteExpenses && (
+            <button
+              type="button"
+              className="primaryButton"
+              onClick={openExpense}
+              disabled={!hasCashboxes || saving}
+            >
+              <Icons.plus size={14} /> مصروف
+            </button>
+          )}
         </div>
       </div>
 
@@ -365,9 +463,7 @@ export function CashboxClient({
                         </td>
 
                         <td>
-                          {new Date(
-                            transaction.occurred_at
-                          ).toLocaleString("ar")}
+                          {formatDamascusDateTime(transaction.occurred_at)}
                         </td>
                       </tr>
                     );
@@ -376,8 +472,35 @@ export function CashboxClient({
               </table>
             </div>
           )}
+
+          {txTotalPages > 1 && (
+            <div className="rowActions">
+              <button
+                type="button"
+                className="softButton"
+                disabled={txPage <= 1}
+                onClick={() => router.push(pageHref("tx", txPage - 1))}
+              >
+                السابق
+              </button>
+
+              <span className="muted">
+                صفحة {txPage} من {txTotalPages}
+              </span>
+
+              <button
+                type="button"
+                className="softButton"
+                disabled={txPage >= txTotalPages}
+                onClick={() => router.push(pageHref("tx", txPage + 1))}
+              >
+                التالي
+              </button>
+            </div>
+          )}
         </section>
 
+        {canViewExpenses && (
         <aside className="panel panelPad">
           <div className="panelHeader">
             <div>
@@ -390,7 +513,7 @@ export function CashboxClient({
             <p className="muted">ما في مصاريف مسجلة.</p>
           ) : (
             <div className="quickList">
-              {initialExpenses.slice(0, 10).map((expense) => {
+              {initialExpenses.map((expense) => {
                 const cashbox = one(expense.cashboxes);
 
                 return (
@@ -403,9 +526,7 @@ export function CashboxClient({
                       <strong>{expense.category}</strong>
                       <span>
                         {expense.notes ||
-                          new Date(
-                            expense.occurred_at
-                          ).toLocaleDateString("ar")}
+                          formatDamascusDate(expense.occurred_at)}
                         {cashbox?.name ? ` • ${cashbox.name}` : ""}
                       </span>
                     </div>
@@ -419,10 +540,41 @@ export function CashboxClient({
               })}
             </div>
           )}
+
+          {expenseTotalPages > 1 && (
+            <div className="rowActions">
+              <button
+                type="button"
+                className="softButton"
+                disabled={expensePage <= 1}
+                onClick={() =>
+                  router.push(pageHref("expense", expensePage - 1))
+                }
+              >
+                السابق
+              </button>
+
+              <span className="muted">
+                صفحة {expensePage} من {expenseTotalPages}
+              </span>
+
+              <button
+                type="button"
+                className="softButton"
+                disabled={expensePage >= expenseTotalPages}
+                onClick={() =>
+                  router.push(pageHref("expense", expensePage + 1))
+                }
+              >
+                التالي
+              </button>
+            </div>
+          )}
         </aside>
+        )}
       </div>
 
-      {expenseOpen && (
+      {expenseOpen && canWriteExpenses && (
         <div
           className="modalOverlay"
           onMouseDown={(event) => {
@@ -439,7 +591,9 @@ export function CashboxClient({
               </div>
 
               <button
+                type="button"
                 className="closeButton"
+                aria-label="إغلاق نافذة المصروف"
                 onClick={() => setExpenseOpen(false)}
                 disabled={saving}
               >
@@ -475,6 +629,8 @@ export function CashboxClient({
                     type="number"
                     min="0.01"
                     step="0.01"
+                    inputMode="decimal"
+                    required
                     value={amount}
                     onChange={(event) =>
                       setAmount(event.target.value)
@@ -486,6 +642,7 @@ export function CashboxClient({
                   <span>ملاحظات</span>
                   <textarea
                     rows={3}
+                    maxLength={500}
                     value={notes}
                     onChange={(event) =>
                       setNotes(event.target.value)
@@ -516,7 +673,7 @@ export function CashboxClient({
         </div>
       )}
 
-      {movementOpen && (
+      {movementOpen && canWriteCashbox && (
         <div
           className="modalOverlay"
           onMouseDown={(event) => {
@@ -533,7 +690,9 @@ export function CashboxClient({
               </div>
 
               <button
+                type="button"
                 className="closeButton"
+                aria-label="إغلاق نافذة التسوية"
                 onClick={() => setMovementOpen(false)}
                 disabled={saving}
               >
@@ -572,6 +731,8 @@ export function CashboxClient({
                     type="number"
                     min="0.01"
                     step="0.01"
+                    inputMode="decimal"
+                    required
                     value={amount}
                     onChange={(event) =>
                       setAmount(event.target.value)
@@ -583,6 +744,7 @@ export function CashboxClient({
                   <span>ملاحظات</span>
                   <textarea
                     rows={3}
+                    maxLength={500}
                     value={notes}
                     onChange={(event) =>
                       setNotes(event.target.value)

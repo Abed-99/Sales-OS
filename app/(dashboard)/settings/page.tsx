@@ -1,14 +1,43 @@
-﻿import { Topbar } from "@/components/topbar";
+import { Topbar } from "@/components/topbar";
 import { SettingsClient } from "@/components/settings/settings-client";
 
 import { getCurrentContext } from "@/lib/current-context";
+import { hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SettingsPage() {
   const context = await getCurrentContext();
+  const canView =
+    hasPermission(
+      context.permissions,
+      "settings.view",
+      context.isOwner
+    );
+
+  if (!canView) {
+    return (
+      <>
+        <Topbar
+          title="الإعدادات"
+        subtitle="الحساب، الشركة وإعدادات النظام"
+          companyName={context.companyName}
+        />
+
+        <div className="page">
+          <section className="panel panelPad">
+            ما عندك صلاحية لعرض الإعدادات.
+          </section>
+        </div>
+      </>
+    );
+  }
+
   const supabase = await createClient();
 
-  const [{ data: profile }, { data: company }] = await Promise.all([
+  const [
+    profileResult,
+    companyResult,
+  ] = await Promise.all([
     supabase
       .from("profiles")
       .select("full_name")
@@ -21,13 +50,34 @@ export default async function SettingsPage() {
       .maybeSingle(),
   ]);
 
+  const profile =
+    profileResult.data;
+
+  const company =
+    companyResult.data;
+
+  const pageError =
+    Boolean(profileResult.error) ||
+    Boolean(companyResult.error);
+
   return (
     <>
       <Topbar
-        title="Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª"
-        subtitle="Ø§Ù„Ø­Ø³Ø§Ø¨ØŒ Ø§Ù„Ø´Ø±ÙƒØ© ÙˆØ¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù†Ø¸Ø§Ù…"
+        title="الإعدادات"
+        subtitle="الحساب، الشركة وإعدادات النظام"
         companyName={context.companyName}
       />
+      {pageError && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض بيانات الإعدادات. حاول تحديث الصفحة.
+          </div>
+        </div>
+      )}
+
       <SettingsClient
         email={context.email}
         roleName={context.roleName}

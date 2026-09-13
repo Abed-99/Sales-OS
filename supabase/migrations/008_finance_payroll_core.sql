@@ -117,6 +117,57 @@ on conflict do nothing;
 
 
 -- ============================================================
+-- FINANCE EXCHANGE RATES
+-- ============================================================
+
+create table if not exists public.finance_exchange_rates (
+  id uuid primary key default gen_random_uuid(),
+
+  company_id uuid not null
+    references public.companies(id)
+    on delete cascade,
+
+  currency text not null
+    check (upper(trim(currency)) ~ '^[A-Z]{3}$'),
+
+  rate_date date not null,
+
+  rate_to_base numeric(24,10) not null
+    check (rate_to_base > 0),
+
+  notes text,
+
+  created_by uuid
+    default auth.uid()
+    references auth.users(id)
+    on delete set null,
+
+  created_at timestamptz not null default now(),
+
+  updated_at timestamptz not null default now(),
+
+  unique(company_id, currency, rate_date)
+);
+
+create index if not exists
+finance_exchange_rates_lookup_idx
+on public.finance_exchange_rates(
+  company_id,
+  currency,
+  rate_date desc
+);
+
+drop trigger if exists
+finance_exchange_rates_updated_at
+on public.finance_exchange_rates;
+
+create trigger finance_exchange_rates_updated_at
+before update
+on public.finance_exchange_rates
+for each row
+execute function public.set_updated_at();
+
+-- ============================================================
 -- CHART OF ACCOUNTS
 -- ============================================================
 
@@ -1482,7 +1533,7 @@ create table if not exists public.journal_entries (
 
   entry_number text not null,
 
-  entry_date date not null default current_date,
+  entry_date date not null default (now() at time zone 'Asia/Damascus')::date,
 
   description text not null,
 
@@ -1640,7 +1691,7 @@ begin
     extract(
       year from coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -2436,7 +2487,7 @@ create table if not exists public.employee_loans (
     not null default 0
     check(installment_amount >= 0),
 
-  start_date date not null default current_date,
+  start_date date not null default (now() at time zone 'Asia/Damascus')::date,
 
   status text not null default 'active'
     check (
@@ -2710,7 +2761,7 @@ create table if not exists public.payroll_payments (
 
   currency text not null,
 
-  payment_date date not null default current_date,
+  payment_date date not null default (now() at time zone 'Asia/Damascus')::date,
 
   payment_method text not null default 'cash',
 

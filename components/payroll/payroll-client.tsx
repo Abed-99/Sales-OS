@@ -34,15 +34,30 @@ function num(
 }
 
 function today() {
-  return new Date()
-    .toISOString()
-    .slice(0, 10);
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const get = (type: string) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function monthNow() {
-  return new Date()
-    .toISOString()
-    .slice(0, 7);
+  return today().slice(0, 7);
 }
 
 export type PayrollEmployee = {
@@ -720,9 +735,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -807,9 +820,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -906,9 +917,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -953,9 +962,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -1175,9 +1182,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 
@@ -1294,9 +1299,7 @@ export function PayrollClient({
     setSaving(false);
 
     if (error) {
-      setMessage(
-        error.message
-      );
+      setMessage("تعذر تنفيذ عملية الرواتب. تحقق من البيانات والصلاحيات وحاول مرة ثانية.");
       return;
     }
 

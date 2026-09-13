@@ -62,14 +62,14 @@ begin
       target_start,
       date_trunc(
         'year',
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )::date
     );
 
   v_end :=
     coalesce(
       target_end,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     );
 
   if v_end < v_start then
@@ -670,11 +670,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               si.invoice_date
             ) <= 0
-              then si.balance_due
+              then (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
             else 0
           end
         ),
@@ -690,11 +690,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               si.invoice_date
             ) between 1 and 30
-              then si.balance_due
+              then (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
             else 0
           end
         ),
@@ -710,11 +710,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               si.invoice_date
             ) between 31 and 60
-              then si.balance_due
+              then (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
             else 0
           end
         ),
@@ -730,11 +730,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               si.invoice_date
             ) between 61 and 90
-              then si.balance_due
+              then (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
             else 0
           end
         ),
@@ -750,11 +750,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               si.invoice_date
             ) > 90
-              then si.balance_due
+              then (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
             else 0
           end
         ),
@@ -766,7 +766,7 @@ begin
     round(
       coalesce(
         sum(
-          si.balance_due
+          (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
         ),
         0
       ),
@@ -788,10 +788,10 @@ begin
    and si.invoice_date <=
        coalesce(
          target_as_of,
-         current_date
+         (now() at time zone 'Asia/Damascus')::date
        )
 
-   and si.balance_due >
+   and (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date)) >
        0
 
   where t.company_id =
@@ -803,7 +803,7 @@ begin
 
   having
     sum(
-      si.balance_due
+      (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))
     ) > 0
 
   order by
@@ -876,11 +876,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               pi.invoice_date
             ) <= 0
-              then pi.balance_due
+              then (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             else 0
           end
         ),
@@ -896,11 +896,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               pi.invoice_date
             ) between 1 and 30
-              then pi.balance_due
+              then (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             else 0
           end
         ),
@@ -916,11 +916,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               pi.invoice_date
             ) between 31 and 60
-              then pi.balance_due
+              then (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             else 0
           end
         ),
@@ -936,11 +936,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               pi.invoice_date
             ) between 61 and 90
-              then pi.balance_due
+              then (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             else 0
           end
         ),
@@ -956,11 +956,11 @@ begin
             when (
               coalesce(
                 target_as_of,
-                current_date
+                (now() at time zone 'Asia/Damascus')::date
               ) -
               pi.invoice_date
             ) > 90
-              then pi.balance_due
+              then (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             else 0
           end
         ),
@@ -972,7 +972,7 @@ begin
     round(
       coalesce(
         sum(
-          pi.balance_due
+          (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
         ),
         0
       ),
@@ -994,10 +994,10 @@ begin
    and pi.invoice_date <=
        coalesce(
          target_as_of,
-         current_date
+         (now() at time zone 'Asia/Damascus')::date
        )
 
-   and pi.balance_due >
+   and (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date)) >
        0
 
   where s.company_id =
@@ -1009,7 +1009,7 @@ begin
 
   having
     sum(
-      pi.balance_due
+      (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
     ) > 0
 
   order by
@@ -1221,17 +1221,17 @@ begin
       count(*) as invoice_count,
 
       coalesce(
-        sum(si.total),
+        sum((si.total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
         0
       ) as gross_sales,
 
       coalesce(
-        sum(si.paid_total),
+        sum((si.paid_total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
         0
       ) as collected,
 
       coalesce(
-        sum(si.balance_due),
+        sum((si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
         0
       ) as outstanding
 
@@ -1248,13 +1248,13 @@ begin
             target_start,
             date_trunc(
               'year',
-              current_date
+              (now() at time zone 'Asia/Damascus')::date
             )::date
           )
           and
           coalesce(
             target_end,
-            current_date
+            (now() at time zone 'Asia/Damascus')::date
           )
 
     group by 1
@@ -1268,7 +1268,7 @@ begin
       )::date as month_start,
 
       coalesce(
-        sum(sr.total),
+        sum((sr.total * public.finance_rate_to_base(target_company, sr.currency, sr.return_date))),
         0
       ) as return_total
 
@@ -1285,13 +1285,13 @@ begin
             target_start,
             date_trunc(
               'year',
-              current_date
+              (now() at time zone 'Asia/Damascus')::date
             )::date
           )
           and
           coalesce(
             target_end,
-            current_date
+            (now() at time zone 'Asia/Damascus')::date
           )
 
     group by 1
@@ -1406,17 +1406,17 @@ begin
       count(*) as invoice_count,
 
       coalesce(
-        sum(pi.total),
+        sum((pi.total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
         0
       ) as gross_purchases,
 
       coalesce(
-        sum(pi.paid_total),
+        sum((pi.paid_total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
         0
       ) as paid,
 
       coalesce(
-        sum(pi.balance_due),
+        sum((pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
         0
       ) as outstanding
 
@@ -1433,13 +1433,13 @@ begin
             target_start,
             date_trunc(
               'year',
-              current_date
+              (now() at time zone 'Asia/Damascus')::date
             )::date
           )
           and
           coalesce(
             target_end,
-            current_date
+            (now() at time zone 'Asia/Damascus')::date
           )
 
     group by 1
@@ -1453,7 +1453,7 @@ begin
       )::date as month_start,
 
       coalesce(
-        sum(pr.total),
+        sum((pr.total * public.finance_rate_to_base(target_company, pr.currency, pr.return_date))),
         0
       ) as return_total
 
@@ -1470,13 +1470,13 @@ begin
             target_start,
             date_trunc(
               'year',
-              current_date
+              (now() at time zone 'Asia/Damascus')::date
             )::date
           )
           and
           coalesce(
             target_end,
-            current_date
+            (now() at time zone 'Asia/Damascus')::date
           )
 
     group by 1
@@ -1656,7 +1656,7 @@ begin
 
   select
     round(
-      coalesce(sum(si.total), 0),
+      coalesce(sum((si.total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))), 0),
       2
     ),
     count(*)
@@ -1732,7 +1732,7 @@ begin
   from public.sales_invoices si
   where si.company_id = target_company
     and si.status = 'posted'
-    and si.balance_due > 0;
+    and (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date)) > 0;
 
   -- "Customers" means actual customer status, not leads/inactive.
   select
@@ -1898,12 +1898,12 @@ begin
     count(si.id)::bigint,
 
     round(
-      coalesce(sum(si.total),0),
+      coalesce(sum((si.total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),0),
       2
     )::numeric,
 
     round(
-      coalesce(sum(si.balance_due),0),
+      coalesce(sum((si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),0),
       2
     )::numeric,
 
@@ -1993,8 +1993,8 @@ begin
 
   with invoice_values as (
     select
-      pi.total,
-      pi.balance_due,
+      (pi.total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date)),
+      (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date)),
 
       case
         when upper(pi.currency) = v_currency
@@ -2246,7 +2246,7 @@ begin
       end::text as description,
 
       round(
-        pi.total *
+        (pi.total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date)) *
         case
           when upper(pi.currency) = v_currency
             then 1::numeric
@@ -2524,7 +2524,7 @@ begin
         round(
           coalesce(
             sum(
-              pi.balance_due
+              (pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))
             ),
             0
           ),

@@ -747,7 +747,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
   v_status text;
   v_res record;
@@ -844,7 +844,7 @@ begin
       );
   end loop;
 end;
-$;
+$$;
 
 
 

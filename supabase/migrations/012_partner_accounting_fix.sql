@@ -151,7 +151,7 @@ begin
 
   perform public.post_system_journal(
     new.company_id,
-    new.occurred_at::date,
+    (new.occurred_at at time zone 'Asia/Damascus')::date,
     'حركة صندوق - ' || new.type,
     v_currency,
     null,
@@ -195,6 +195,7 @@ declare
 
   v_direction text;
   v_cash_type text;
+  v_currency text;
 begin
   if not public.has_permission(
     target_company,
@@ -232,6 +233,21 @@ begin
       'Invalid partner';
   end if;
 
+  v_currency :=
+    upper(
+      trim(
+        coalesce(
+          target_currency,
+          ''
+        )
+      )
+    );
+
+  if v_currency !~ '^[A-Z]{3}$' then
+    raise exception
+      'Invalid partner transaction currency';
+  end if;
+
   if target_cashbox is null then
     raise exception
       'Cashbox is required';
@@ -243,8 +259,8 @@ begin
     where id = target_cashbox
       and company_id = target_company
       and active = true
-      and upper(currency) =
-          upper(target_currency)
+      and upper(trim(currency)) =
+          v_currency
   ) then
     raise exception
       'Invalid cashbox or currency';
@@ -254,7 +270,7 @@ begin
     target_company,
     coalesce(
       target_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     )
   );
 
@@ -426,11 +442,11 @@ begin
     target_partner,
     target_type,
     round(target_amount,2),
-    upper(target_currency),
+    v_currency,
     target_cashbox,
     coalesce(
       target_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     nullif(
       trim(target_notes),
@@ -445,10 +461,10 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       ),
       'حركة شريك',
-      target_currency,
+      v_currency,
       null,
       'partner_transaction',
       v_id,
@@ -484,10 +500,16 @@ begin
       ),
       'حركة شريك'
     ),
-    coalesce(
-      target_date,
-      current_date
-    )::timestamptz
+    (
+      coalesce(
+        target_date,
+        (
+          now()
+          at time zone 'Asia/Damascus'
+        )::date
+      )::timestamp
+      at time zone 'Asia/Damascus'
+    )
   );
 
   return v_id;

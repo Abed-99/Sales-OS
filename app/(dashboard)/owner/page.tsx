@@ -77,7 +77,7 @@ async function loadAuthUsers(userIds: readonly string[]) {
     });
 
     if (error) {
-      throw new Error(`تعذر قراءة حسابات الفريق: ${error.message}`);
+      throw new Error("تعذر قراءة حسابات الفريق.");
     }
 
     for (const user of data.users) {
@@ -129,9 +129,9 @@ export default async function OwnerPage() {
       .order("created_at"),
   ]);
 
-  if (rolesResult.error) throw new Error(rolesResult.error.message);
-  if (permissionsResult.error) throw new Error(permissionsResult.error.message);
-  if (membersResult.error) throw new Error(membersResult.error.message);
+  if (rolesResult.error) throw new Error("تعذر تحميل صفات الفريق.");
+  if (permissionsResult.error) throw new Error("تعذر تحميل صلاحيات النظام.");
+  if (membersResult.error) throw new Error("تعذر تحميل أعضاء الفريق.");
 
   const roleRows = (rolesResult.data ?? []) as RoleRow[];
   const permissionRows = (permissionsResult.data ?? []) as PermissionRow[];
@@ -150,7 +150,7 @@ export default async function OwnerPage() {
   ]);
 
   if (rolePermissionsResult.error) {
-    throw new Error(rolePermissionsResult.error.message);
+    throw new Error("تعذر تحميل صلاحيات الصفات.");
   }
 
   const permissionCodesByRole = new Map<string, string[]>();

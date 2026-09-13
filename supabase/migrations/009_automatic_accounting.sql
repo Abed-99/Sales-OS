@@ -753,7 +753,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -762,7 +762,7 @@ begin
       target_company,
       coalesce(
         target_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -784,7 +784,7 @@ begin
     v_number,
     coalesce(
       target_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     coalesce(
       nullif(
@@ -1118,7 +1118,7 @@ begin
         new.company_id,
         'sales_invoice',
         new.id,
-        current_date,
+        (now() at time zone 'Asia/Damascus')::date,
         'عكس فاتورة بيع ' ||
         new.invoice_number
       );
@@ -1525,7 +1525,7 @@ begin
         new.company_id,
         'purchase_invoice',
         new.id,
-        current_date,
+        (now() at time zone 'Asia/Damascus')::date,
         'عكس فاتورة شراء ' ||
         new.invoice_number
       );
@@ -2080,7 +2080,7 @@ begin
   perform
     public.post_system_journal(
       new.company_id,
-      new.occurred_at::date,
+      (new.occurred_at at time zone 'Asia/Damascus')::date,
       'مصروف - ' ||
       new.category,
       v_currency,
@@ -2579,7 +2579,7 @@ begin
   perform
     public.post_system_journal(
       new.company_id,
-      new.occurred_at::date,
+      (new.occurred_at at time zone 'Asia/Damascus')::date,
       'حركة صندوق - ' ||
       new.type,
       v_currency,
@@ -2655,6 +2655,8 @@ check (
     'partner_withdrawal',
     'adjustment_in',
     'adjustment_out',
+    'customer_payment_reversal',
+    'supplier_payment_reversal',
     'payroll_payment',
     'employee_advance',
     'employee_loan',
@@ -3130,7 +3132,7 @@ begin
       target_company,
       coalesce(
         target_payment_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       )
     );
 
@@ -3159,7 +3161,7 @@ begin
     upper(v_currency),
     coalesce(
       target_payment_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     coalesce(
       nullif(
@@ -3210,10 +3212,13 @@ begin
       ),
       'دفع راتب موظف'
     ),
-    coalesce(
-      target_payment_date,
-      current_date
-    )::timestamptz
+    (
+      coalesce(
+        target_payment_date,
+        (now() at time zone 'Asia/Damascus')::date
+      )::timestamp
+      at time zone 'Asia/Damascus'
+    )
   );
 
   v_cash :=
@@ -3233,7 +3238,7 @@ begin
       target_company,
       coalesce(
         target_payment_date,
-        current_date
+        (now() at time zone 'Asia/Damascus')::date
       ),
       'دفع راتب موظف',
       v_currency,

@@ -70,14 +70,13 @@ export default async function AssetsPage() {
       .order("period_end", { ascending: false })
       .limit(100),
   ]);
-
-  if (assetsResult.error) {
-    throw new Error(assetsResult.error.message);
-  }
-
-  if (depreciationResult.error) {
-    throw new Error(depreciationResult.error.message);
-  }
+  const pageError =
+    Boolean(
+      assetsResult.error
+    ) ||
+    Boolean(
+      depreciationResult.error
+    );
 
   return (
     <>
@@ -86,6 +85,17 @@ export default async function AssetsPage() {
         subtitle="الأصول، القيمة الدفترية والإهلاك الشهري"
         companyName={context.companyName}
       />
+
+      {pageError && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض بيانات الأصول. حاول تحديث الصفحة.
+          </div>
+        </div>
+      )}
 
       <AssetsClient
         companyId={context.companyId}

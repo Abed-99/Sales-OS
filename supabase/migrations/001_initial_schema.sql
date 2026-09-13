@@ -582,7 +582,7 @@ create or replace function public.enforce_trader_archive_permission()
 returns trigger
 language plpgsql
 set search_path = public
-as $
+as $$
 declare
   v_requires_archive boolean := false;
 begin
@@ -605,7 +605,7 @@ begin
 
   return new;
 end;
-$;
+$$;
 
 drop trigger if exists
 traders_archive_permission_guard
@@ -1227,7 +1227,9 @@ create table public.cash_transactions (
       'partner_deposit',
       'partner_withdrawal',
       'adjustment_in',
-      'adjustment_out'
+      'adjustment_out',
+      'customer_payment_reversal',
+      'supplier_payment_reversal'
     )
   ),
   amount numeric(14,2) not null check(amount > 0),
@@ -1252,6 +1254,90 @@ on public.cash_transactions(trader_id, occurred_at desc)
 where trader_id is not null;
 
 -- Payment foreign keys are added after their tables are created.
+
+-- =========================================================
+-- CASHBOX INTEGRITY GUARDS
+-- =========================================================
+
+create or replace function public.enforce_cashbox_company()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.cashbox_id is null then
+    return new;
+  end if;
+
+  if not exists (
+    select 1
+    from public.cashboxes c
+    where c.id = new.cashbox_id
+      and c.company_id = new.company_id
+  ) then
+    raise exception 'Cashbox belongs to another company or does not exist';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger expenses_cashbox_company_guard
+before insert or update of company_id, cashbox_id
+on public.expenses
+for each row execute function public.enforce_cashbox_company();
+
+create trigger cash_transactions_cashbox_company_guard
+before insert or update of company_id, cashbox_id
+on public.cash_transactions
+for each row execute function public.enforce_cashbox_company();
+
+
+create or replace function public.protect_cashbox_identity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.currency := upper(trim(coalesce(new.currency,'')));
+
+  if new.currency !~ '^[A-Z]{3}$' then
+    raise exception 'Invalid cashbox currency';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if new.company_id is distinct from old.company_id then
+      raise exception 'Cashbox company cannot be changed';
+    end if;
+
+    if new.currency is distinct from old.currency
+       and (
+         exists (
+           select 1
+           from public.cash_transactions ct
+           where ct.cashbox_id = old.id
+         )
+         or exists (
+           select 1
+           from public.expenses e
+           where e.cashbox_id = old.id
+         )
+       )
+    then
+      raise exception 'Cashbox currency cannot change after financial activity';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger protect_cashbox_identity_trigger
+before insert or update
+on public.cashboxes
+for each row execute function public.protect_cashbox_identity();
 
 -- =========================================================
 -- DOCUMENT SEQUENCES
@@ -2669,7 +2755,7 @@ begin
     target_company,
     v_cashbox,
     'in',
-    'adjustment_in',
+    'supplier_payment_reversal',
     v_amount,
     v_supplier,
     target_payment,
@@ -4360,7 +4446,7 @@ begin
     target_company,
     v_cashbox,
     'out',
-    'adjustment_out',
+    'customer_payment_reversal',
     v_amount,
     v_trader,
     target_payment,
@@ -4494,39 +4580,48 @@ set search_path = public
 as $$
 declare
   v_role uuid;
-  v_name text;
   v_is_owner boolean;
   v_is_protected boolean;
 begin
-  if not public.is_company_owner(target_company) then
+
+  if not public.is_company_owner(
+    target_company
+  ) then
     raise exception 'Not allowed';
   end if;
 
-  v_name := nullif(trim(role_name), '');
 
-  if v_name is null then
+  if nullif(
+       trim(role_name),
+       ''
+     ) is null
+  then
     raise exception 'Role name is required';
   end if;
 
+
   if exists (
     select 1
-    from unnest(coalesce(permission_codes, '{}'::text[])) as requested(code)
-    left join public.permissions p
-      on p.code = requested.code
-    where p.code is null
+
+    from unnest(
+      coalesce(
+        permission_codes,
+        array[]::text[]
+      )
+    ) requested(code)
+
+    where not exists (
+      select 1
+      from public.permissions p
+      where p.code =
+            requested.code
+    )
   ) then
-    raise exception 'Invalid permission';
+    raise exception 'Invalid permission code';
   end if;
 
+
   if target_role is null then
-    if exists (
-      select 1
-      from public.company_roles r
-      where r.company_id = target_company
-        and lower(r.name) = lower(v_name)
-    ) then
-      raise exception 'Role name already exists';
-    end if;
 
     insert into public.company_roles(
       company_id,
@@ -4539,73 +4634,104 @@ begin
     )
     values(
       target_company,
-      v_name,
-      nullif(trim(role_description), ''),
+      trim(role_name),
+      nullif(
+        trim(role_description),
+        ''
+      ),
       false,
       false,
       true,
       auth.uid()
     )
-    returning id into v_role;
+
+    returning id
+    into v_role;
+
   else
+
     select
-      r.id,
       r.is_owner,
       r.is_protected
+
     into
-      v_role,
       v_is_owner,
       v_is_protected
+
     from public.company_roles r
-    where r.id = target_role
-      and r.company_id = target_company
+
+    where r.id =
+          target_role
+
+      and r.company_id =
+          target_company
+
     for update;
 
-    if v_role is null then
+
+    if not found then
       raise exception 'Role not found';
     end if;
 
-    if v_is_owner or v_is_protected then
-      raise exception 'Protected role cannot be edited';
+
+    if v_is_owner
+       or v_is_protected
+    then
+      raise exception 'Protected role cannot be modified';
     end if;
 
-    if exists (
-      select 1
-      from public.company_roles r
-      where r.company_id = target_company
-        and r.id <> v_role
-        and lower(r.name) = lower(v_name)
-    ) then
-      raise exception 'Role name already exists';
-    end if;
 
     update public.company_roles
     set
-      name = v_name,
-      description = nullif(trim(role_description), ''),
-      updated_at = now()
-    where id = v_role;
+      name =
+        trim(role_name),
+
+      description =
+        nullif(
+          trim(role_description),
+          ''
+        )
+
+    where id =
+          target_role
+
+      and company_id =
+          target_company
+
+    returning id
+    into v_role;
+
   end if;
 
+
   delete from public.role_permissions
-  where role_id = v_role;
+  where role_id =
+        v_role;
+
 
   insert into public.role_permissions(
     role_id,
     permission_code
   )
+
   select
     v_role,
     requested.code
+
   from (
-    select distinct code
-    from unnest(
-      coalesce(permission_codes, '{}'::text[])
-    ) as x(code)
-  ) as requested
+    select distinct
+      unnest(
+        coalesce(
+          permission_codes,
+          array[]::text[]
+        )
+      ) as code
+  ) requested
+
   join public.permissions p
-    on p.code = requested.code
-  on conflict do nothing;
+    on p.code =
+       requested.code;
+
 
   return v_role;
 end;
@@ -4624,41 +4750,63 @@ declare
   v_is_owner boolean;
   v_is_protected boolean;
 begin
-  if not public.is_company_owner(target_company) then
+
+  if not public.is_company_owner(
+    target_company
+  ) then
     raise exception 'Not allowed';
   end if;
+
 
   select
     r.is_owner,
     r.is_protected
+
   into
     v_is_owner,
     v_is_protected
+
   from public.company_roles r
-  where r.id = target_role
-    and r.company_id = target_company
+
+  where r.id =
+        target_role
+
+    and r.company_id =
+        target_company
+
   for update;
+
 
   if not found then
     raise exception 'Role not found';
   end if;
 
-  if v_is_owner or v_is_protected then
+
+  if v_is_owner
+     or v_is_protected
+  then
     raise exception 'Protected role cannot be deleted';
   end if;
+
 
   if exists (
     select 1
     from public.company_members cm
-    where cm.company_id = target_company
-      and cm.role_id = target_role
+    where cm.company_id =
+          target_company
+      and cm.role_id =
+          target_role
   ) then
-    raise exception 'Role is assigned to employees';
+    raise exception 'Role is assigned to team members';
   end if;
 
+
   delete from public.company_roles
-  where id = target_role
-    and company_id = target_company;
+  where id =
+        target_role
+    and company_id =
+        target_company;
+
 end;
 $$;
 
@@ -4675,54 +4823,73 @@ as $$
 declare
   v_owner uuid;
   v_role_owner boolean;
-  v_role_active boolean;
 begin
-  if not public.is_company_owner(target_company) then
+
+  if not public.has_permission(
+    target_company,
+    'team.manage_members'
+  ) then
     raise exception 'Not allowed';
   end if;
 
-  select c.owner_user_id
-  into v_owner
+
+  select
+    c.owner_user_id
+
+  into
+    v_owner
+
   from public.companies c
-  where c.id = target_company;
+
+  where c.id =
+        target_company;
+
 
   if v_owner is null then
     raise exception 'Company not found';
   end if;
 
+
+  if target_user =
+     v_owner
+  then
+    raise exception
+      'Company owner role cannot be changed';
+  end if;
+
+
   select
-    r.is_owner,
-    r.active
+    r.is_owner
+
   into
-    v_role_owner,
-    v_role_active
+    v_role_owner
+
   from public.company_roles r
-  where r.id = target_role
-    and r.company_id = target_company;
+
+  where r.id =
+        target_role
+
+    and r.company_id =
+        target_company
+
+    and r.active =
+        true;
+
 
   if not found then
-    raise exception 'Role not found';
+    raise exception 'Invalid team role';
   end if;
 
-  if not v_role_active then
-    raise exception 'Role is inactive';
+
+  if coalesce(
+       v_role_owner,
+       false
+     )
+  then
+    raise exception
+      'Owner role can only be assigned to the company owner';
   end if;
 
-  if target_user = v_owner and not v_role_owner then
-    raise exception 'Company owner must keep owner role';
-  end if;
-
-  if target_user <> v_owner and v_role_owner then
-    raise exception 'Owner role cannot be assigned to an employee';
-  end if;
-
-  if not exists (
-    select 1
-    from auth.users u
-    where u.id = target_user
-  ) then
-    raise exception 'User not found';
-  end if;
 
   insert into public.company_members(
     company_id,
@@ -4734,9 +4901,15 @@ begin
     target_user,
     target_role
   )
-  on conflict (company_id, user_id)
-  do update set
-    role_id = excluded.role_id;
+
+  on conflict(
+    company_id,
+    user_id
+  )
+  do update
+  set role_id =
+      excluded.role_id;
+
 end;
 $$;
 
@@ -4752,26 +4925,52 @@ as $$
 declare
   v_owner uuid;
 begin
-  if not public.is_company_owner(target_company) then
+
+  if not public.has_permission(
+    target_company,
+    'team.manage_members'
+  ) then
     raise exception 'Not allowed';
   end if;
 
-  select c.owner_user_id
-  into v_owner
+
+  select
+    c.owner_user_id
+
+  into
+    v_owner
+
   from public.companies c
-  where c.id = target_company;
+
+  where c.id =
+        target_company;
+
 
   if v_owner is null then
     raise exception 'Company not found';
   end if;
 
-  if target_user = v_owner then
-    raise exception 'Company owner cannot be removed';
+
+  if target_user =
+     v_owner
+  then
+    raise exception
+      'Company owner cannot be removed';
   end if;
 
+
   delete from public.company_members
-  where company_id = target_company
-    and user_id = target_user;
+  where company_id =
+        target_company
+
+    and user_id =
+        target_user;
+
+
+  if not found then
+    raise exception 'Team member not found';
+  end if;
+
 end;
 $$;
 
@@ -5021,6 +5220,7 @@ $$;
 
 create or replace function public.record_expense(
   target_company uuid,
+  target_cashbox uuid,
   expense_category text,
   expense_amount numeric,
   expense_notes text default null
@@ -5033,6 +5233,7 @@ as $$
 declare
   v_cashbox uuid;
   v_expense uuid;
+  v_now timestamptz := now();
 begin
   if not public.has_permission(
     target_company,
@@ -5041,24 +5242,28 @@ begin
     raise exception 'Not allowed';
   end if;
 
-  if expense_amount <= 0 then
+  if target_cashbox is null then
+    raise exception 'Cashbox required';
+  end if;
+
+  if expense_amount is null or expense_amount <= 0 then
     raise exception 'Invalid amount';
   end if;
 
-  if nullif(trim(expense_category),'') is null then
+  if nullif(trim(coalesce(expense_category,'')),'') is null then
     raise exception 'Category required';
   end if;
 
   select id
   into v_cashbox
   from public.cashboxes
-  where company_id = target_company
+  where id = target_cashbox
+    and company_id = target_company
     and active = true
-  order by created_at
-  limit 1;
+  for update;
 
   if v_cashbox is null then
-    raise exception 'No active cashbox';
+    raise exception 'Invalid or inactive cashbox';
   end if;
 
   insert into public.expenses(
@@ -5066,14 +5271,16 @@ begin
     cashbox_id,
     category,
     amount,
-    notes
+    notes,
+    occurred_at
   )
   values(
     target_company,
     v_cashbox,
     trim(expense_category),
-    expense_amount,
-    expense_notes
+    round(expense_amount,2),
+    nullif(trim(coalesce(expense_notes,'')),''),
+    v_now
   )
   returning id into v_expense;
 
@@ -5084,16 +5291,18 @@ begin
     type,
     amount,
     expense_id,
-    notes
+    notes,
+    occurred_at
   )
   values(
     target_company,
     v_cashbox,
     'out',
     'expense',
-    expense_amount,
+    round(expense_amount,2),
     v_expense,
-    expense_notes
+    nullif(trim(coalesce(expense_notes,'')),''),
+    v_now
   );
 
   return v_expense;
@@ -5102,6 +5311,7 @@ $$;
 
 create or replace function public.record_cash_movement(
   target_company uuid,
+  target_cashbox uuid,
   movement_type text,
   movement_amount numeric,
   movement_notes text default null
@@ -5115,6 +5325,7 @@ declare
   v_cashbox uuid;
   v_id uuid;
   v_direction text;
+  v_now timestamptz := now();
 begin
   if not public.has_permission(
     target_company,
@@ -5123,7 +5334,11 @@ begin
     raise exception 'Not allowed';
   end if;
 
-  if movement_amount <= 0 then
+  if target_cashbox is null then
+    raise exception 'Cashbox required';
+  end if;
+
+  if movement_amount is null or movement_amount <= 0 then
     raise exception 'Invalid amount';
   end if;
 
@@ -5141,21 +5356,20 @@ begin
       when movement_type in (
         'partner_deposit',
         'adjustment_in'
-      )
-      then 'in'
+      ) then 'in'
       else 'out'
     end;
 
   select id
   into v_cashbox
   from public.cashboxes
-  where company_id = target_company
+  where id = target_cashbox
+    and company_id = target_company
     and active = true
-  order by created_at
-  limit 1;
+  for update;
 
   if v_cashbox is null then
-    raise exception 'No active cashbox';
+    raise exception 'Invalid or inactive cashbox';
   end if;
 
   insert into public.cash_transactions(
@@ -5164,15 +5378,17 @@ begin
     direction,
     type,
     amount,
-    notes
+    notes,
+    occurred_at
   )
   values(
     target_company,
     v_cashbox,
     v_direction,
     movement_type,
-    movement_amount,
-    movement_notes
+    round(movement_amount,2),
+    nullif(trim(coalesce(movement_notes,'')),''),
+    v_now
   )
   returning id into v_id;
 
@@ -5536,7 +5752,7 @@ returns void
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 begin
   if not public.has_permission(
     target_company,
@@ -5554,7 +5770,7 @@ begin
     raise exception 'Trader not found';
   end if;
 end;
-$;
+$$;
 
 revoke all
 on function public.archive_trader(uuid,uuid)
@@ -5824,11 +6040,7 @@ using (
   )
 );
 
-create policy expenses_write
-on public.expenses
-for all to authenticated
-using (public.has_permission(company_id,'finance.expenses_write'))
-with check (public.has_permission(company_id,'finance.expenses_write'));
+-- Expenses are RPC-only for writes to preserve accounting history.
 
 create policy cash_transactions_read
 on public.cash_transactions
@@ -5845,11 +6057,7 @@ using (
   )
 );
 
-create policy cash_transactions_write
-on public.cash_transactions
-for all to authenticated
-using (public.has_permission(company_id,'finance.cashbox_write'))
-with check (public.has_permission(company_id,'finance.cashbox_write'));
+-- Cash transactions are RPC-only for writes to preserve accounting history.
 
 -- Purchase invoices.
 create policy purchase_invoices_read
@@ -6037,8 +6245,10 @@ on public.deliveries
 to authenticated;
 
 grant select,insert,update,delete on public.cashboxes to authenticated;
-grant select,insert,update,delete on public.expenses to authenticated;
-grant select,insert,update,delete on public.cash_transactions to authenticated;
+grant select on public.expenses to authenticated;
+revoke insert,update,delete on public.expenses from authenticated;
+grant select on public.cash_transactions to authenticated;
+revoke insert,update,delete on public.cash_transactions from authenticated;
 
 
 revoke all on public.document_sequences from public, authenticated;
@@ -6151,11 +6361,11 @@ grant execute on function public.reverse_customer_payment(uuid,uuid,text) to aut
 grant execute on function public.cancel_sales_invoice(uuid,uuid,text) to authenticated;
 
 -- Finance.
-revoke all on function public.record_expense(uuid,text,numeric,text) from public;
-revoke all on function public.record_cash_movement(uuid,text,numeric,text) from public;
+revoke all on function public.record_expense(uuid,uuid,text,numeric,text) from public;
+revoke all on function public.record_cash_movement(uuid,uuid,text,numeric,text) from public;
 
-grant execute on function public.record_expense(uuid,text,numeric,text) to authenticated;
-grant execute on function public.record_cash_movement(uuid,text,numeric,text) to authenticated;
+grant execute on function public.record_expense(uuid,uuid,text,numeric,text) to authenticated;
+grant execute on function public.record_cash_movement(uuid,uuid,text,numeric,text) to authenticated;
 
 -- Internal/security-definer helpers are not directly callable by app users.
 revoke all on function public.next_purchase_invoice_number(uuid,date) from public, authenticated;
@@ -6187,4 +6397,133 @@ revoke all on function public.protect_owner_role() from public;
 revoke all on function public.protect_owner_membership() from public;
 revoke all on function public.write_audit_log() from public;
 
+
+-- ============================================================
+-- COMPANY BASE CURRENCY PROTECTION
+-- ============================================================
+
+create or replace function
+public.protect_company_default_currency()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_currency text;
+begin
+  v_currency :=
+    upper(
+      trim(
+        coalesce(
+          new.default_currency,
+          ''
+        )
+      )
+    );
+
+  if v_currency !~ '^[A-Z]{3}$' then
+    raise exception
+      'Invalid company base currency';
+  end if;
+
+  new.default_currency :=
+    v_currency;
+
+  if tg_op = 'UPDATE'
+     and new.default_currency
+         is distinct from
+         old.default_currency
+     and exists (
+       select 1
+       from public.journal_entries
+       where company_id = old.id
+       limit 1
+     )
+  then
+    raise exception
+      'Company base currency cannot change after accounting history exists';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists
+protect_company_default_currency_trigger
+on public.companies;
+
+create trigger
+protect_company_default_currency_trigger
+before insert or update of default_currency
+on public.companies
+for each row
+execute function
+public.protect_company_default_currency();
+
+-- ============================================================
+-- SECURE MAP TRADER PROJECTION
+-- ============================================================
+
+create or replace function
+public.get_map_traders(
+  target_company uuid
+)
+returns table(
+  id uuid,
+  name text,
+  area text,
+  address text,
+  phone text,
+  whatsapp text,
+  latitude numeric,
+  longitude numeric,
+  status text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.has_permission(
+    target_company,
+    'map.view'
+  ) then
+    raise exception 'Not allowed';
+  end if;
+
+  return query
+  select
+    t.id,
+    t.name,
+    t.area,
+    t.address,
+    t.phone,
+    t.whatsapp,
+    t.latitude,
+    t.longitude,
+    t.status
+  from public.traders t
+  where t.company_id =
+        target_company
+    and t.latitude
+        is not null
+    and t.longitude
+        is not null
+  order by
+    t.area nulls last,
+    t.name;
+end;
+$$;
+
+revoke all
+on function
+public.get_map_traders(uuid)
+from public;
+
+grant execute
+on function
+public.get_map_traders(uuid)
+to authenticated;
 commit;

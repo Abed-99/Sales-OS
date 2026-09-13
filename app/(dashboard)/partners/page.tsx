@@ -87,11 +87,11 @@ export default async function PartnersPage() {
     cashboxesResult,
   ];
 
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(result.error.message);
-    }
-  }
+  const pageError =
+    results.some(
+      (result) =>
+        Boolean(result.error)
+    );
 
   return (
     <>
@@ -100,6 +100,17 @@ export default async function PartnersPage() {
         subtitle="الملكية، رأس المال، المسحوبات والقروض والأرباح"
         companyName={context.companyName}
       />
+
+      {pageError && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض بيانات الشركاء. حاول تحديث الصفحة.
+          </div>
+        </div>
+      )}
 
       <PartnersClient
         companyId={context.companyId}

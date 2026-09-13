@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import L from "leaflet";
 import { useMemo, useState } from "react";
@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import { Icons } from "@/components/icons";
 import { nearestNeighborRoute } from "@/lib/route";
+import { normalizeSyrianMobile } from "@/lib/phone";
 import type { MapTrader } from "./map-shell";
 
 const DEFAULT_CENTER: [number, number] = [33.5138, 36.2765];
@@ -37,6 +38,8 @@ export function MapInner({
 }) {
   const [area, setArea] = useState("all");
   const [route, setRoute] = useState<MapTrader[]>([]);
+  const [locationError, setLocationError] =
+    useState("");
   const [start, setStart] = useState<
     { lat: number; lng: number } | undefined
   >();
@@ -89,13 +92,25 @@ export function MapInner({
   }
 
   function locate() {
-    navigator.geolocation?.getCurrentPosition(
+    setLocationError("");
+
+    if (!navigator.geolocation) {
+      setLocationError(
+        "المتصفح ما بيدعم تحديد الموقع."
+      );
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
       (position) =>
         setStart({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         }),
-      () => alert("ما قدرنا نحدد موقعك"),
+            () =>
+        setLocationError(
+          "ما قدرنا نحدد موقعك. تأكد من إذن الموقع وحاول مرة ثانية."
+        ),
       {
         enableHighAccuracy: true,
         timeout: 8000,
@@ -112,6 +127,15 @@ export function MapInner({
 
   return (
     <div className="page">
+      {locationError && (
+        <div
+          className="toastError"
+          role="alert"
+        >
+          {locationError}
+        </div>
+      )}
+
       <div className="pageTitle">
         <div>
           <span className="eyebrow">تغطية السوق</span>
@@ -240,16 +264,21 @@ export function MapInner({
                       </div>
                     </div>
 
-                    {trader.whatsapp && (
+                    {trader.whatsapp &&
+                    normalizeSyrianMobile(
+                      trader.whatsapp
+                    ) ? (
                       <a
                         className="softButton"
                         target="_blank"
                         rel="noreferrer"
-                        href={`https://wa.me/${String(trader.whatsapp).replace(/\D/g, "")}`}
+                        href={`https://wa.me/${normalizeSyrianMobile(
+                          trader.whatsapp
+                        )!.replace(/\D/g, "")}`}
                       >
                         <Icons.whatsapp size={13} />
                       </a>
-                    )}
+                    ) : null}
                   </div>
                 ))}
               </div>

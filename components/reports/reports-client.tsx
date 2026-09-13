@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   useMemo,
@@ -307,6 +307,42 @@ const inventoryTotal =
         0
       );
 
+  const payrollCurrencies =
+    [
+      ...new Set(
+        payrollRuns
+          .filter(
+            (run) =>
+              run.status !==
+              "cancelled"
+          )
+          .map(
+            (run) =>
+              run.currency
+                .trim()
+                .toUpperCase()
+          )
+      ),
+    ];
+
+  const mixedPayrollCurrencies =
+    payrollCurrencies.length > 1;
+
+  const assetCurrencies =
+    [
+      ...new Set(
+        assets.map(
+          (asset) =>
+            asset.currency
+              .trim()
+              .toUpperCase()
+        )
+      ),
+    ];
+
+  const mixedAssetCurrencies =
+    assetCurrencies.length > 1;
+
   const assetCost =
     assets.reduce(
       (sum, row) =>
@@ -348,27 +384,27 @@ const inventoryTotal =
         rows.push(
           {
             key: "overview",
-            label: "Ø§Ù„Ù…Ù„Ø®Øµ",
+            label: "الملخص",
           },
           {
             key: "profit",
-            label: "Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ ÙˆØ§Ù„Ø®Ø³Ø§Ø¦Ø±",
+            label: "الأرباح والخسائر",
           },
           {
             key: "balance",
-            label: "Ø§Ù„Ù…ÙŠØ²Ø§Ù†ÙŠØ©",
+            label: "الميزانية",
           },
           {
             key: "cash",
-            label: "Ø§Ù„ØªØ¯ÙÙ‚ Ø§Ù„Ù†Ù‚Ø¯ÙŠ",
+            label: "التدفق النقدي",
           },
           {
             key: "receivables",
-            label: "Ø°Ù…Ù… Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡",
+            label: "ذمم العملاء",
           },
           {
             key: "payables",
-            label: "Ø°Ù…Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†",
+            label: "ذمم الموردين",
           }
         );
       }
@@ -376,42 +412,42 @@ const inventoryTotal =
       if (canInventoryCost) {
         rows.push({
           key: "inventory",
-          label: "ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…Ø®Ø²ÙˆÙ†",
+          label: "تقييم المخزون",
         });
       }
 
       if (canSales) {
         rows.push({
           key: "sales",
-          label: "Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª",
+          label: "المبيعات",
         });
       }
 
       if (canPurchases) {
         rows.push({
           key: "purchases",
-          label: "Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª",
+          label: "المشتريات",
         });
       }
 
       if (canPayroll) {
         rows.push({
           key: "payroll",
-          label: "Ø§Ù„Ø±ÙˆØ§ØªØ¨",
+          label: "الرواتب",
         });
       }
 
       if (canAssets) {
         rows.push({
           key: "assets",
-          label: "Ø§Ù„Ø£ØµÙˆÙ„",
+          label: "الأصول",
         });
       }
 
       if (canPartners) {
         rows.push({
           key: "partners",
-          label: "Ø§Ù„Ø´Ø±ÙƒØ§Ø¡",
+          label: "الشركاء",
         });
       }
 
@@ -435,11 +471,11 @@ const inventoryTotal =
           </span>
 
           <h2>
-            Ù…Ø±ÙƒØ² Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±
+            مركز التقارير
           </h2>
 
           <p className="muted">
-            Ø§Ù„Ø£Ø±Ù‚Ø§Ù… Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù…Ø£Ø®ÙˆØ°Ø© Ù…Ù† Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ© ÙˆØ§Ù„Ø­Ø±ÙƒØ§Øª Ø§Ù„ÙØ¹Ù„ÙŠØ© Ù„Ù„Ù†Ø¸Ø§Ù….
+            الأرقام المالية مأخوذة من القيود المحاسبية والحركات الفعلية للنظام.
           </p>
         </div>
       </div>
@@ -448,7 +484,7 @@ const inventoryTotal =
         <div className="formGrid">
           <label className="field">
             <span>
-              Ù…Ù† ØªØ§Ø±ÙŠØ®
+              من تاريخ
             </span>
 
             <input
@@ -469,7 +505,7 @@ const inventoryTotal =
 
           <label className="field">
             <span>
-              Ø¥Ù„Ù‰ ØªØ§Ø±ÙŠØ®
+              إلى تاريخ
             </span>
 
             <input
@@ -505,7 +541,7 @@ const inventoryTotal =
             <Icons.search
               size={14}
             />
-            ØªØ­Ø¯ÙŠØ« Ø§Ù„ØªÙ‚Ø±ÙŠØ±
+            تحديث التقرير
           </button>
         </div>
       </section>
@@ -555,7 +591,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª / Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª"
+                title="صافي المبيعات / الإيرادات"
                 value={money(
                   financialReport
                     .profit_loss
@@ -565,7 +601,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ù…Ø¬Ù…Ù„ Ø§Ù„Ø±Ø¨Ø­"
+                title="مجمل الربح"
                 value={money(
                   financialReport
                     .profit_loss
@@ -575,7 +611,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„Ø±Ø¨Ø­"
+                title="صافي الربح"
                 value={money(
                   financialReport
                     .profit_loss
@@ -585,7 +621,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„ØªØ¯ÙÙ‚ Ø§Ù„Ù†Ù‚Ø¯ÙŠ"
+                title="صافي التدفق النقدي"
                 value={money(
                   financialReport
                     .cash_flow
@@ -602,7 +638,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="Ø°Ù…Ù… Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡"
+                title="ذمم العملاء"
                 value={money(
                   financialReport
                     .working_capital
@@ -612,7 +648,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø°Ù…Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†"
+                title="ذمم الموردين"
                 value={money(
                   financialReport
                     .working_capital
@@ -622,7 +658,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†"
+                title="قيمة المخزون"
                 value={money(
                   financialReport
                     .working_capital
@@ -632,7 +668,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø§Ù„Ø£ØµÙˆÙ„ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ©"
+                title="الأصول المحاسبية"
                 value={money(
                   financialReport
                     .balance_sheet
@@ -652,10 +688,10 @@ const inventoryTotal =
                 <div className="panelHeader">
                   <div>
                     <h2>
-                      Ø§Ù„Ø±Ø¨Ø­ÙŠØ©
+                      الربحية
                     </h2>
                     <p>
-                      Ù„Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø©
+                      للفترة المختارة
                     </p>
                   </div>
                 </div>
@@ -666,31 +702,31 @@ const inventoryTotal =
                   }
                   rows={[
                     [
-                      "Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª",
+                      "الإيرادات",
                       financialReport
                         .profit_loss
                         .revenue,
                     ],
                     [
-                      "ØªÙƒÙ„ÙØ© Ø§Ù„Ø¨Ø¶Ø§Ø¹Ø© Ø§Ù„Ù…Ø¨Ø§Ø¹Ø©",
+                      "تكلفة البضاعة المباعة",
                       financialReport
                         .profit_loss
                         .cost_of_goods_sold,
                     ],
                     [
-                      "Ù…Ø¬Ù…Ù„ Ø§Ù„Ø±Ø¨Ø­",
+                      "مجمل الربح",
                       financialReport
                         .profit_loss
                         .gross_profit,
                     ],
                     [
-                      "Ø§Ù„Ù…ØµØ§Ø±ÙŠÙ Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠØ©",
+                      "المصاريف التشغيلية",
                       financialReport
                         .profit_loss
                         .operating_expenses,
                     ],
                     [
-                      "ØµØ§ÙÙŠ Ø§Ù„Ø±Ø¨Ø­",
+                      "صافي الربح",
                       financialReport
                         .profit_loss
                         .net_profit,
@@ -703,10 +739,10 @@ const inventoryTotal =
                 <div className="panelHeader">
                   <div>
                     <h2>
-                      Ø§Ù„Ù…Ø±ÙƒØ² Ø§Ù„Ù…Ø§Ù„ÙŠ
+                      المركز المالي
                     </h2>
                     <p>
-                      ÙƒÙ…Ø§ ÙÙŠ{" "}
+                      كما في{" "}
                       {to}
                     </p>
                   </div>
@@ -718,31 +754,31 @@ const inventoryTotal =
                   }
                   rows={[
                     [
-                      "Ø§Ù„Ø£ØµÙˆÙ„",
+                      "الأصول",
                       financialReport
                         .balance_sheet
                         .assets,
                     ],
                     [
-                      "Ø§Ù„Ø§Ù„ØªØ²Ø§Ù…Ø§Øª",
+                      "الالتزامات",
                       financialReport
                         .balance_sheet
                         .liabilities,
                     ],
                     [
-                      "Ø­Ù‚ÙˆÙ‚ Ø§Ù„Ù…Ù„ÙƒÙŠØ© Ø§Ù„Ù…Ø±Ø­Ù„Ø©",
+                      "حقوق الملكية المرحلة",
                       financialReport
                         .balance_sheet
                         .equity_posted,
                     ],
                     [
-                      "Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ Ø§Ù„Ø­Ø§Ù„ÙŠØ©",
+                      "الأرباح الحالية",
                       financialReport
                         .balance_sheet
                         .current_earnings,
                     ],
                     [
-                      "Ø­Ù‚ÙˆÙ‚ Ø§Ù„Ù…Ù„ÙƒÙŠØ© Ù…Ø¹ Ø§Ù„Ø£Ø±Ø¨Ø§Ø­",
+                      "حقوق الملكية مع الأرباح",
                       financialReport
                         .balance_sheet
                         .equity_with_current_earnings,
@@ -766,11 +802,11 @@ const inventoryTotal =
             <div className="panelHeader">
               <div>
                 <h2>
-                  Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø£Ø±Ø¨Ø§Ø­ ÙˆØ§Ù„Ø®Ø³Ø§Ø¦Ø±
+                  قائمة الأرباح والخسائر
                 </h2>
 
                 <p>
-                  {from} â†’{" "}
+                  {from} →{" "}
                   {to}
                 </p>
               </div>
@@ -782,13 +818,13 @@ const inventoryTotal =
               }
               rows={[
                 [
-                  "Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª",
+                  "الإيرادات",
                   financialReport
                     .profit_loss
                     .revenue,
                 ],
                 [
-                  "ØªÙƒÙ„ÙØ© Ø§Ù„Ø¨Ø¶Ø§Ø¹Ø© Ø§Ù„Ù…Ø¨Ø§Ø¹Ø©",
+                  "تكلفة البضاعة المباعة",
                   -num(
                     financialReport
                       .profit_loss
@@ -796,13 +832,13 @@ const inventoryTotal =
                   ),
                 ],
                 [
-                  "Ù…Ø¬Ù…Ù„ Ø§Ù„Ø±Ø¨Ø­",
+                  "مجمل الربح",
                   financialReport
                     .profit_loss
                     .gross_profit,
                 ],
                 [
-                  "Ø§Ù„Ù…ØµØ§Ø±ÙŠÙ Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠØ©",
+                  "المصاريف التشغيلية",
                   -num(
                     financialReport
                       .profit_loss
@@ -810,7 +846,7 @@ const inventoryTotal =
                   ),
                 ],
                 [
-                  "ØµØ§ÙÙŠ Ø§Ù„Ø±Ø¨Ø­",
+                  "صافي الربح",
                   financialReport
                     .profit_loss
                     .net_profit,
@@ -833,11 +869,11 @@ const inventoryTotal =
             <div className="panelHeader">
               <div>
                 <h2>
-                  Ø§Ù„Ù…ÙŠØ²Ø§Ù†ÙŠØ© Ø§Ù„Ø¹Ù…ÙˆÙ…ÙŠØ©
+                  الميزانية العمومية
                 </h2>
 
                 <p>
-                  ÙƒÙ…Ø§ ÙÙŠ{" "}
+                  كما في{" "}
                   {to}
                 </p>
               </div>
@@ -849,31 +885,31 @@ const inventoryTotal =
               }
               rows={[
                 [
-                  "Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø£ØµÙˆÙ„",
+                  "إجمالي الأصول",
                   financialReport
                     .balance_sheet
                     .assets,
                 ],
                 [
-                  "Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø§Ù„ØªØ²Ø§Ù…Ø§Øª",
+                  "إجمالي الالتزامات",
                   financialReport
                     .balance_sheet
                     .liabilities,
                 ],
                 [
-                  "Ø­Ù‚ÙˆÙ‚ Ø§Ù„Ù…Ù„ÙƒÙŠØ© Ø§Ù„Ù…Ø±Ø­Ù„Ø©",
+                  "حقوق الملكية المرحلة",
                   financialReport
                     .balance_sheet
                     .equity_posted,
                 ],
                 [
-                  "Ø£Ø±Ø¨Ø§Ø­ Ø§Ù„ÙØªØ±Ø© ÙˆØ§Ù„Ø­Ø§Ù„ÙŠØ©",
+                  "أرباح الفترة والحالية",
                   financialReport
                     .balance_sheet
                     .current_earnings,
                 ],
                 [
-                  "Ø­Ù‚ÙˆÙ‚ Ø§Ù„Ù…Ù„ÙƒÙŠØ© Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠØ©",
+                  "حقوق الملكية الإجمالية",
                   financialReport
                     .balance_sheet
                     .equity_with_current_earnings,
@@ -894,7 +930,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="Ø§Ù„ØªØ¯ÙÙ‚Ø§Øª Ø§Ù„Ø¯Ø§Ø®Ù„Ø©"
+                title="التدفقات الداخلة"
                 value={money(
                   financialReport
                     .cash_flow
@@ -904,7 +940,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø§Ù„ØªØ¯ÙÙ‚Ø§Øª Ø§Ù„Ø®Ø§Ø±Ø¬Ø©"
+                title="التدفقات الخارجة"
                 value={money(
                   financialReport
                     .cash_flow
@@ -914,7 +950,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„ØªØ¯ÙÙ‚"
+                title="صافي التدفق"
                 value={money(
                   financialReport
                     .cash_flow
@@ -936,13 +972,13 @@ const inventoryTotal =
                 }
                 rows={[
                   [
-                    "Ø§Ù„Ù†Ù‚Ø¯ Ø§Ù„Ø¯Ø§Ø®Ù„",
+                    "النقد الداخل",
                     financialReport
                       .cash_flow
                       .cash_in,
                   ],
                   [
-                    "Ø§Ù„Ù†Ù‚Ø¯ Ø§Ù„Ø®Ø§Ø±Ø¬",
+                    "النقد الخارج",
                     -num(
                       financialReport
                         .cash_flow
@@ -950,7 +986,7 @@ const inventoryTotal =
                     ),
                   ],
                   [
-                    "ØµØ§ÙÙŠ Ø­Ø±ÙƒØ© Ø§Ù„Ù†Ù‚Ø¯",
+                    "صافي حركة النقد",
                     financialReport
                       .cash_flow
                       .net_cash_flow,
@@ -998,7 +1034,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†"
+                title="قيمة المخزون"
                 value={money(
                   inventoryTotal,
                   baseCurrency
@@ -1006,7 +1042,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ø£ØµÙ†Ø§Ù Ø¨Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹Ø§Øª"
+                title="عدد الأصناف بالمستودعات"
                 value={String(
                   inventory.length
                 )}
@@ -1024,28 +1060,28 @@ const inventoryTotal =
                   <thead>
                     <tr>
                       <th>
-                        Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹
+                        المستودع
                       </th>
                       <th>
-                        Ø§Ù„Ù…Ù†ØªØ¬
+                        المنتج
                       </th>
                       <th>
                         SKU
                       </th>
                       <th>
-                        Ù…ÙˆØ¬ÙˆØ¯
+                        موجود
                       </th>
                       <th>
-                        Ù…Ø­Ø¬ÙˆØ²
+                        محجوز
                       </th>
                       <th>
-                        Ù…ØªØ§Ø­
+                        متاح
                       </th>
                       <th>
-                        Ù…ØªÙˆØ³Ø· Ø§Ù„ØªÙƒÙ„ÙØ©
+                        متوسط التكلفة
                       </th>
                       <th>
-                        Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†
+                        قيمة المخزون
                       </th>
                     </tr>
                   </thead>
@@ -1072,7 +1108,7 @@ const inventoryTotal =
 
                           <td>
                             {row.sku ||
-                              "â€”"}
+                              "—"}
                           </td>
 
                           <td>
@@ -1135,7 +1171,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª"
+                title="صافي المبيعات"
                 value={money(
                   totalSales,
                   baseCurrency
@@ -1143,7 +1179,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ø£Ø´Ù‡Ø±"
+                title="عدد الأشهر"
                 value={String(
                   salesMonthly.length
                 )}
@@ -1171,7 +1207,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª"
+                title="صافي المشتريات"
                 value={money(
                   totalPurchases,
                   baseCurrency
@@ -1179,7 +1215,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ø£Ø´Ù‡Ø±"
+                title="عدد الأشهر"
                 value={String(
                   purchaseMonthly.length
                 )}
@@ -1207,15 +1243,20 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="ØµØ§ÙÙŠ Ø§Ù„Ø±ÙˆØ§ØªØ¨"
-                value={money(
-                  totalPayroll,
-                  baseCurrency
-                )}
+                title="صافي الرواتب"
+                value={
+                  mixedPayrollCurrencies
+                    ? "حسب العملة"
+                    : money(
+                        totalPayroll,
+                        payrollCurrencies[0] ??
+                          baseCurrency
+                      )
+                }
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ù…Ø³ÙŠØ±Ø§Øª"
+                title="عدد المسيرات"
                 value={String(
                   payrollRuns.length
                 )}
@@ -1233,25 +1274,25 @@ const inventoryTotal =
                   <thead>
                     <tr>
                       <th>
-                        Ø§Ù„ÙØªØ±Ø©
+                        الفترة
                       </th>
                       <th>
-                        Ø§Ù„Ø­Ø§Ù„Ø©
+                        الحالة
                       </th>
                       <th>
-                        Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ
+                        الإجمالي
                       </th>
                       <th>
-                        Ø§Ù„Ø®ØµÙˆÙ…Ø§Øª
+                        الخصومات
                       </th>
                       <th>
-                        Ø§Ù„ØµØ§ÙÙŠ
+                        الصافي
                       </th>
                       <th>
-                        Ø§Ù„Ù…Ø¯ÙÙˆØ¹
+                        المدفوع
                       </th>
                       <th>
-                        Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ
+                        المتبقي
                       </th>
                     </tr>
                   </thead>
@@ -1270,7 +1311,7 @@ const inventoryTotal =
                                 run.period_start
                               }
                             </strong>
-                            {" â†’ "}
+                            {" → "}
                             {
                               run.period_end
                             }
@@ -1348,23 +1389,33 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="ØªÙƒÙ„ÙØ© Ø§Ù„Ø£ØµÙˆÙ„"
-                value={money(
-                  assetCost,
-                  baseCurrency
-                )}
+                title="تكلفة الأصول"
+                value={
+                  mixedAssetCurrencies
+                    ? "حسب العملة"
+                    : money(
+                        assetCost,
+                        assetCurrencies[0] ??
+                          baseCurrency
+                      )
+                }
               />
 
               <Mini
-                title="Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¯ÙØªØ±ÙŠØ©"
-                value={money(
-                  assetBookValue,
-                  baseCurrency
-                )}
+                title="القيمة الدفترية"
+                value={
+                  mixedAssetCurrencies
+                    ? "حسب العملة"
+                    : money(
+                        assetBookValue,
+                        assetCurrencies[0] ??
+                          baseCurrency
+                      )
+                }
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ø£ØµÙˆÙ„"
+                title="عدد الأصول"
                 value={String(
                   assets.length
                 )}
@@ -1382,25 +1433,25 @@ const inventoryTotal =
                   <thead>
                     <tr>
                       <th>
-                        Ø§Ù„Ø£ØµÙ„
+                        الأصل
                       </th>
                       <th>
-                        Ø§Ù„ØªØµÙ†ÙŠÙ
+                        التصنيف
                       </th>
                       <th>
-                        Ø§Ù„ØªÙƒÙ„ÙØ©
+                        التكلفة
                       </th>
                       <th>
-                        Ø§Ù„Ø¥Ù‡Ù„Ø§Ùƒ Ø§Ù„Ù…ØªØ±Ø§ÙƒÙ…
+                        الإهلاك المتراكم
                       </th>
                       <th>
-                        Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¯ÙØªØ±ÙŠØ©
+                        القيمة الدفترية
                       </th>
                       <th>
-                        Ø¥Ù‡Ù„Ø§Ùƒ Ø´Ù‡Ø±ÙŠ
+                        إهلاك شهري
                       </th>
                       <th>
-                        Ø§Ù„Ø­Ø§Ù„Ø©
+                        الحالة
                       </th>
                     </tr>
                   </thead>
@@ -1429,7 +1480,7 @@ const inventoryTotal =
 
                           <td>
                             {asset.category ||
-                              "â€”"}
+                              "—"}
                           </td>
 
                           <td>
@@ -1487,7 +1538,7 @@ const inventoryTotal =
               }}
             >
               <Mini
-                title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø±Ø£Ø³ Ø§Ù„Ù…Ø§Ù„ Ø§Ù„Ù…Ø¯Ø®Ù„"
+                title="إجمالي رأس المال المدخل"
                 value={money(
                   partnerCapital,
                   baseCurrency
@@ -1495,7 +1546,7 @@ const inventoryTotal =
               />
 
               <Mini
-                title="Ø¹Ø¯Ø¯ Ø§Ù„Ø´Ø±ÙƒØ§Ø¡"
+                title="عدد الشركاء"
                 value={String(
                   partners.filter(
                     (partner) =>
@@ -1516,25 +1567,25 @@ const inventoryTotal =
                   <thead>
                     <tr>
                       <th>
-                        Ø§Ù„Ø´Ø±ÙŠÙƒ
+                        الشريك
                       </th>
                       <th>
-                        Ø§Ù„Ù…Ù„ÙƒÙŠØ©
+                        الملكية
                       </th>
                       <th>
-                        Ø­ØµØ© Ø§Ù„Ø±Ø¨Ø­
+                        حصة الربح
                       </th>
                       <th>
-                        Ø±Ø£Ø³ Ø§Ù„Ù…Ø§Ù„
+                        رأس المال
                       </th>
                       <th>
-                        Ø§Ù„Ù…Ø³Ø­ÙˆØ¨Ø§Øª
+                        المسحوبات
                       </th>
                       <th>
-                        Ø±ØµÙŠØ¯ Ø§Ù„Ù‚Ø±Ø¶
+                        رصيد القرض
                       </th>
                       <th>
-                        ØªÙˆØ²ÙŠØ¹Ø§Øª Ø§Ù„Ø£Ø±Ø¨Ø§Ø­
+                        توزيعات الأرباح
                       </th>
                     </tr>
                   </thead>
@@ -1648,8 +1699,8 @@ function AgingTable({
           title={
             type ===
             "customer"
-              ? "Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø°Ù…Ù… Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡"
-              : "Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø°Ù…Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†"
+              ? "إجمالي ذمم العملاء"
+              : "إجمالي ذمم الموردين"
           }
           value={money(
             total,
@@ -1661,8 +1712,8 @@ function AgingTable({
           title={
             type ===
             "customer"
-              ? "Ø¹Ù…Ù„Ø§Ø¡ Ø¹Ù„ÙŠÙ‡Ù… Ø±ØµÙŠØ¯"
-              : "Ù…ÙˆØ±Ø¯ÙŠÙ† Ø¹Ù„ÙŠÙ‡Ù… Ø±ØµÙŠØ¯"
+              ? "عملاء عليهم رصيد"
+              : "موردين عليهم رصيد"
           }
           value={String(
             rows.length
@@ -1683,11 +1734,11 @@ function AgingTable({
                 <th>
                   {type ===
                   "customer"
-                    ? "Ø§Ù„Ø¹Ù…ÙŠÙ„"
-                    : "Ø§Ù„Ù…ÙˆØ±Ø¯"}
+                    ? "العميل"
+                    : "المورد"}
                 </th>
                 <th>
-                  Ø­Ø§Ù„ÙŠ
+                  حالي
                 </th>
                 <th>
                   1-30
@@ -1699,10 +1750,10 @@ function AgingTable({
                   61-90
                 </th>
                 <th>
-                  Ø£ÙƒØ«Ø± Ù…Ù† 90
+                  أكثر من 90
                 </th>
                 <th>
-                  Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ
+                  الإجمالي
                 </th>
               </tr>
             </thead>
@@ -1822,25 +1873,25 @@ function MonthlySalesTable({
           <thead>
             <tr>
               <th>
-                Ø§Ù„Ø´Ù‡Ø±
+                الشهر
               </th>
               <th>
-                Ø§Ù„ÙÙˆØ§ØªÙŠØ±
+                الفواتير
               </th>
               <th>
-                Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª
+                إجمالي المبيعات
               </th>
               <th>
-                Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª
+                المرتجعات
               </th>
               <th>
-                ØµØ§ÙÙŠ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª
+                صافي المبيعات
               </th>
               <th>
-                Ø§Ù„Ù…Ø­ØµÙ„
+                المحصل
               </th>
               <th>
-                Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ
+                المتبقي
               </th>
             </tr>
           </thead>
@@ -1933,25 +1984,25 @@ function MonthlyPurchaseTable({
           <thead>
             <tr>
               <th>
-                Ø§Ù„Ø´Ù‡Ø±
+                الشهر
               </th>
               <th>
-                Ø§Ù„ÙÙˆØ§ØªÙŠØ±
+                الفواتير
               </th>
               <th>
-                Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª
+                إجمالي المشتريات
               </th>
               <th>
-                Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª
+                المرتجعات
               </th>
               <th>
-                ØµØ§ÙÙŠ Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª
+                صافي المشتريات
               </th>
               <th>
-                Ø§Ù„Ù…Ø¯ÙÙˆØ¹
+                المدفوع
               </th>
               <th>
-                Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ
+                المتبقي
               </th>
             </tr>
           </thead>
@@ -2093,28 +2144,28 @@ function payrollStatus(
   if (
     status === "draft"
   ) {
-    return "Ù…Ø³ÙˆØ¯Ø©";
+    return "مسودة";
   }
 
   if (
     status === "posted"
   ) {
-    return "Ù…Ø±Ø­Ù‘Ù„";
+    return "مرحّل";
   }
 
   if (
     status === "partial"
   ) {
-    return "Ø¯ÙØ¹ Ø¬Ø²Ø¦ÙŠ";
+    return "دفع جزئي";
   }
 
   if (
     status === "paid"
   ) {
-    return "Ù…Ø¯ÙÙˆØ¹";
+    return "مدفوع";
   }
 
-  return "Ù…Ù„ØºÙ‰";
+  return "ملغى";
 }
 
 function assetStatus(
@@ -2123,17 +2174,17 @@ function assetStatus(
   if (
     status === "active"
   ) {
-    return "Ù†Ø´Ø·";
+    return "نشط";
   }
 
   if (
     status ===
     "fully_depreciated"
   ) {
-    return "Ù…Ø³ØªÙ‡Ù„Ùƒ Ø¨Ø§Ù„ÙƒØ§Ù…Ù„";
+    return "مستهلك بالكامل";
   }
 
-  return "Ù…Ø³ØªØ¨Ø¹Ø¯";
+  return "مستبعد";
 }
 
 function Mini({

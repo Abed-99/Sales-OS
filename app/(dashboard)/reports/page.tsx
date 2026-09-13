@@ -20,6 +20,27 @@ import {
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
+function damascusToday() {
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(new Date());
+
+  const get = (type: string) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 function validDate(
   value: string | undefined
 ) {
@@ -78,17 +99,11 @@ export default async function ReportsPage({
     );
   }
 
-  const now =
-    new Date();
-
-  const year =
-    now.getFullYear();
+  const defaultTo =
+    damascusToday();
 
   const defaultFrom =
-    `${year}-01-01`;
-
-  const defaultTo =
-    now.toISOString().slice(0, 10);
+    `${defaultTo.slice(0, 4)}-01-01`;
 
   const from =
     validDate(params.from)
@@ -197,6 +212,9 @@ export default async function ReportsPage({
   let partners:
     ReportPartner[] = [];
 
+  const warnings:
+    string[] = [];
+
   if (canFinance) {
     const [
       financialResult,
@@ -237,21 +255,15 @@ export default async function ReportsPage({
     ]);
 
     if (financialResult.error) {
-      throw new Error(
-        financialResult.error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     if (receivableResult.error) {
-      throw new Error(
-        receivableResult.error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     if (payableResult.error) {
-      throw new Error(
-        payableResult.error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     financialReport =
@@ -281,9 +293,7 @@ export default async function ReportsPage({
       );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     salesMonthly =
@@ -306,9 +316,7 @@ export default async function ReportsPage({
       );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     purchaseMonthly =
@@ -327,9 +335,7 @@ export default async function ReportsPage({
       );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     inventory =
@@ -364,9 +370,7 @@ export default async function ReportsPage({
         );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     payrollRuns =
@@ -392,9 +396,7 @@ export default async function ReportsPage({
         );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     assets =
@@ -420,9 +422,7 @@ export default async function ReportsPage({
         );
 
     if (error) {
-      throw new Error(
-        error.message
-      );
+      warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
     partners =
@@ -437,6 +437,17 @@ export default async function ReportsPage({
         subtitle="التقارير المالية والتشغيلية"
         companyName={context.companyName}
       />
+
+      {warnings.length > 0 && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض أقسام التقارير. البيانات المتاحة فقط هي الظاهرة.
+          </div>
+        </div>
+      )}
 
       <ReportsClient
         baseCurrency={

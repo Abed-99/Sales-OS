@@ -103,7 +103,7 @@ export function SettingsClient({
           .eq("id", user.id);
 
       if (profileError) {
-        setMessage(profileError.message);
+        setMessage("تعذر تحديث بيانات الحساب.");
         return;
       }
 
@@ -120,12 +120,12 @@ export function SettingsClient({
               name: companyName.trim(),
               phone: normalizedPhone,
               whatsapp: normalizedWhatsapp,
-              default_currency: currency,
+              default_currency: currency.trim().toUpperCase(),
             })
             .eq("id", company.id);
 
         if (companyError) {
-          setMessage(companyError.message);
+          setMessage("تعذر تحديث بيانات الشركة. تحقق من الصلاحيات والعملة.");
           return;
         }
       }

@@ -154,11 +154,11 @@ export default async function PayrollPage() {
     cashboxesResult,
   ];
 
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(result.error.message);
-    }
-  }
+  const pageError =
+    results.some(
+      (result) =>
+        Boolean(result.error)
+    );
 
   return (
     <>
@@ -167,6 +167,17 @@ export default async function PayrollPage() {
         subtitle="الرواتب، الإضافي، الخصومات، السلف والدفع"
         companyName={context.companyName}
       />
+
+      {pageError && (
+        <div className="page">
+          <div
+            className="toastError"
+            role="alert"
+          >
+            تعذر تحميل بعض بيانات الرواتب. حاول تحديث الصفحة.
+          </div>
+        </div>
+      )}
 
       <PayrollClient
         companyId={context.companyId}

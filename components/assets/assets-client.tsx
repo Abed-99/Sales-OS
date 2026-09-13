@@ -12,11 +12,30 @@ function num(value: unknown) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "Asia/Damascus",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const get = (type: string) =>
+    parts.find(
+      (part) =>
+        part.type === type
+    )?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function currentMonth() {
-  return new Date().toISOString().slice(0, 7);
+  return today().slice(0, 7);
 }
 
 export type FixedAsset = {
@@ -111,6 +130,25 @@ export function AssetsClient({
     );
   }, [assets, search]);
 
+  const assetCurrencies =
+    [
+      ...new Set(
+        assets.map(
+          (asset) =>
+            asset.currency
+              .trim()
+              .toUpperCase()
+        )
+      ),
+    ];
+
+  const mixedAssetCurrencies =
+    assetCurrencies.length > 1;
+
+  const assetDisplayCurrency =
+    assetCurrencies[0] ??
+    baseCurrency;
+
   const totalCost = assets.reduce(
     (sum, asset) => sum + num(asset.purchase_cost),
     0
@@ -166,7 +204,7 @@ export function AssetsClient({
     setSaving(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage("تعذر تنفيذ العملية على الأصل. تحقق من البيانات والصلاحيات والفترة المالية.");
       return;
     }
 
@@ -211,15 +249,13 @@ export function AssetsClient({
     setSaving(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage("تعذر تنفيذ العملية على الأصل. تحقق من البيانات والصلاحيات والفترة المالية.");
       return;
     }
 
     setDepreciationOpen(false);
 
-    window.alert(
-      `تم ترحيل الإهلاك لـ ${Number(data || 0)} أصل.`
-    );
+    setMessage(`تم ترحيل الإهلاك لـ ${Number(data || 0)} أصل.`);
 
     router.refresh();
   }
@@ -280,17 +316,17 @@ export function AssetsClient({
 
         <Mini
           title="تكلفة الأصول"
-          value={`${totalCost.toFixed(2)} ${baseCurrency}`}
+          value={mixedAssetCurrencies ? "حسب العملة" : `${totalCost.toFixed(2)} ${assetDisplayCurrency}`}
         />
 
         <Mini
           title="الإهلاك المتراكم"
-          value={`${totalDepreciation.toFixed(2)} ${baseCurrency}`}
+          value={mixedAssetCurrencies ? "حسب العملة" : `${totalDepreciation.toFixed(2)} ${assetDisplayCurrency}`}
         />
 
         <Mini
           title="القيمة الدفترية"
-          value={`${totalBookValue.toFixed(2)} ${baseCurrency}`}
+          value={mixedAssetCurrencies ? "حسب العملة" : `${totalBookValue.toFixed(2)} ${assetDisplayCurrency}`}
         />
       </section>
 

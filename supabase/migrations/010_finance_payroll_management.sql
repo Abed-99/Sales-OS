@@ -395,6 +395,19 @@ begin
       'Invalid employee status';
   end if;
 
+  if upper(
+       trim(
+         coalesce(
+           target_salary_currency,
+           ''
+         )
+       )
+     ) !~ '^[A-Z]{3}$'
+  then
+    raise exception
+      'Invalid salary currency';
+  end if;
+
   if coalesce(
        target_base_salary,
        0
@@ -422,6 +435,23 @@ begin
   then
     raise exception
       'Payroll values cannot be negative';
+  end if;
+
+  if coalesce(
+       target_employee_social_rate,
+       0
+     ) > 100
+     or coalesce(
+       target_employer_social_rate,
+       0
+     ) > 100
+     or coalesce(
+       target_income_tax_rate,
+       0
+     ) > 100
+  then
+    raise exception
+      'Payroll percentage cannot exceed 100';
   end if;
 
   if target_cashbox is not null
@@ -746,7 +776,7 @@ begin
     ),
     coalesce(
       target_start_date,
-      current_date
+      (now() at time zone 'Asia/Damascus')::date
     ),
     'active',
     nullif(
@@ -831,8 +861,12 @@ as $$
 declare
   v_row record;
   v_loan record;
+
   v_remaining numeric(18,2);
   v_take numeric(18,2);
+
+  v_existing numeric(18,2);
+  v_repayment uuid;
 begin
   for v_row in
     select
@@ -854,8 +888,40 @@ begin
       and pi.loan_deduction >
           0
   loop
+
+    select
+      coalesce(
+        sum(r.amount),
+        0
+      )
+
+    into
+      v_existing
+
+    from public.employee_loan_repayments r
+
+    where r.company_id =
+          v_row.company_id
+
+      and r.payroll_item_id =
+          v_row.payroll_item_id;
+
+
     v_remaining :=
-      v_row.loan_deduction;
+      greatest(
+        round(
+          v_row.loan_deduction -
+          v_existing,
+          2
+        ),
+        0
+      );
+
+
+    if v_remaining <= 0.01 then
+      continue;
+    end if;
+
 
     for v_loan in
       select
@@ -882,14 +948,23 @@ begin
 
       for update
     loop
+
       exit when
-        v_remaining <= 0;
+        v_remaining <= 0.01;
+
 
       v_take :=
-        least(
-          v_remaining,
-          v_loan.balance_due
+        round(
+          least(
+            v_remaining,
+            v_loan.balance_due
+          ),
+          2
         );
+
+
+      v_repayment := null;
+
 
       insert into public.employee_loan_repayments(
         company_id,
@@ -905,41 +980,97 @@ begin
         v_take,
         v_row.period_end
       )
+
       on conflict(
         employee_loan_id,
         payroll_item_id
       )
-      do nothing;
+      do nothing
+
+      returning id
+      into v_repayment;
+
+
+      if v_repayment is null then
+
+        select
+          r.amount
+
+        into
+          v_existing
+
+        from public.employee_loan_repayments r
+
+        where r.employee_loan_id =
+              v_loan.id
+
+          and r.payroll_item_id =
+              v_row.payroll_item_id;
+
+
+        v_remaining :=
+          greatest(
+            round(
+              v_remaining -
+              coalesce(
+                v_existing,
+                0
+              ),
+              2
+            ),
+            0
+          );
+
+        continue;
+      end if;
+
 
       update public.employee_loans
       set
         balance_due =
           greatest(
-            balance_due -
-            v_take,
+            round(
+              balance_due -
+              v_take,
+              2
+            ),
             0
           ),
 
         status =
           case
-            when balance_due -
-                 v_take <= 0
+            when round(
+                   balance_due -
+                   v_take,
+                   2
+                 ) <= 0
               then 'settled'
+
             else status
           end
 
       where id =
             v_loan.id;
 
+
       v_remaining :=
-        v_remaining -
-        v_take;
+        greatest(
+          round(
+            v_remaining -
+            v_take,
+            2
+          ),
+          0
+        );
+
     end loop;
+
 
     if v_remaining > 0.01 then
       raise exception
         'Payroll loan deduction exceeds employee loan balance';
     end if;
+
   end loop;
 end;
 $$;

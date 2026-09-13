@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     if (companyError) {
       return NextResponse.json(
-        { error: companyError.message },
+        { error: "تعذر التحقق من الشركة." },
         { status: 500 }
       );
     }
@@ -98,7 +98,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (roleError) {
-      return NextResponse.json({ error: roleError.message }, { status: 500 });
+      return NextResponse.json(
+        { error: "تعذر التحقق من صفة الموظف." },
+        { status: 500 }
+      );
     }
 
     if (!role || role.is_owner || !role.active) {
@@ -125,7 +128,7 @@ export async function POST(request: NextRequest) {
 
       if (error || !data.user) {
         return NextResponse.json(
-          { error: error?.message || "تعذر إرسال الدعوة." },
+          { error: "تعذر إرسال الدعوة. تحقق من البريد وحاول مرة أخرى." },
           { status: 400 }
         );
       }
@@ -156,7 +159,7 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { error: membershipError.message },
+        { error: "تعذر إضافة الموظف إلى الشركة." },
         { status: 400 }
       );
     }
