@@ -78,6 +78,7 @@ export function AssetsClient({
   baseCurrency,
   assets,
   depreciation,
+  cashboxes,
   canManage,
   canDepreciate,
 }: {
@@ -85,6 +86,7 @@ export function AssetsClient({
   baseCurrency: string;
   assets: FixedAsset[];
   depreciation: AssetDepreciation[];
+  cashboxes: { id: string; name: string; currency: string }[];
   canManage: boolean;
   canDepreciate: boolean;
 }) {
@@ -105,6 +107,8 @@ export function AssetsClient({
   const [salvage, setSalvage] = useState("0");
   const [lifeMonths, setLifeMonths] = useState("60");
   const [notes, setNotes] = useState("");
+  // "" = أصل كان عنا قبل النظام، وإلا رقم الصندوق اللي دفعنا منه.
+  const [paidFrom, setPaidFrom] = useState("");
 
   const [depreciationMonth, setDepreciationMonth] =
     useState(currentMonth());
@@ -198,6 +202,7 @@ export function AssetsClient({
         target_salvage_value: num(salvage),
         target_useful_life_months: Math.round(num(lifeMonths)),
         target_notes: notes.trim() || null,
+        target_cashbox: paidFrom || null,
       }
     );
 
@@ -216,6 +221,7 @@ export function AssetsClient({
     setSalvage("0");
     setLifeMonths("60");
     setNotes("");
+    setPaidFrom("");
 
     router.refresh();
   }
@@ -554,6 +560,23 @@ export function AssetsClient({
                     setCurrency(value.toUpperCase())
                   }
                 />
+
+                <label className="field">
+                  <span>طريقة الدفع</span>
+                  <select
+                    value={paidFrom}
+                    onChange={(event) => setPaidFrom(event.target.value)}
+                  >
+                    <option value="">أصل موجود عنا قبل النظام</option>
+                    {cashboxes
+                      .filter((box) => box.currency.toUpperCase() === currency.toUpperCase())
+                      .map((box) => (
+                        <option key={box.id} value={box.id}>
+                          دفعنا من {box.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
 
                 <NumberField
                   label="تكلفة الشراء *"

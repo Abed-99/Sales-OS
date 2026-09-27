@@ -102,11 +102,11 @@ type JournalDraftLine = {
 };
 
 const accountTypeLabels: Record<string, string> = {
-  asset: "╪ú╪╡┘ä",
-  liability: "╪º┘ä╪¬╪▓╪º┘à",
-  equity: "╪¡┘é┘ê┘é ┘à┘ä┘â┘è╪⌐",
-  revenue: "╪Ñ┘è╪▒╪º╪»",
-  expense: "┘à╪╡╪▒┘ê┘ü",
+  asset: "أصل",
+  liability: "التزام",
+  equity: "حقوق ملكية",
+  revenue: "إيراد",
+  expense: "مصروف",
 };
 
 function numberValue(value: unknown) {
@@ -115,6 +115,25 @@ function numberValue(value: unknown) {
   return Number.isFinite(n)
     ? n
     : 0;
+}
+
+/** Shows a stored rate the way people say it: "1 USD = 13,000 SYP". */
+function unitsPerBase(
+  rateToBase: unknown,
+  baseCurrency: string,
+  currency: string
+) {
+  const rate = numberValue(rateToBase);
+
+  if (rate <= 0) {
+    return "—";
+  }
+
+  const units = 1 / rate;
+
+  return `1 ${baseCurrency} = ${units.toLocaleString("en-US", {
+    maximumFractionDigits: units >= 100 ? 0 : 4,
+  })} ${currency}`;
 }
 
 function businessDate() {
@@ -441,7 +460,7 @@ export function FinanceClient({
       !accountName.trim()
     ) {
       setMessage(
-        "╪º┘ä┘â┘ê╪» ┘ê╪º╪│┘à ╪º┘ä╪¡╪│╪º╪¿ ┘à╪╖┘ä┘ê╪¿┘è┘å."
+        "الكود واسم الحساب مطلوبين."
       );
       return;
     }
@@ -517,7 +536,7 @@ export function FinanceClient({
       ) <= 0
     ) {
       setMessage(
-        "╪º┘â╪¬╪¿ ╪º┘ä╪╣┘à┘ä╪⌐ ┘ê╪│╪╣╪▒ ╪º┘ä╪╡╪▒┘ü."
+        "اكتب العملة وسعر الصرف."
       );
       return;
     }
@@ -535,7 +554,9 @@ export function FinanceClient({
             normalizedRateCurrency,
           target_date:
             rateDate,
+          // الشاشة بتسأل "1 دولار = كم ليرة"، والقاعدة بتخزّن قيمة الليرة الوحدة بالدولار.
           target_rate:
+            1 /
             numberValue(
               rateValue
             ),
@@ -651,14 +672,14 @@ export function FinanceClient({
       !journalDescription.trim()
     ) {
       setMessage(
-        "╪º┘â╪¬╪¿ ╪¿┘è╪º┘å ╪º┘ä┘é┘è╪»."
+        "اكتب بيان القيد."
       );
       return;
     }
 
     if (lines.length < 2) {
       setMessage(
-        "╪º┘ä┘é┘è╪» ┘ä╪º╪▓┘à ┘è╪¡╪¬┘ê┘è ╪│╪╖╪▒┘è┘å ╪╣┘ä┘ë ╪º┘ä╪ú┘é┘ä."
+        "القيد لازم يحتوي سطرين على الأقل."
       );
       return;
     }
@@ -686,7 +707,7 @@ export function FinanceClient({
       ) > 0.009
     ) {
       setMessage(
-        "╪º┘ä┘é┘è╪» ╪║┘è╪▒ ┘à╪¬┘ê╪º╪▓┘å."
+        "القيد غير متوازن."
       );
       return;
     }
@@ -872,11 +893,11 @@ export function FinanceClient({
           </span>
 
           <h2>
-            ╪º┘ä╪Ñ╪»╪º╪▒╪⌐ ╪º┘ä┘à╪º┘ä┘è╪⌐
+            الإدارة المالية
           </h2>
 
           <p className="muted">
-            ┘â┘ä ╪º┘ä╪╣┘à┘ä┘è╪º╪¬ ╪º┘ä╪¬╪┤╪║┘è┘ä┘è╪⌐ ╪¬╪¬╪▒╪¡┘ä ┘à╪¡╪º╪│╪¿┘è┘ï╪º ╪¿╪┤┘â┘ä ╪¬┘ä┘é╪º╪ª┘è.
+            كل العمليات التشغيلية تترحل محاسبيًا بشكل تلقائي.
           </p>
         </div>
 
@@ -895,7 +916,7 @@ export function FinanceClient({
               <Icons.plus
                 size={14}
               />
-              ┘é┘è╪» ┘è╪»┘ê┘è
+              قيد يدوي
             </button>
           )}
 
@@ -913,7 +934,7 @@ export function FinanceClient({
               <Icons.plus
                 size={14}
               />
-              ╪¡╪│╪º╪¿ ╪¼╪»┘è╪»
+              حساب جديد
             </button>
           )}
         </div>
@@ -921,28 +942,28 @@ export function FinanceClient({
 
       <section className="statsGrid">
         <Mini
-          title="╪º┘ä╪ú╪╡┘ê┘ä"
+          title="الأصول"
           value={`${assets.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="╪º┘ä╪º┘ä╪¬╪▓╪º┘à╪º╪¬"
+          title="الالتزامات"
           value={`${liabilities.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="╪º┘ä╪Ñ┘è╪▒╪º╪»╪º╪¬"
+          title="الإيرادات"
           value={`${revenue.toFixed(
             2
           )} ${baseCurrency}`}
         />
 
         <Mini
-          title="╪º┘ä┘å╪¬┘è╪¼╪⌐ ╪º┘ä╪¡╪º┘ä┘è╪⌐"
+          title="النتيجة الحالية"
           value={`${netProfit.toFixed(
             2
           )} ${baseCurrency}`}
@@ -958,27 +979,27 @@ export function FinanceClient({
       >
         {tabButton(
           "overview",
-          "┘å╪╕╪▒╪⌐ ╪╣╪º┘à╪⌐"
+          "نظرة عامة"
         )}
 
         {tabButton(
           "accounts",
-          "╪┤╪¼╪▒╪⌐ ╪º┘ä╪¡╪│╪º╪¿╪º╪¬"
+          "شجرة الحسابات"
         )}
 
         {tabButton(
           "journals",
-          "╪º┘ä┘é┘è┘ê╪»"
+          "القيود"
         )}
 
         {tabButton(
           "rates",
-          "╪ú╪│╪╣╪º╪▒ ╪º┘ä╪╡╪▒┘ü"
+          "أسعار الصرف"
         )}
 
         {tabButton(
           "periods",
-          "╪º┘ä┘ü╪¬╪▒╪º╪¬ ╪º┘ä┘à╪º┘ä┘è╪⌐"
+          "الفترات المالية"
         )}
       </div>
 
@@ -1004,11 +1025,11 @@ export function FinanceClient({
           <div className="panelHeader panelPad">
             <div>
               <h2>
-                ┘à┘è╪▓╪º┘å ╪º┘ä┘à╪▒╪º╪¼╪╣╪⌐
+                ميزان المراجعة
               </h2>
 
               <p>
-                ╪º┘ä┘à╪»┘è┘å ┘ê╪º┘ä╪»╪º╪ª┘å ╪¿╪º┘ä╪╣┘à┘ä╪⌐ ╪º┘ä╪ú╪│╪º╪│┘è╪⌐
+                المدين والدائن بالعملة الأساسية
               </p>
             </div>
           </div>
@@ -1030,7 +1051,7 @@ export function FinanceClient({
             }}
           >
             <strong>
-              ┘à╪¼┘à┘ê╪╣ ╪º┘ä┘à╪»┘è┘å:{" "}
+              مجموع المدين:{" "}
               {totalDebit.toFixed(
                 2
               )}{" "}
@@ -1047,7 +1068,7 @@ export function FinanceClient({
             </span>
 
             <strong>
-              ┘à╪¼┘à┘ê╪╣ ╪º┘ä╪»╪º╪ª┘å:{" "}
+              مجموع الدائن:{" "}
               {totalCredit.toFixed(
                 2
               )}{" "}
@@ -1069,12 +1090,12 @@ export function FinanceClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>╪º┘ä┘â┘ê╪»</th>
-                  <th>╪º┘ä╪¡╪│╪º╪¿</th>
-                  <th>╪º┘ä┘å┘ê╪╣</th>
-                  <th>╪º┘ä╪▒╪╡┘è╪» ╪º┘ä╪╖╪¿┘è╪╣┘è</th>
-                  <th>╪º┘ä╪¬╪▒╪¡┘è┘ä</th>
-                  <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
+                  <th>الكود</th>
+                  <th>الحساب</th>
+                  <th>النوع</th>
+                  <th>الرصيد الطبيعي</th>
+                  <th>الترحيل</th>
+                  <th>الحالة</th>
                 </tr>
               </thead>
 
@@ -1101,7 +1122,7 @@ export function FinanceClient({
 
                         {account.is_system && (
                           <div className="muted">
-                            ╪¡╪│╪º╪¿ ┘å╪╕╪º┘à
+                            حساب نظام
                           </div>
                         )}
                       </td>
@@ -1116,14 +1137,14 @@ export function FinanceClient({
                       <td>
                         {account.normal_balance ===
                         "debit"
-                          ? "┘à╪»┘è┘å"
-                          : "╪»╪º╪ª┘å"}
+                          ? "مدين"
+                          : "دائن"}
                       </td>
 
                       <td>
                         {account.allow_posting
-                          ? "┘å╪╣┘à"
-                          : "╪¬╪¼┘à┘è╪╣┘è"}
+                          ? "نعم"
+                          : "تجميعي"}
                       </td>
 
                       <td>
@@ -1135,8 +1156,8 @@ export function FinanceClient({
                           }`}
                         >
                           {account.active
-                            ? "┘å╪┤╪╖"
-                            : "┘à┘ê┘é┘ê┘ü"}
+                            ? "نشط"
+                            : "موقوف"}
                         </span>
                       </td>
                     </tr>
@@ -1163,11 +1184,11 @@ export function FinanceClient({
               />
 
               <h3>
-                ┘à╪º ┘ü┘è ┘é┘è┘ê╪»
+                ما في قيود
               </h3>
 
               <p>
-                ╪ú┘ê┘ä ╪╣┘à┘ä┘è╪⌐ ┘à╪º┘ä┘è╪⌐ ╪▒╪¡ ╪¬┘ê┘ä╪» ┘é┘è╪» ╪¬┘ä┘é╪º╪ª┘è.
+                أول عملية مالية رح تولد قيد تلقائي.
               </p>
             </div>
           ) : (
@@ -1175,12 +1196,12 @@ export function FinanceClient({
               <table className="dataTable">
                 <thead>
                   <tr>
-                    <th>╪º┘ä┘é┘è╪»</th>
-                    <th>╪º┘ä╪¬╪º╪▒┘è╪«</th>
-                    <th>╪º┘ä╪¿┘è╪º┘å</th>
-                    <th>╪º┘ä┘à╪╡╪»╪▒</th>
-                    <th>╪º┘ä╪╣┘à┘ä╪⌐</th>
-                    <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
+                    <th>القيد</th>
+                    <th>التاريخ</th>
+                    <th>البيان</th>
+                    <th>المصدر</th>
+                    <th>العملة</th>
+                    <th>الحالة</th>
                   </tr>
                 </thead>
 
@@ -1235,8 +1256,8 @@ export function FinanceClient({
                           >
                             {journal.status ===
                             "posted"
-                              ? "┘à╪▒╪¡┘æ┘ä"
-                              : "┘à╪╣┘â┘ê╪│"}
+                              ? "مرحّل"
+                              : "معكوس"}
                           </span>
                         </td>
                       </tr>
@@ -1305,11 +1326,11 @@ export function FinanceClient({
           <div className="panelHeader">
             <div>
               <h2>
-                ╪ú╪│╪╣╪º╪▒ ╪º┘ä╪╡╪▒┘ü
+                أسعار الصرف
               </h2>
 
               <p>
-                ╪º┘ä╪╣┘à┘ä╪⌐ ╪º┘ä╪ú╪│╪º╪│┘è╪⌐:{" "}
+                العملة الأساسية:{" "}
                 {baseCurrency}
               </p>
             </div>
@@ -1328,24 +1349,24 @@ export function FinanceClient({
                 <Icons.plus
                   size={14}
                 />
-                ╪│╪╣╪▒ ╪╡╪▒┘ü
+                سعر صرف
               </button>
             )}
           </div>
 
           {!rates.length ? (
             <p className="muted">
-              ┘à╪º ┘ü┘è ╪ú╪│╪╣╪º╪▒ ╪╡╪▒┘ü ┘à╪│╪¼┘ä╪⌐.
+              ما في أسعار صرف مسجلة.
             </p>
           ) : (
             <div className="tableWrap">
               <table className="dataTable">
                 <thead>
                   <tr>
-                    <th>╪º┘ä╪╣┘à┘ä╪⌐</th>
-                    <th>╪º┘ä╪¬╪º╪▒┘è╪«</th>
-                    <th>╪º┘ä╪│╪╣╪▒ ╪Ñ┘ä┘ë {baseCurrency}</th>
-                    <th>┘à┘ä╪º╪¡╪╕╪º╪¬</th>
+                    <th>العملة</th>
+                    <th>التاريخ</th>
+                    <th>سعر الصرف</th>
+                    <th>ملاحظات</th>
                   </tr>
                 </thead>
 
@@ -1372,16 +1393,16 @@ export function FinanceClient({
                         </td>
 
                         <td>
-                          {numberValue(
-                            rate.rate_to_base
-                          ).toFixed(
-                            6
+                          {unitsPerBase(
+                            rate.rate_to_base,
+                            baseCurrency,
+                            rate.currency
                           )}
                         </td>
 
                         <td>
                           {rate.notes ||
-                            "ΓÇö"}
+                            "—"}
                         </td>
                       </tr>
                     )
@@ -1448,11 +1469,11 @@ export function FinanceClient({
           <div className="panelHeader">
             <div>
               <h2>
-                ╪Ñ┘é┘ü╪º┘ä ╪º┘ä╪ú╪┤┘ç╪▒
+                إقفال الأشهر
               </h2>
 
               <p>
-                ╪º┘ä╪┤┘ç╪▒ ╪º┘ä┘à┘é┘ü┘ä ┘è┘à┘å╪╣ ╪ú┘è ╪¬╪▒╪¡┘è┘ä ┘à╪¡╪º╪│╪¿┘è ╪¼╪»┘è╪» ╪»╪º╪«┘ä┘ç.
+                الشهر المقفل يمنع أي ترحيل محاسبي جديد داخله.
               </p>
             </div>
           </div>
@@ -1460,7 +1481,7 @@ export function FinanceClient({
           <div className="formGrid">
             <label className="field">
               <span>
-                ╪º┘ä╪┤┘ç╪▒
+                الشهر
               </span>
 
               <input
@@ -1481,7 +1502,7 @@ export function FinanceClient({
 
             <div className="field">
               <span>
-                ╪º┘ä╪Ñ╪¼╪▒╪º╪í
+                الإجراء
               </span>
 
               <div className="rowActions">
@@ -1498,7 +1519,7 @@ export function FinanceClient({
                       )
                     }
                   >
-                    ╪Ñ┘é┘ü╪º┘ä ╪º┘ä╪┤┘ç╪▒
+                    إقفال الشهر
                   </button>
                 )}
 
@@ -1515,7 +1536,7 @@ export function FinanceClient({
                       )
                     }
                   >
-                    ╪Ñ╪╣╪º╪»╪⌐ ┘ü╪¬╪¡
+                    إعادة فتح
                   </button>
                 )}
               </div>
@@ -1531,9 +1552,9 @@ export function FinanceClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>┘à┘å</th>
-                  <th>╪Ñ┘ä┘ë</th>
-                  <th>╪º┘ä╪¡╪º┘ä╪⌐</th>
+                  <th>من</th>
+                  <th>إلى</th>
+                  <th>الحالة</th>
                 </tr>
               </thead>
 
@@ -1568,8 +1589,8 @@ export function FinanceClient({
                         >
                           {period.status ===
                           "closed"
-                            ? "┘à┘é┘ü┘ä"
-                            : "┘à┘ü╪¬┘ê╪¡"}
+                            ? "مقفل"
+                            : "مفتوح"}
                         </span>
                       </td>
                     </tr>
@@ -1849,7 +1870,7 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  ╪¡╪│╪º╪¿ ╪¼╪»┘è╪»
+                  حساب جديد
                 </h2>
               </div>
 
@@ -1874,7 +1895,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    ┘â┘ê╪» ╪º┘ä╪¡╪│╪º╪¿ *
+                    كود الحساب *
                   </span>
 
                   <input
@@ -1894,7 +1915,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    ╪º╪│┘à ╪º┘ä╪¡╪│╪º╪¿ *
+                    اسم الحساب *
                   </span>
 
                   <input
@@ -1914,7 +1935,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    ╪º┘ä╪¡╪│╪º╪¿ ╪º┘ä╪ú╪¿
+                    الحساب الأب
                   </span>
 
                   <select
@@ -1931,7 +1952,7 @@ export function FinanceClient({
                     }
                   >
                     <option value="">
-                      ╪¿╪»┘ê┘å
+                      بدون
                     </option>
 
                     {accounts.map(
@@ -1954,7 +1975,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    ╪º┘ä┘å┘ê╪╣
+                    النوع
                   </span>
 
                   <select
@@ -1983,26 +2004,26 @@ export function FinanceClient({
                     }}
                   >
                     <option value="asset">
-                      ╪ú╪╡┘ä
+                      أصل
                     </option>
                     <option value="liability">
-                      ╪º┘ä╪¬╪▓╪º┘à
+                      التزام
                     </option>
                     <option value="equity">
-                      ╪¡┘é┘ê┘é ┘à┘ä┘â┘è╪⌐
+                      حقوق ملكية
                     </option>
                     <option value="revenue">
-                      ╪Ñ┘è╪▒╪º╪»
+                      إيراد
                     </option>
                     <option value="expense">
-                      ┘à╪╡╪▒┘ê┘ü
+                      مصروف
                     </option>
                   </select>
                 </label>
 
                 <label className="field">
                   <span>
-                    ╪º┘ä╪▒╪╡┘è╪» ╪º┘ä╪╖╪¿┘è╪╣┘è
+                    الرصيد الطبيعي
                   </span>
 
                   <select
@@ -2019,17 +2040,17 @@ export function FinanceClient({
                     }
                   >
                     <option value="debit">
-                      ┘à╪»┘è┘å
+                      مدين
                     </option>
                     <option value="credit">
-                      ╪»╪º╪ª┘å
+                      دائن
                     </option>
                   </select>
                 </label>
 
                 <label className="field">
                   <span>
-                    ┘è╪│┘à╪¡ ╪¿╪º┘ä╪¬╪▒╪¡┘è┘ä
+                    يسمح بالترحيل
                   </span>
 
                   <select
@@ -2049,10 +2070,10 @@ export function FinanceClient({
                     }
                   >
                     <option value="yes">
-                      ┘å╪╣┘à
+                      نعم
                     </option>
                     <option value="no">
-                      ╪¡╪│╪º╪¿ ╪¬╪¼┘à┘è╪╣┘è
+                      حساب تجميعي
                     </option>
                   </select>
                 </label>
@@ -2074,7 +2095,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  ╪Ñ┘ä╪║╪º╪í
+                  إلغاء
                 </button>
 
                 <button
@@ -2083,7 +2104,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  ╪¡┘ü╪╕ ╪º┘ä╪¡╪│╪º╪¿
+                  حفظ الحساب
                 </button>
               </div>
             </form>
@@ -2101,7 +2122,7 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  ╪¬╪│╪¼┘è┘ä ╪│╪╣╪▒ ╪╡╪▒┘ü
+                  تسجيل سعر صرف
                 </h2>
               </div>
 
@@ -2126,7 +2147,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    ╪º┘ä╪╣┘à┘ä╪⌐
+                    العملة
                   </span>
 
                   <input
@@ -2146,7 +2167,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    ╪º┘ä╪¬╪º╪▒┘è╪«
+                    التاريخ
                   </span>
 
                   <input
@@ -2167,13 +2188,13 @@ export function FinanceClient({
 
                 <label className="field full">
                   <span>
-                    1 {rateCurrency || "╪╣┘à┘ä╪⌐"} = ┘â┘à {baseCurrency}╪ƒ
+                    1 {baseCurrency} = كم {rateCurrency || "من العملة"}؟ (مثلًا 13000)
                   </span>
 
                   <input
                     type="number"
-                    min="0.00000001"
-                    step="0.00000001"
+                    min="0.0001"
+                    step="any"
                     value={
                       rateValue
                     }
@@ -2190,7 +2211,7 @@ export function FinanceClient({
 
                 <label className="field full">
                   <span>
-                    ┘à┘ä╪º╪¡╪╕╪º╪¬
+                    ملاحظات
                   </span>
 
                   <textarea
@@ -2220,7 +2241,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  ╪Ñ┘ä╪║╪º╪í
+                  إلغاء
                 </button>
 
                 <button
@@ -2229,7 +2250,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  ╪¡┘ü╪╕ ╪º┘ä╪│╪╣╪▒
+                  حفظ السعر
                 </button>
               </div>
             </form>
@@ -2252,11 +2273,11 @@ export function FinanceClient({
                 </span>
 
                 <h2>
-                  ┘é┘è╪» ┘è┘ê┘à┘è╪⌐ ┘è╪»┘ê┘è
+                  قيد يومية يدوي
                 </h2>
 
                 <p className="muted">
-                  ┘ä┘ä╪º╪│╪¬╪«╪»╪º┘à ╪º┘ä┘à╪¡╪º╪│╪¿┘è ┘ü┘é╪╖.
+                  للاستخدام المحاسبي فقط.
                 </p>
               </div>
 
@@ -2281,7 +2302,7 @@ export function FinanceClient({
               <div className="formGrid">
                 <label className="field">
                   <span>
-                    ╪º┘ä╪¬╪º╪▒┘è╪«
+                    التاريخ
                   </span>
 
                   <input
@@ -2302,7 +2323,7 @@ export function FinanceClient({
 
                 <label className="field">
                   <span>
-                    ╪º┘ä╪╣┘à┘ä╪⌐
+                    العملة
                   </span>
 
                   <input
@@ -2321,7 +2342,7 @@ export function FinanceClient({
                 </label>
                 <label className="field full">
                   <span>
-                    ╪º┘ä╪¿┘è╪º┘å *
+                    البيان *
                   </span>
 
                   <input
@@ -2349,10 +2370,10 @@ export function FinanceClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>╪º┘ä╪¡╪│╪º╪¿</th>
-                      <th>┘à╪»┘è┘å</th>
-                      <th>╪»╪º╪ª┘å</th>
-                      <th>╪¿┘è╪º┘å</th>
+                      <th>الحساب</th>
+                      <th>مدين</th>
+                      <th>دائن</th>
+                      <th>بيان</th>
                       <th />
                     </tr>
                   </thead>
@@ -2398,7 +2419,7 @@ export function FinanceClient({
                               }
                             >
                               <option value="">
-                                ╪º╪«╪¬╪º╪▒
+                                اختار
                               </option>
 
                               {postingAccounts.map(
@@ -2592,7 +2613,7 @@ export function FinanceClient({
                 <Icons.plus
                   size={13}
                 />
-                ╪│╪╖╪▒ ╪¼╪»┘è╪»
+                سطر جديد
               </button>
 
               <div
@@ -2602,7 +2623,7 @@ export function FinanceClient({
                 }}
               >
                 <strong>
-                  ┘à╪»┘è┘å:{" "}
+                  مدين:{" "}
                   {journalLines
                     .reduce(
                       (
@@ -2619,7 +2640,7 @@ export function FinanceClient({
                 </strong>
 
                 <strong>
-                  ╪»╪º╪ª┘å:{" "}
+                  دائن:{" "}
                   {journalLines
                     .reduce(
                       (
@@ -2652,7 +2673,7 @@ export function FinanceClient({
                     )
                   }
                 >
-                  ╪Ñ┘ä╪║╪º╪í
+                  إلغاء
                 </button>
 
                 <button
@@ -2661,7 +2682,7 @@ export function FinanceClient({
                     saving
                   }
                 >
-                  ╪¬╪▒╪¡┘è┘ä ╪º┘ä┘é┘è╪»
+                  ترحيل القيد
                 </button>
               </div>
             </form>
@@ -2684,11 +2705,11 @@ function TrialTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>╪º┘ä┘â┘ê╪»</th>
-            <th>╪º┘ä╪¡╪│╪º╪¿</th>
-            <th>┘à╪»┘è┘å</th>
-            <th>╪»╪º╪ª┘å</th>
-            <th>╪º┘ä╪▒╪╡┘è╪»</th>
+            <th>الكود</th>
+            <th>الحساب</th>
+            <th>مدين</th>
+            <th>دائن</th>
+            <th>الرصيد</th>
           </tr>
         </thead>
 
@@ -2742,37 +2763,37 @@ function sourceLabel(
   source: string | null
 ) {
   const labels: Record<string, string> = {
-    manual: "┘è╪»┘ê┘è",
+    manual: "يدوي",
     sales_invoice:
-      "┘ü╪º╪¬┘ê╪▒╪⌐ ╪¿┘è╪╣",
+      "فاتورة بيع",
     purchase_invoice:
-      "┘ü╪º╪¬┘ê╪▒╪⌐ ╪┤╪▒╪º╪í",
+      "فاتورة شراء",
     customer_payment:
-      "┘é╪¿╪╢ ╪╣┘à┘è┘ä",
+      "قبض عميل",
     customer_payment_allocation:
-      "╪¬╪«╪╡┘è╪╡ ┘é╪¿╪╢",
+      "تخصيص قبض",
     supplier_payment:
-      "╪»┘ü╪╣ ┘à┘ê╪▒╪»",
+      "دفع مورد",
     supplier_payment_allocation:
-      "╪¬╪«╪╡┘è╪╡ ┘à┘ê╪▒╪»",
+      "تخصيص مورد",
     inventory_movement:
-      "╪¡╪▒┘â╪⌐ ┘à╪«╪▓┘ê┘å",
+      "حركة مخزون",
     expense:
-      "┘à╪╡╪▒┘ê┘ü",
+      "مصروف",
     payroll_run:
-      "╪▒┘ê╪º╪¬╪¿",
+      "رواتب",
     payroll_payment:
-      "╪»┘ü╪╣ ╪▒╪º╪¬╪¿",
+      "دفع راتب",
     cash_transaction:
-      "╪¡╪▒┘â╪⌐ ╪╡┘å╪»┘ê┘é",
+      "حركة صندوق",
     reversal:
-      "┘é┘è╪» ╪╣┘â╪│┘è",
+      "قيد عكسي",
   };
 
   return source
     ? labels[source] ||
         source
-    : "ΓÇö";
+    : "—";
 }
 
 function Mini({

@@ -273,17 +273,11 @@ export default async function InventoryPage({
 
       stockQuery,
 
-      supabase
-        .from(
-          "inventory_summary"
-        )
-        .select(
-          "on_hand,reserved,available,stock_value"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        ),
+      supabase.rpc("get_inventory_stats", {
+
+        target_company: context.companyId,
+
+      }),
 
       supabase
         .from(
@@ -459,69 +453,21 @@ export default async function InventoryPage({
     }
   }
 
-  const stockStats =
-    (
-      stockStatsResult.data ??
-      []
-    ).reduce(
-      (
-        result,
-        row
-      ) => {
-        const reserved =
-          Number(
-            row.reserved ??
-              0
-          );
+  const statsRow = (
+    Array.isArray(stockStatsResult.data)
+      ? stockStatsResult.data[0]
+      : stockStatsResult.data
+  ) as {
+    reserved_lines?: number;
+    out_of_stock?: number;
+    stock_value?: number | null;
+  } | null;
 
-        const available =
-          Number(
-            row.available ??
-              0
-          );
-
-        const stockValue =
-          Number(
-            row.stock_value ??
-              0
-          );
-
-        return {
-          reservedLines:
-            result.reservedLines +
-            (
-              reserved >
-              0
-                ? 1
-                : 0
-            ),
-
-          outOfStock:
-            result.outOfStock +
-            (
-              available <=
-              0
-                ? 1
-                : 0
-            ),
-
-          stockValue:
-            result.stockValue +
-            (
-              Number.isFinite(
-                stockValue
-              )
-                ? stockValue
-                : 0
-            ),
-        };
-      },
-      {
-        reservedLines: 0,
-        outOfStock: 0,
-        stockValue: 0,
-      }
-    );
+  const stockStats = {
+    reservedLines: Number(statsRow?.reserved_lines ?? 0),
+    outOfStock: Number(statsRow?.out_of_stock ?? 0),
+    stockValue: Number(statsRow?.stock_value ?? 0),
+  };
 
   return (
     <>

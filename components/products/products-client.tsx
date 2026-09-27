@@ -89,7 +89,7 @@ function emptyForm():
     sku: "",
     brand: "",
     category_id: "",
-    unit: "piece",
+    unit: "قطعة",
     sale_price: "",
     minimum_sale_price:
       "",
@@ -169,6 +169,14 @@ function friendlyError(
     )
   ) {
     return "الفئة المختارة غير صالحة لهذه الشركة.";
+  }
+
+  if (
+    message.includes(
+      "open orders"
+    )
+  ) {
+    return "ما فيك تأرشف هالصنف لأنه موجود بطلبية لسا ما انسلّمت. سلّم الطلبية أو ألغيها أول.";
   }
 
   if (
@@ -1472,8 +1480,15 @@ export function ProductsClient({
                         <td>
                           <div className="merchant">
                             <div className="merchantLogo">
-                              {product.name.charAt(
-                                0
+                              {product.image_url ? (
+                                <img
+                                  className="productThumb"
+                                  src={product.image_url}
+                                  alt=""
+                                  loading="lazy"
+                                />
+                              ) : (
+                                product.name.charAt(0)
                               )}
                             </div>
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -40,7 +40,7 @@ export function SetupCompanyClient() {
     if (state === "valid") {
       return (
         <small className="validText">
-          âœ“ Ø±Ù‚Ù… Ø³ÙˆØ±ÙŠ ØµØ­ÙŠØ­
+          ✓ رقم سوري صحيح
         </small>
       );
     }
@@ -48,14 +48,14 @@ export function SetupCompanyClient() {
     if (state === "invalid") {
       return (
         <small className="invalidText">
-          Ø§Ù„Ø±Ù‚Ù… ØºÙŠØ± ØµØ­ÙŠØ­
+          الرقم غير صحيح
         </small>
       );
     }
 
     return (
       <small className="helpText">
-        Ù…Ø«Ø§Ù„: 0944123456
+        مثال: 0944123456
       </small>
     );
   }
@@ -71,7 +71,7 @@ export function SetupCompanyClient() {
 
     if (name.trim().length < 2) {
       setMessage(
-        "ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ø´Ø±ÙƒØ© Ø¨Ø´ÙƒÙ„ ØµØ­ÙŠØ­."
+        "يرجى إدخال اسم الشركة بشكل صحيح."
       );
       return;
     }
@@ -93,7 +93,7 @@ export function SetupCompanyClient() {
       !normalizedPhone
     ) {
       setMessage(
-        "Ø±Ù‚Ù… Ø§Ù„Ø´Ø±ÙƒØ© ØºÙŠØ± ØµØ­ÙŠØ­."
+        "رقم الشركة غير صحيح."
       );
       return;
     }
@@ -103,7 +103,7 @@ export function SetupCompanyClient() {
       !normalizedWhatsapp
     ) {
       setMessage(
-        "Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ ØºÙŠØ± ØµØ­ÙŠØ­."
+        "رقم واتساب غير صحيح."
       );
       return;
     }
@@ -129,7 +129,7 @@ export function SetupCompanyClient() {
 
       if (error) {
         setMessage(
-          "ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø´Ø±ÙƒØ©. ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰."
+          "تعذر إنشاء الشركة. تحقق من البيانات وحاول مرة أخرى."
         );
         return;
       }
@@ -138,7 +138,7 @@ export function SetupCompanyClient() {
       router.refresh();
     } catch {
       setMessage(
-        "ØªØ¹Ø°Ø± Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø®Ø§Ø¯Ù…. Ø­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰."
+        "تعذر الاتصال بالخادم. حاول مرة أخرى."
       );
     } finally {
       setLoading(false);
@@ -159,23 +159,23 @@ export function SetupCompanyClient() {
             </strong>
 
             <span>
-              Ø¥Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø´Ø±ÙƒØ©
+              إعداد الشركة
             </span>
           </div>
         </div>
 
         <span className="eyebrow">
-          Ø¥Ø¹Ø¯Ø§Ø¯ Ù…Ø³Ø§Ø­Ø© Ø§Ù„Ø¹Ù…Ù„
+          إعداد مساحة العمل
         </span>
 
         <h1>
-          Ø¬Ù‡Ù‘Ø² Ø´Ø±ÙƒØªÙƒ
+          جهّز شركتك
         </h1>
 
         <p>
-          Ù‡Ø°Ù‡ Ø§Ù„Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ØªÙ…Ø«Ù„ Ø§Ù„Ø´Ø±ÙƒØ©
-          Ø§Ù„Ø­Ø§Ù„ÙŠØ© ÙˆÙŠÙ…ÙƒÙ† ØªØ¹Ø¯ÙŠÙ„Ù‡Ø§ Ù„Ø§Ø­Ù‚Ù‹Ø§
-          Ù…Ù† Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª.
+          هذه المعلومات تمثل الشركة
+          الحالية ويمكن تعديلها لاحقًا
+          من الإعدادات.
         </p>
 
         <form
@@ -184,7 +184,7 @@ export function SetupCompanyClient() {
         >
           <label className="field">
             <span>
-              Ø§Ø³Ù… Ø§Ù„Ø´Ø±ÙƒØ©
+              اسم الشركة
             </span>
 
             <input
@@ -196,13 +196,13 @@ export function SetupCompanyClient() {
                   event.target.value
                 )
               }
-              placeholder="Ù…Ø«Ø§Ù„: Ø¹Ø§Ù…Ø± Ù„Ù„ØªÙˆØ²ÙŠØ¹"
+              placeholder="مثال: عامر للتوزيع"
             />
           </label>
 
           <label className="field">
             <span>
-              Ø±Ù‚Ù… Ø§Ù„Ø´Ø±ÙƒØ©
+              رقم الشركة
             </span>
 
             <input
@@ -221,7 +221,7 @@ export function SetupCompanyClient() {
 
           <label className="field">
             <span>
-              Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨
+              رقم واتساب
             </span>
 
             <input
@@ -240,7 +240,7 @@ export function SetupCompanyClient() {
 
           <label className="field">
             <span>
-              Ø§Ù„Ø¹Ù…Ù„Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©
+              العملة الأساسية
             </span>
 
             <select
@@ -252,11 +252,11 @@ export function SetupCompanyClient() {
               }
             >
               <option value="USD">
-                USD - Ø¯ÙˆÙ„Ø§Ø±
+                USD - دولار
               </option>
 
               <option value="SYP">
-                SYP - Ù„ÙŠØ±Ø© Ø³ÙˆØ±ÙŠØ©
+                SYP - ليرة سورية
               </option>
             </select>
           </label>
@@ -277,8 +277,8 @@ export function SetupCompanyClient() {
             disabled={loading}
           >
             {loading
-              ? "Ø¬Ø§Ø±Ù ØªØ¬Ù‡ÙŠØ² Ø§Ù„Ø´Ø±ÙƒØ©..."
-              : "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø´Ø±ÙƒØ© ÙˆØ§Ù„Ù…ØªØ§Ø¨Ø¹Ø©"}
+              ? "جارٍ تجهيز الشركة..."
+              : "إنشاء الشركة والمتابعة"}
           </button>
         </form>
       </section>

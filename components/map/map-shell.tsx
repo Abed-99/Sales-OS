@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import dynamic from "next/dynamic";
 
@@ -9,9 +9,23 @@ export type MapTrader = {
   address: string | null;
   phone: string | null;
   whatsapp: string | null;
-  latitude: number | string;
-  longitude: number | string;
+  latitude: number | string | null;
+  longitude: number | string | null;
   status: string;
+  /** null when the viewer can't see balances. */
+  balance_due: number | null;
+  overdue: boolean | null;
+  /** null when the viewer can't see deliveries. */
+  pending_orders: number | null;
+  pending_total: number | null;
+};
+
+export type MapProps = {
+  traders: MapTrader[];
+  initialTraderId: string | null;
+  companyId: string;
+  currency: string;
+  canEditLocation: boolean;
 };
 
 const Inner = dynamic(
@@ -26,17 +40,6 @@ const Inner = dynamic(
   }
 );
 
-export function MapShell({
-  traders,
-  initialTraderId,
-}: {
-  traders: MapTrader[];
-  initialTraderId: string | null;
-}) {
-  return (
-    <Inner
-      traders={traders}
-      initialTraderId={initialTraderId}
-    />
-  );
+export function MapShell(props: MapProps) {
+  return <Inner {...props} />;
 }

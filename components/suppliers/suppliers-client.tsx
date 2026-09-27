@@ -1,7 +1,411 @@
-﻿"use client";import {useMemo,useState} from "react";import {useRouter} from "next/navigation";import {createClient} from "@/lib/supabase/client";import {normalizeSyrianMobile,syrianPhoneState} from "@/lib/phone";import {Icons} from "@/components/icons";
-type Row={id:string;name:string;contact_name:string|null;phone:string|null;whatsapp:string|null;address:string|null;notes:string|null;active:boolean;payment_terms_days:number;created_at:string};const empty={name:"",contact_name:"",phone:"",whatsapp:"",address:"",notes:"",active:true,payment_terms_days:"0"};
-export function SuppliersClient({companyId,initialRows,initialError}:{companyId:string;initialRows:Row[];initialError:string|null}){const [supabase]=useState(()=>createClient());const router=useRouter();const [rows,setRows]=useState(initialRows);const [q,setQ]=useState("");const [open,setOpen]=useState(false);const [editing,setEditing]=useState<Row|null>(null);const [f,setF]=useState(empty);const [msg,setMsg]=useState(initialError||"");const [saving,setSaving]=useState(false);const filtered=useMemo(()=>rows.filter(r=>!q||[r.name,r.contact_name,r.phone,r.address].some(x=>x?.toLowerCase().includes(q.toLowerCase()))),[rows,q]);function add(){setEditing(null);setF(empty);setMsg("");setOpen(true)}function edit(r:Row){setEditing(r);setF({name:r.name,contact_name:r.contact_name||"",phone:r.phone||"",whatsapp:r.whatsapp||"",address:r.address||"",notes:r.notes||"",active:r.active,payment_terms_days:String(r.payment_terms_days??0)});setOpen(true);setMsg("")}
-async function save(e:React.FormEvent){e.preventDefault();const phone=f.phone?normalizeSyrianMobile(f.phone):null,wa=f.whatsapp?normalizeSyrianMobile(f.whatsapp):null;if(!f.name.trim())return setMsg("Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ Ù…Ø·Ù„ÙˆØ¨");if(f.phone&&!phone)return setMsg("Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø³ÙˆØ±ÙŠ ØºÙŠØ± ØµØ­ÙŠØ­");if(f.whatsapp&&!wa)return setMsg("Ø±Ù‚Ù… ÙˆØ§ØªØ³Ø§Ø¨ Ø§Ù„Ø³ÙˆØ±ÙŠ ØºÙŠØ± ØµØ­ÙŠØ­");const paymentTerms=Number(f.payment_terms_days||0);if(!Number.isInteger(paymentTerms)||paymentTerms<0||paymentTerms>3650)return setMsg("Ù…Ù‡Ù„Ø© Ø§Ù„Ø¯ÙØ¹ Ù„Ø§Ø²Ù… ØªÙƒÙˆÙ† Ø¹Ø¯Ø¯ Ø£ÙŠØ§Ù… Ø¨ÙŠÙ† 0 Ùˆ 3650");setSaving(true);const payload={company_id:companyId,name:f.name.trim(),contact_name:f.contact_name.trim()||null,phone,whatsapp:wa,address:f.address.trim()||null,notes:f.notes.trim()||null,active:f.active,payment_terms_days:paymentTerms};if(editing){const {data,error}=await supabase.from("suppliers").update(payload).eq("id",editing.id).select().single();if(error){setSaving(false);setMsg(error.message);return}setRows(x=>x.map(a=>a.id===editing.id?(data as Row):a))}else{const {data,error}=await supabase.from("suppliers").insert(payload).select().single();if(error){setSaving(false);setMsg(error.message);return}setRows(x=>[(data as Row),...x])}setSaving(false);setOpen(false);router.refresh()}async function del(r:Row){if(!confirm(`Ø­Ø°Ù Ø§Ù„Ù…ÙˆØ±Ø¯ ${r.name}ØŸ`))return;const {error}=await supabase.from("suppliers").delete().eq("id",r.id).eq("company_id",companyId);if(error)return alert(error.message);setRows(x=>x.filter(a=>a.id!==r.id));router.refresh()}
-return <div className="page"><div className="pageTitle"><div><span className="eyebrow">Ù…ØµØ§Ø¯Ø± Ø§Ù„Ø´Ø±Ø§Ø¡</span><h2>Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</h2><p className="muted">Ø³Ø¬Ù„ ÙƒÙ„ Ù…ÙˆØ±Ø¯ØŒ Ø¨ÙŠØ§Ù†Ø§ØªÙ‡ØŒ ÙˆØ¨Ø¹Ø¯Ù‡Ø§ Ø§Ø±Ø¨Ø· Ø£Ø³Ø¹Ø§Ø± Ø§Ù„Ø£ØµÙ†Ø§Ù ÙÙŠÙ‡.</p></div><button className="primaryButton" onClick={add}><Icons.plus size={15}/> Ø¥Ø¶Ø§ÙØ© Ù…ÙˆØ±Ø¯</button></div><section className="statsGrid"><Mini t="ÙƒÙ„ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†" v={rows.length}/><Mini t="Ù†Ø´Ø·ÙŠÙ†" v={rows.filter(r=>r.active).length}/><Mini t="Ù…Ø¹ ÙˆØ§ØªØ³Ø§Ø¨" v={rows.filter(r=>r.whatsapp).length}/><Mini t="Ù…ÙˆÙ‚ÙˆÙÙŠÙ†" v={rows.filter(r=>!r.active).length}/></section><section className="panel" style={{marginTop:14}}><div className="filters"><div className="searchBox"><Icons.search size={16}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Ø§Ø¨Ø­Ø« Ø¨Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ Ø£Ùˆ Ø§Ù„Ø±Ù‚Ù…..."/></div><div/><div/><div className="resultCount">{filtered.length} Ù†ØªÙŠØ¬Ø©</div></div>{!filtered.length?<div className="empty"><Icons.store size={28}/><h3>Ù…Ø§ ÙÙŠ Ù…ÙˆØ±Ø¯ÙŠÙ†</h3><p>Ø£Ø¶Ù Ø£ÙˆÙ„ Ù…ÙˆØ±Ø¯ Ø­ØªÙ‰ Ù†Ù‚Ø¯Ø± Ù†Ø±Ø¨Ø· Ø§Ù„Ø£ØµÙ†Ø§Ù ÙˆØ£Ø³Ø¹Ø§Ø± Ø§Ù„Ø´Ø±Ø§Ø¡.</p></div>:<div className="tableWrap"><table className="dataTable"><thead><tr><th>Ø§Ù„Ù…ÙˆØ±Ø¯</th><th>Ø§Ù„Ù‡Ø§ØªÙ</th><th>Ø§Ù„Ø¹Ù†ÙˆØ§Ù†</th><th>Ø´Ø±ÙˆØ· Ø§Ù„Ø¯ÙØ¹</th><th>Ø§Ù„Ø­Ø§Ù„Ø©</th><th>Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id}><td><div className="merchant"><div className="merchantLogo">{r.name.charAt(0)}</div><div><strong>{r.name}</strong><span>{r.contact_name||"â€”"}</span></div></div></td><td>{r.whatsapp?<a className="softButton" target="_blank" href={`https://wa.me/${r.whatsapp.replace(/\D/g,"")}`}><Icons.whatsapp size={13}/> {r.whatsapp}</a>:r.phone||"â€”"}</td><td>{r.address||"â€”"}</td><td>{r.payment_terms_days>0?`${r.payment_terms_days} ÙŠÙˆÙ…`:"Ù†Ù‚Ø¯ÙŠ"}</td><td><span className={`chip ${r.active?"green":"gray"}`}>{r.active?"Ù†Ø´Ø·":"Ù…ÙˆÙ‚ÙˆÙ"}</span></td><td><div className="rowActions"><button className="softButton" onClick={()=>edit(r)}><Icons.edit size={13}/> ØªØ¹Ø¯ÙŠÙ„</button><button className="dangerButton" onClick={()=>del(r)}><Icons.trash size={13}/></button></div></td></tr>)}</tbody></table></div>}</section>{open&&<div className="modalOverlay"><section className="modal"><div className="modalHeader"><div><span className="eyebrow">{editing?"ØªØ¹Ø¯ÙŠÙ„":"Ù…ÙˆØ±Ø¯ Ø¬Ø¯ÙŠØ¯"}</span><h2>{editing?editing.name:"Ø¥Ø¶Ø§ÙØ© Ù…ÙˆØ±Ø¯"}</h2></div><button className="closeButton" onClick={()=>setOpen(false)}>Ã—</button></div><form onSubmit={save}><div className="formGrid"><F l="Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ±Ø¯ *" v={f.name} s={v=>setF(x=>({...x,name:v}))}/><F l="Ø§Ø³Ù… Ø§Ù„Ø´Ø®Øµ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„" v={f.contact_name} s={v=>setF(x=>({...x,contact_name:v}))}/><Phone l="Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ" v={f.phone} s={v=>setF(x=>({...x,phone:v}))}/><Phone l="ÙˆØ§ØªØ³Ø§Ø¨" v={f.whatsapp} s={v=>setF(x=>({...x,whatsapp:v}))}/><F l="Ø§Ù„Ø¹Ù†ÙˆØ§Ù†" v={f.address} s={v=>setF(x=>({...x,address:v}))} full/><label className="field"><span>Ø§Ù„Ø­Ø§Ù„Ø©</span><select value={f.active?"yes":"no"} onChange={e=>setF(x=>({...x,active:e.target.value==="yes"}))}><option value="yes">Ù†Ø´Ø·</option><option value="no">Ù…ÙˆÙ‚ÙˆÙ</option></select></label><label className="field"><span>Ù…Ù‡Ù„Ø© Ø§Ù„Ø¯ÙØ¹ (ÙŠÙˆÙ…)</span><input type="number" min="0" max="3650" step="1" value={f.payment_terms_days} onChange={e=>setF(x=>({...x,payment_terms_days:e.target.value}))}/><small className="helpText">0 ÙŠØ¹Ù†ÙŠ Ø§Ù„Ø¯ÙØ¹ Ù…Ø³ØªØ­Ù‚ Ø¨Ù†ÙØ³ Ø§Ù„ÙŠÙˆÙ….</small></label><label className="field full"><span>Ù…Ù„Ø§Ø­Ø¸Ø§Øª</span><textarea rows={4} value={f.notes} onChange={e=>setF(x=>({...x,notes:e.target.value}))}/></label></div>{msg&&<div className="toastError" style={{marginTop:12}}>{msg}</div>}<div className="modalActions"><button type="button" className="softButton" onClick={()=>setOpen(false)}>Ø¥Ù„ØºØ§Ø¡</button><button className="primaryButton" disabled={saving}>{saving?"Ø¹Ù… Ù†Ø­ÙØ¸...":"Ø­ÙØ¸"}</button></div></form></section></div>}</div>}
-function F({l,v,s,full=false}:{l:string;v:string;s:(v:string)=>void;full?:boolean}){return <label className={`field ${full?"full":""}`}><span>{l}</span><input value={v} onChange={e=>s(e.target.value)}/></label>}function Phone({l,v,s}:{l:string;v:string;s:(v:string)=>void}){const st=syrianPhoneState(v);return <label className="field"><span>{l}</span><input dir="ltr" value={v} onChange={e=>s(e.target.value)} placeholder="0944123456"/><small className={st==="valid"?"validText":st==="invalid"?"invalidText":"helpText"}>{st==="valid"?"âœ“ ØµØ­ÙŠØ­":st==="invalid"?"Ø±Ù‚Ù… ØºÙŠØ± ØµØ­ÙŠØ­":"Ø±Ù‚Ù… Ø³ÙˆØ±ÙŠ Ø§Ø®ØªÙŠØ§Ø±ÙŠ"}</small></label>}function Mini({t,v}:{t:string;v:number}){return <div className="statCard"><div className="statLabel">{t}</div><div className="statValue">{v}</div></div>}
+"use client";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
+import { Icons } from "@/components/icons";
+type Row = {
+  id: string;
+  name: string;
+  contact_name: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  payment_terms_days: number;
+  created_at: string;
+};
+const empty = {
+  name: "",
+  contact_name: "",
+  phone: "",
+  whatsapp: "",
+  address: "",
+  notes: "",
+  active: true,
+  payment_terms_days: "0",
+};
+function friendlyError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+  if (
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
+  ) {
+    return "ما عندك صلاحية لهالعملية.";
+  }
+  if (error?.code === "23505" || message.includes("duplicate")) {
+    return "في مورد تاني بنفس البيانات.";
+  }
+  return "ما قدرنا نحفظ. تأكد من البيانات وجرّب مرة تانية.";
+}
 
+export function SuppliersClient({
+  companyId,
+  initialRows,
+  initialError,
+  canCreate,
+  canUpdate,
+  canArchive,
+}: {
+  companyId: string;
+  initialRows: Row[];
+  initialError: string | null;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canArchive: boolean;
+}) {
+  const [supabase] = useState(() => createClient());
+  const router = useRouter();
+  const [rows, setRows] = useState(initialRows);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [f, setF] = useState(empty);
+  const [msg, setMsg] = useState(initialError || "");
+  const [saving, setSaving] = useState(false);
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          !q ||
+          [r.name, r.contact_name, r.phone, r.address].some((x) =>
+            x?.toLowerCase().includes(q.toLowerCase()),
+          ),
+      ),
+    [rows, q],
+  );
+  function add() {
+    setEditing(null);
+    setF(empty);
+    setMsg("");
+    setOpen(true);
+  }
+  function edit(r: Row) {
+    setEditing(r);
+    setF({
+      name: r.name,
+      contact_name: r.contact_name || "",
+      phone: r.phone || "",
+      whatsapp: r.whatsapp || "",
+      address: r.address || "",
+      notes: r.notes || "",
+      active: r.active,
+      payment_terms_days: String(r.payment_terms_days ?? 0),
+    });
+    setOpen(true);
+    setMsg("");
+  }
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    const phone = f.phone ? normalizeAnyPhone(f.phone) : null,
+      wa = f.whatsapp ? normalizeAnyPhone(f.whatsapp) : null;
+    if (!f.name.trim()) return setMsg("اسم المورد مطلوب");
+    if (f.phone && !phone)
+      return setMsg("رقم الهاتف غير صحيح. اكتب رقم سوري أو رقم دولي بيبلّش بـ +");
+    if (f.whatsapp && !wa)
+      return setMsg("رقم الواتساب غير صحيح. اكتب رقم سوري أو رقم دولي بيبلّش بـ +");
+    const paymentTerms = Number(f.payment_terms_days || 0);
+    if (!Number.isInteger(paymentTerms) || paymentTerms < 0 || paymentTerms > 3650)
+      return setMsg("مهلة الدفع لازم تكون عدد أيام بين 0 و 3650");
+    setSaving(true);
+    const payload = {
+      company_id: companyId,
+      name: f.name.trim(),
+      contact_name: f.contact_name.trim() || null,
+      phone,
+      whatsapp: wa,
+      address: f.address.trim() || null,
+      notes: f.notes.trim() || null,
+      active: f.active,
+      payment_terms_days: paymentTerms,
+    };
+    if (editing) {
+      const { data, error } = await supabase
+        .from("suppliers")
+        .update(payload)
+        .eq("id", editing.id)
+        .select()
+        .single();
+      if (error) {
+        setSaving(false);
+        setMsg(friendlyError(error));
+        return;
+      }
+      setRows((x) => x.map((a) => (a.id === editing.id ? (data as Row) : a)));
+    } else {
+      const { data, error } = await supabase.from("suppliers").insert(payload).select().single();
+      if (error) {
+        setSaving(false);
+        setMsg(friendlyError(error));
+        return;
+      }
+      setRows((x) => [data as Row, ...x]);
+    }
+    setSaving(false);
+    setOpen(false);
+    router.refresh();
+  }
+  // ما في حذف: المورد إله فواتير ودفعات، فمنوقّفه بس وبيضل حسابه محفوظ.
+  async function toggleActive(r: Row) {
+    const next = !r.active;
+    if (
+      !confirm(next ? `إعادة تفعيل ${r.name}؟` : `إيقاف ${r.name}؟ حسابه وفواتيره بيضلوا محفوظين.`)
+    )
+      return;
+    const { error } = await supabase
+      .from("suppliers")
+      .update({ active: next })
+      .eq("id", r.id)
+      .eq("company_id", companyId);
+    if (error) return setMsg(friendlyError(error));
+    setRows((x) => x.map((a) => (a.id === r.id ? { ...a, active: next } : a)));
+    router.refresh();
+  }
+  return (
+    <div className="page">
+      <div className="pageTitle">
+        <div>
+          <span className="eyebrow">مصادر الشراء</span>
+          <h2>الموردين</h2>
+          <p className="muted">سجل كل مورد، بياناته، وبعدها اربط أسعار الأصناف فيه.</p>
+        </div>
+        {canCreate && (
+          <button className="primaryButton" onClick={add}>
+            <Icons.plus size={15} /> إضافة مورد
+          </button>
+        )}
+      </div>
+      {msg && !open && (
+        <div className="toastError" style={{ marginBottom: 12 }}>
+          {msg}
+        </div>
+      )}
+      <section className="statsGrid">
+        <Mini t="كل الموردين" v={rows.length} />
+        <Mini t="نشطين" v={rows.filter((r) => r.active).length} />
+        <Mini t="مع واتساب" v={rows.filter((r) => r.whatsapp).length} />
+        <Mini t="موقوفين" v={rows.filter((r) => !r.active).length} />
+      </section>
+      <section className="panel" style={{ marginTop: 14 }}>
+        <div className="filters">
+          <div className="searchBox">
+            <Icons.search size={16} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="ابحث باسم المورد أو الرقم..."
+            />
+          </div>
+          <div />
+          <div />
+          <div className="resultCount">{filtered.length} نتيجة</div>
+        </div>
+        {!filtered.length ? (
+          <div className="empty">
+            <Icons.store size={28} />
+            <h3>ما في موردين</h3>
+            <p>أضف أول مورد حتى نقدر نربط الأصناف وأسعار الشراء.</p>
+          </div>
+        ) : (
+          <div className="tableWrap">
+            <table className="dataTable">
+              <thead>
+                <tr>
+                  <th>المورد</th>
+                  <th>الهاتف</th>
+                  <th>العنوان</th>
+                  <th>شروط الدفع</th>
+                  <th>الحالة</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <div className="merchant">
+                        <div className="merchantLogo">{r.name.charAt(0)}</div>
+                        <div>
+                          <Link href={`/suppliers/${r.id}`}>
+                            <strong>{r.name}</strong>
+                          </Link>
+                          <span>{r.contact_name || "—"}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {r.whatsapp ? (
+                        <a
+                          className="softButton"
+                          target="_blank"
+                          rel="noreferrer"
+                          href={`https://wa.me/${r.whatsapp.replace(/\D/g, "")}`}
+                        >
+                          <Icons.whatsapp size={13} /> {r.whatsapp}
+                        </a>
+                      ) : (
+                        r.phone || "—"
+                      )}
+                    </td>
+                    <td>{r.address || "—"}</td>
+                    <td>{r.payment_terms_days > 0 ? `${r.payment_terms_days} يوم` : "نقدي"}</td>
+                    <td>
+                      <span className={`chip ${r.active ? "green" : "gray"}`}>
+                        {r.active ? "نشط" : "موقوف"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="rowActions">
+                        <Link className="softButton" href={`/suppliers/${r.id}`}>
+                          الحساب
+                        </Link>
+                        {canUpdate && (
+                          <button className="softButton" onClick={() => edit(r)}>
+                            <Icons.edit size={13} /> تعديل
+                          </button>
+                        )}
+                        {canArchive && (
+                          <button
+                            className={r.active ? "dangerButton" : "softButton"}
+                            onClick={() => toggleActive(r)}
+                          >
+                            {r.active ? "إيقاف" : "تفعيل"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      {open && (
+        <div className="modalOverlay">
+          <section className="modal">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">{editing ? "تعديل" : "مورد جديد"}</span>
+                <h2>{editing ? editing.name : "إضافة مورد"}</h2>
+              </div>
+              <button className="closeButton" onClick={() => setOpen(false)}>
+                ×
+              </button>
+            </div>
+            <form onSubmit={save}>
+              <div className="formGrid">
+                <F l="اسم المورد *" v={f.name} s={(v) => setF((x) => ({ ...x, name: v }))} />
+                <F
+                  l="اسم الشخص المسؤول"
+                  v={f.contact_name}
+                  s={(v) => setF((x) => ({ ...x, contact_name: v }))}
+                />
+                <Phone l="رقم الهاتف" v={f.phone} s={(v) => setF((x) => ({ ...x, phone: v }))} />
+                <Phone l="واتساب" v={f.whatsapp} s={(v) => setF((x) => ({ ...x, whatsapp: v }))} />
+                <F l="العنوان" v={f.address} s={(v) => setF((x) => ({ ...x, address: v }))} full />
+                {canArchive && (
+                  <label className="field">
+                    <span>الحالة</span>
+                    <select
+                      value={f.active ? "yes" : "no"}
+                      onChange={(e) => setF((x) => ({ ...x, active: e.target.value === "yes" }))}
+                    >
+                      <option value="yes">نشط</option>
+                      <option value="no">موقوف</option>
+                    </select>
+                  </label>
+                )}
+                <label className="field">
+                  <span>مهلة الدفع (يوم)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    step="1"
+                    value={f.payment_terms_days}
+                    onChange={(e) => setF((x) => ({ ...x, payment_terms_days: e.target.value }))}
+                  />
+                  <small className="helpText">0 يعني الدفع مستحق بنفس اليوم.</small>
+                </label>
+                <label className="field full">
+                  <span>ملاحظات</span>
+                  <textarea
+                    rows={4}
+                    value={f.notes}
+                    onChange={(e) => setF((x) => ({ ...x, notes: e.target.value }))}
+                  />
+                </label>
+              </div>
+              {msg && (
+                <div className="toastError" style={{ marginTop: 12 }}>
+                  {msg}
+                </div>
+              )}
+              <div className="modalActions">
+                <button type="button" className="softButton" onClick={() => setOpen(false)}>
+                  إلغاء
+                </button>
+                <button className="primaryButton" disabled={saving}>
+                  {saving ? "عم نحفظ..." : "حفظ"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+function F({
+  l,
+  v,
+  s,
+  full = false,
+}: {
+  l: string;
+  v: string;
+  s: (v: string) => void;
+  full?: boolean;
+}) {
+  return (
+    <label className={`field ${full ? "full" : ""}`}>
+      <span>{l}</span>
+      <input value={v} onChange={(e) => s(e.target.value)} />
+    </label>
+  );
+}
+function Phone({ l, v, s }: { l: string; v: string; s: (v: string) => void }) {
+  const st = anyPhoneState(v);
+  return (
+    <label className="field">
+      <span>{l}</span>
+      <input
+        dir="ltr"
+        value={v}
+        onChange={(e) => s(e.target.value)}
+        placeholder="0944123456 أو +86..."
+      />
+      <small
+        className={st === "valid" ? "validText" : st === "invalid" ? "invalidText" : "helpText"}
+      >
+        {st === "valid"
+          ? "✓ صحيح"
+          : st === "invalid"
+            ? "رقم غير صحيح"
+            : "رقم سوري أو دولي، اختياري"}
+      </small>
+    </label>
+  );
+}
+function Mini({ t, v }: { t: string; v: number }) {
+  return (
+    <div className="statCard">
+      <div className="statLabel">{t}</div>
+      <div className="statValue">{v}</div>
+    </div>
+  );
+}

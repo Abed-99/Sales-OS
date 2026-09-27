@@ -67,11 +67,12 @@ const movementLabels: Record<string, string> = {
   sale_receipt: "قبض من زبون",
   supplier_payment: "دفع لمورد",
   expense: "مصروف",
-  adjustment_in: "تسوية داخلة",
-  adjustment_out: "تسوية خارجة",
+  adjustment_in: "رصيد افتتاحي / زيادة بالصندوق",
+  adjustment_out: "نقص بالصندوق",
   customer_payment_reversal: "عكس قبض من زبون",
   supplier_payment_reversal: "عكس دفعة مورد",
   payroll_payment: "دفع راتب",
+  asset_purchase: "شراء أصل",
   employee_advance: "سلفة موظف",
   employee_loan: "قرض موظف",
   partner_distribution: "توزيع شريك",
@@ -717,12 +718,15 @@ export function CashboxClient({
                     }
                   >
                     <option value="adjustment_in">
-                      تسوية داخلة
+                      رصيد افتتاحي / زيادة بالصندوق
                     </option>
                     <option value="adjustment_out">
-                      تسوية خارجة
+                      نقص بالصندوق (بينحسب مصروف)
                     </option>
                   </select>
+                  <small className="helpText">
+                    لإيداع رأس مال أو سحب شريك استعمل صفحة الشركاء، مشان يتسجل على حسابه.
+                  </small>
                 </label>
 
                 <label className="field">

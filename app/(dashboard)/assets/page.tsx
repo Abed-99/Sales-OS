@@ -52,6 +52,7 @@ export default async function AssetsPage() {
   const [
     assetsResult,
     depreciationResult,
+    cashboxesResult,
   ] = await Promise.all([
     supabase
       .from("fixed_asset_summary")
@@ -69,6 +70,13 @@ export default async function AssetsPage() {
       .eq("company_id", context.companyId)
       .order("period_end", { ascending: false })
       .limit(100),
+
+    supabase
+      .from("cashboxes")
+      .select("id,name,currency")
+      .eq("company_id", context.companyId)
+      .eq("active", true)
+      .order("name"),
   ]);
   const pageError =
     Boolean(
@@ -106,6 +114,7 @@ export default async function AssetsPage() {
         depreciation={
           (depreciationResult.data ?? []) as unknown as AssetDepreciation[]
         }
+        cashboxes={cashboxesResult.data ?? []}
         canManage={canManage}
         canDepreciate={canDepreciate}
       />

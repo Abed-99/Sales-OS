@@ -20,6 +20,7 @@ export default async function MapPage({
   const {
     companyId,
     companyName,
+    currency,
   } = context;
 
   const canView =
@@ -68,7 +69,7 @@ export default async function MapPage({
     <>
       <Topbar
         title="خريطة السوق"
-        subtitle="كل التجار ذوي الموقع، مع ترتيب جولة تقريبي"
+        subtitle="مواقع الزبائن، ديونهم، وأقصر طريق للتوصيل"
         companyName={companyName}
       />
       {error && (
@@ -85,6 +86,13 @@ export default async function MapPage({
       <MapShell
         traders={traders}
         initialTraderId={initialTraderId}
+        companyId={companyId}
+        currency={currency}
+        canEditLocation={hasPermission(
+          context.permissions,
+          "traders.update",
+          context.isOwner
+        )}
       />
     </>
   );

@@ -71,7 +71,7 @@ const nav: readonly NavItem[] = [
     icon: Icons.users,
     permission: "partners.view",
   },
-  { href: "/cashbox", label: "المالية", icon: Icons.wallet, permission: "finance.cashbox_view" },
+  { href: "/cashbox", label: "الصندوق", icon: Icons.wallet, permission: "finance.cashbox_view" },
   { href: "/map", label: "الخريطة", icon: Icons.map, permission: "map.view" },
   {
     href: "/reports",

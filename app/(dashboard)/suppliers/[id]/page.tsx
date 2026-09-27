@@ -850,7 +850,7 @@ export default async function SupplierDetailPage({
               {" • "}
               {supplier.active
                 ? "نشط"
-                : "مؤرشف"}
+                : "موقوف"}
             </p>
           </div>
 
@@ -1076,13 +1076,19 @@ export default async function SupplierDetailPage({
                                     row.row_type ===
                                     "invoice"
                                       ? "orange"
-                                      : "green"
+                                      : row.row_type ===
+                                          "return"
+                                        ? "blue"
+                                        : "green"
                                   }`}
                                 >
                                   {row.row_type ===
                                   "invoice"
                                     ? "فاتورة"
-                                    : "دفعة"}
+                                    : row.row_type ===
+                                        "return"
+                                      ? "مرتجع"
+                                      : "دفعة"}
                                 </span>
 
                                 <div className="muted">
@@ -1200,7 +1206,7 @@ export default async function SupplierDetailPage({
                 value={
                   supplier.active
                     ? "نشط"
-                    : "مؤرشف"
+                    : "موقوف"
                 }
               />
 

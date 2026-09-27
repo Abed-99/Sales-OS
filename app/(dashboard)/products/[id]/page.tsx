@@ -615,6 +615,14 @@ export default async function ProductDetailPage({
               </div>
             </div>
 
+            {product.image_url ? (
+              <img
+                className="productImage"
+                src={product.image_url}
+                alt={product.name}
+              />
+            ) : null}
+
             <div className="quickList">
               <Info
                 title="الاسم"

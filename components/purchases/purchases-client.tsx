@@ -159,6 +159,18 @@ type DraftLine = {
   traderName: string | null;
 };
 
+type InvoiceDetailLine = {
+  id: string;
+  quantity: number;
+  unit_cost: number;
+  discount_amount: number;
+  tax_amount: number;
+  line_total: number;
+  notes: string | null;
+  received: number | null;
+  products: { name: string; sku: string | null; unit: string } | { name: string; sku: string | null; unit: string }[] | null;
+};
+
 type Notice = {
   type: "success" | "error";
   text: string;
@@ -926,37 +938,45 @@ export function PurchasesClient({
       );
     }, [lines]);
 
-  const paymentInvoices =
-    useMemo(() => {
-      if (
-        !paymentSupplierId
-      ) {
-        return [];
-      }
+  // كل فواتير المورد المفتوحة من القاعدة، مش بس اللي ظاهرين بالصفحة الحالية
+  // (القائمة بتعرض آخر 50 فاتورة، فالفواتير القديمة ما كانت تطلع للدفع).
+  const [paymentInvoices, setPaymentInvoices] =
+    useState<PurchaseInvoiceRow[]>([]);
 
-      return invoices.filter(
-        (invoice) => {
-          const supplier =
-            oneRelation(
-              invoice.suppliers
-            );
+  useEffect(() => {
+    let cancelled = false;
 
-          return (
-            invoice.status ===
-              "posted" &&
-            Number(
-              invoice.balance_due ||
-                0
-            ) > 0 &&
-            supplier?.id ===
-              paymentSupplierId
-          );
+    if (!paymentSupplierId) {
+      setPaymentInvoices([]);
+      return;
+    }
+
+    void supabase
+      .from("purchase_invoices")
+      .select(
+        "id,invoice_number,supplier_invoice_number,status,payment_status,currency,invoice_date,due_date,total,paid_total,balance_due,cancellation_reason,created_at,suppliers(id,name)"
+      )
+      .eq("company_id", companyId)
+      .eq("supplier_id", paymentSupplierId)
+      .eq("status", "posted")
+      .gt("balance_due", 0)
+      .order("invoice_date")
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setPaymentMessage("تعذر تحميل فواتير المورد المفتوحة.");
+          setPaymentInvoices([]);
+          return;
         }
-      );
-    }, [
-      invoices,
-      paymentSupplierId,
-    ]);
+        setPaymentInvoices(
+          (data ?? []) as PurchaseInvoiceRow[]
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentSupplierId, companyId, supabase]);
 
   const paymentAllocated =
     useMemo(() => {
@@ -2295,6 +2315,68 @@ export function PurchasesClient({
   }
 
   // ==========================================================
+  // INVOICE DETAILS
+  // ==========================================================
+
+  const [detailInvoice, setDetailInvoice] =
+    useState<PurchaseInvoiceRow | null>(null);
+  const [detailLines, setDetailLines] =
+    useState<InvoiceDetailLine[]>([]);
+  const [detailMessage, setDetailMessage] =
+    useState("");
+
+  async function openDetails(invoice: PurchaseInvoiceRow) {
+    setDetailInvoice(invoice);
+    setDetailLines([]);
+    setDetailMessage("عم نحمّل البنود...");
+
+    const { data, error } = await supabase
+      .from("purchase_invoice_items")
+      .select(
+        "id,quantity,unit_cost,discount_amount,tax_amount,line_total,notes,products(name,sku,unit)"
+      )
+      .eq("company_id", companyId)
+      .eq("invoice_id", invoice.id)
+      .order("created_at");
+
+    if (error) {
+      setDetailMessage("تعذر تحميل بنود الفاتورة.");
+      return;
+    }
+
+    const rows = (data ?? []) as Omit<InvoiceDetailLine, "received">[];
+
+    // الكمية المستلمة بالمستودع (إذا المستخدم بيقدر يشوف الاستلامات).
+    const received = new Map<string, number>();
+    let canSeeReceipts = true;
+
+    if (rows.length) {
+      const result = await supabase
+        .from("goods_receipt_items")
+        .select("purchase_invoice_item_id,quantity,goods_receipts!inner(status)")
+        .in("purchase_invoice_item_id", rows.map((row) => row.id))
+        .eq("goods_receipts.status", "posted");
+
+      if (result.error) {
+        canSeeReceipts = false;
+      } else {
+        for (const row of result.data ?? []) {
+          const key = String(row.purchase_invoice_item_id);
+          received.set(key, (received.get(key) ?? 0) + Number(row.quantity));
+        }
+      }
+    }
+
+    setDetailLines(
+      rows.map((row) => ({
+        ...row,
+        received: canSeeReceipts ? received.get(row.id) ?? 0 : null,
+      }))
+    );
+    setDetailMessage("");
+  }
+
+  // ==========================================================
   // CANCEL INVOICE
   // ==========================================================
 
@@ -2765,7 +2847,7 @@ export function PurchasesClient({
                     event.target.value
                   )
                 }
-                placeholder="رقم الفاتورة أو رقم فاتورة المورد..."
+                placeholder="رقم الفاتورة، المورد، الصنف أو المبلغ..."
                 aria-label="بحث في فواتير الشراء"
               />
 
@@ -2854,11 +2936,18 @@ export function PurchasesClient({
                         }
                       >
                         <td>
-                          <strong>
-                            {
-                              invoice.invoice_number
-                            }
-                          </strong>
+                          <button
+                            type="button"
+                            className="linkButton"
+                            onClick={() => void openDetails(invoice)}
+                            title="تفاصيل الفاتورة"
+                          >
+                            <strong>
+                              {
+                                invoice.invoice_number
+                              }
+                            </strong>
+                          </button>
                         </td>
 
                         <td>
@@ -3090,7 +3179,7 @@ export function PurchasesClient({
                       event.target.value
                     )
                   }
-                  placeholder="رقم الدفعة أو المرجع..."
+                  placeholder="رقم الدفعة، المورد، المرجع أو المبلغ..."
                   aria-label="بحث في دفعات الموردين"
                 />
 
@@ -4331,6 +4420,95 @@ export function PurchasesClient({
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {detailInvoice ? (
+        <div
+          className="modalOverlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetailInvoice(null);
+          }}
+        >
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="purchase-detail-title">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">
+                  {oneRelation(detailInvoice.suppliers)?.name || "مورد"}
+                  {detailInvoice.supplier_invoice_number ? ` • فاتورة المورد ${detailInvoice.supplier_invoice_number}` : ""}
+                </span>
+                <h2 id="purchase-detail-title">{detailInvoice.invoice_number}</h2>
+                <p className="muted">
+                  {detailInvoice.invoice_date}
+                  {detailInvoice.due_date ? ` • الاستحقاق ${detailInvoice.due_date}` : ""}
+                </p>
+              </div>
+              <button type="button" className="closeButton" aria-label="إغلاق" onClick={() => setDetailInvoice(null)}>
+                ×
+              </button>
+            </div>
+
+            {detailMessage ? <p className="muted">{detailMessage}</p> : null}
+
+            {detailLines.length ? (
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الصنف</th>
+                      <th>الكمية</th>
+                      <th>السعر</th>
+                      <th>الخصم</th>
+                      <th>الإجمالي</th>
+                      <th>المستلم</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailLines.map((line) => {
+                      const product = oneRelation(line.products);
+                      const quantity = Number(line.quantity);
+                      return (
+                        <tr key={line.id}>
+                          <td>
+                            <strong>{product?.name || "صنف"}</strong>
+                            {line.notes ? <div className="muted">{line.notes}</div> : null}
+                          </td>
+                          <td>
+                            {quantity} {product?.unit || ""}
+                          </td>
+                          <td>{money(line.unit_cost, detailInvoice.currency)}</td>
+                          <td>{Number(line.discount_amount) > 0 ? money(line.discount_amount, detailInvoice.currency) : "—"}</td>
+                          <td>
+                            <strong>{money(line.line_total, detailInvoice.currency)}</strong>
+                          </td>
+                          <td>
+                            {line.received == null ? (
+                              "—"
+                            ) : (
+                              <span className={`chip ${line.received >= quantity ? "green" : line.received > 0 ? "orange" : "gray"}`}>
+                                {line.received >= quantity ? "استلمنا الكل" : `${line.received} من ${quantity}`}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            <div className="modalActions">
+              <span className="muted">
+                الإجمالي {money(detailInvoice.total, detailInvoice.currency)} • المدفوع{" "}
+                {money(detailInvoice.paid_total, detailInvoice.currency)} • الباقي{" "}
+                {money(detailInvoice.balance_due, detailInvoice.currency)}
+              </span>
+              <button type="button" className="softButton" onClick={() => setDetailInvoice(null)}>
+                إغلاق
+              </button>
+            </div>
           </section>
         </div>
       ) : null}

@@ -33,6 +33,46 @@ function cleanSearch(value: string) {
     .slice(0, 100);
 }
 
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+
+/** "1,500" أو "1500.5" → رقم، وإلا null. */
+function searchAmount(term: string) {
+  const value = Number(term.replace(/[\s,]/g, ""));
+  return term && Number.isFinite(value) ? value : null;
+}
+
+/** موردين اسمهم أو اسم الشخص المسؤول فيه كلمة البحث. */
+async function supplierIdsMatching(supabase: ServerClient, companyId: string, term: string) {
+  const pattern = `%${term}%`;
+  const { data } = await supabase
+    .from("suppliers")
+    .select("id")
+    .eq("company_id", companyId)
+    .or(`name.ilike.${pattern},contact_name.ilike.${pattern}`)
+    .limit(200);
+  return (data ?? []).map((row) => row.id as string);
+}
+
+/** فواتير شراء فيها صنف اسمه أو كوده أو ماركته فيها كلمة البحث. */
+async function invoiceIdsWithProduct(supabase: ServerClient, companyId: string, term: string) {
+  const pattern = `%${term}%`;
+  const { data: products } = await supabase
+    .from("products")
+    .select("id")
+    .eq("company_id", companyId)
+    .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
+    .limit(200);
+  const productIds = (products ?? []).map((row) => row.id as string);
+  if (!productIds.length) return [];
+  const { data: items } = await supabase
+    .from("purchase_invoice_items")
+    .select("invoice_id")
+    .eq("company_id", companyId)
+    .in("product_id", productIds)
+    .limit(500);
+  return [...new Set((items ?? []).map((row) => row.invoice_id as string))];
+}
+
 export default async function PurchasesPage({
   searchParams,
 }: {
@@ -290,16 +330,44 @@ export default async function PurchasesPage({
       );
   }
 
+  // البحث بكل شي: رقم الفاتورة، اسم المورد، اسم الصنف، أو المبلغ.
   if (invoiceSearch) {
     const pattern =
       `%${invoiceSearch}%`;
 
+    const [supplierIds, productInvoiceIds] =
+      await Promise.all([
+        supplierIdsMatching(supabase, context.companyId, invoiceSearch),
+        invoiceIdsWithProduct(supabase, context.companyId, invoiceSearch),
+      ]);
+
+    const amount = searchAmount(invoiceSearch);
+
+    const conditions = [
+      `invoice_number.ilike.${pattern}`,
+      `supplier_invoice_number.ilike.${pattern}`,
+      `notes.ilike.${pattern}`,
+    ];
+
+    if (supplierIds.length) {
+      conditions.push(`supplier_id.in.(${supplierIds.join(",")})`);
+    }
+
+    if (productInvoiceIds.length) {
+      conditions.push(`id.in.(${productInvoiceIds.join(",")})`);
+    }
+
+    if (amount != null) {
+      conditions.push(
+        `total.eq.${amount}`,
+        `balance_due.eq.${amount}`,
+        `paid_total.eq.${amount}`
+      );
+    }
+
     invoiceQuery =
       invoiceQuery.or(
-        [
-          `invoice_number.ilike.${pattern}`,
-          `supplier_invoice_number.ilike.${pattern}`,
-        ].join(",")
+        conditions.join(",")
       );
   }
 
@@ -320,7 +388,8 @@ export default async function PurchasesPage({
   let supplierPrices:
     SupplierPriceOption[] = [];
 
-  if (canCreateInvoice) {
+  // الموردين بيلزموا لفاتورة الشراء ولدفعة المورد (الصندوق ممكن يدفع بدون ما يعمل فواتير).
+  if (canCreateInvoice || canPaySupplier) {
     const [
       suppliersResult,
       productsResult,
@@ -504,16 +573,36 @@ export default async function PurchasesPage({
         );
     }
 
+    // البحث بكل شي: رقم الدفعة، المرجع، اسم المورد، أو المبلغ.
     if (paymentSearch) {
       const pattern =
         `%${paymentSearch}%`;
 
+      const supplierIds =
+        await supplierIdsMatching(supabase, context.companyId, paymentSearch);
+
+      const amount = searchAmount(paymentSearch);
+
+      const conditions = [
+        `payment_number.ilike.${pattern}`,
+        `reference_number.ilike.${pattern}`,
+        `notes.ilike.${pattern}`,
+      ];
+
+      if (supplierIds.length) {
+        conditions.push(`supplier_id.in.(${supplierIds.join(",")})`);
+      }
+
+      if (amount != null) {
+        conditions.push(
+          `amount.eq.${amount}`,
+          `base_amount.eq.${amount}`
+        );
+      }
+
       paymentQuery =
         paymentQuery.or(
-          [
-            `payment_number.ilike.${pattern}`,
-            `reference_number.ilike.${pattern}`,
-          ].join(",")
+          conditions.join(",")
         );
     }
 

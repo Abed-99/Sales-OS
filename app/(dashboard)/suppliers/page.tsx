@@ -1,31 +1,52 @@
-﻿import { Topbar } from "@/components/topbar";
+import { Icons } from "@/components/icons";
+import { Topbar } from "@/components/topbar";
 import { SuppliersClient } from "@/components/suppliers/suppliers-client";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentContext } from "@/lib/current-context";
+import { hasPermission } from "@/lib/permissions";
 
 export default async function SuppliersPage() {
-  const { companyId, companyName } = await getCurrentContext();
-  const supabase = await createClient();
+  const context = await getCurrentContext();
+  const can = (code: string) => hasPermission(context.permissions, code, context.isOwner);
 
+  if (!can("suppliers.view")) {
+    return (
+      <>
+        <Topbar title="الموردون" subtitle="بيانات الموردين وأسعار الشراء" companyName={context.companyName} />
+        <div className="page">
+          <section className="panel panelPad">
+            <div className="empty">
+              <Icons.shield size={32} />
+              <h3>لا تملك صلاحية عرض الموردين</h3>
+            </div>
+          </section>
+        </div>
+      </>
+    );
+  }
+
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("suppliers")
-    .select("*")
-    .eq("company_id", companyId)
+    .select("id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,created_at")
+    .eq("company_id", context.companyId)
     .order("created_at", { ascending: false });
 
   return (
     <>
       <Topbar
-        title="Ø§Ù„Ù…ÙˆØ±Ø¯ÙˆÙ†"
-        subtitle="Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†ØŒ Ø§Ù„ØªÙˆØ§ØµÙ„ ÙˆØ£Ø³Ø¹Ø§Ø± Ø§Ù„Ø´Ø±Ø§Ø¡"
-        companyName={companyName}
+        title="الموردون"
+        subtitle="بيانات الموردين، التواصل وأسعار الشراء"
+        companyName={context.companyName}
       />
       <SuppliersClient
-        companyId={companyId}
+        companyId={context.companyId}
         initialRows={data || []}
-        initialError={error?.message || null}
+        initialError={error ? "تعذر تحميل الموردين. حاول تحديث الصفحة." : null}
+        canCreate={can("suppliers.create")}
+        canUpdate={can("suppliers.update")}
+        canArchive={can("suppliers.archive")}
       />
     </>
   );
 }
-
