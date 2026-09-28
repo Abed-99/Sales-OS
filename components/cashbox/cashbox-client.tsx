@@ -33,6 +33,14 @@ type RelatedSupplier = {
   name: string;
 };
 
+type CashboxBalance = {
+  id: string;
+  name: string;
+  currency: string;
+  active: boolean;
+  balance: number | string;
+};
+
 type CashTransactionRow = {
   id: string;
   cashbox_id: string;
@@ -42,6 +50,7 @@ type CashTransactionRow = {
   notes: string | null;
   occurred_at: string;
   suppliers: RelatedSupplier | RelatedSupplier[] | null;
+  traders?: RelatedSupplier | RelatedSupplier[] | null;
   cashboxes: RelatedCashbox | RelatedCashbox[] | null;
 };
 
@@ -108,18 +117,13 @@ function formatDamascusDate(value: string) {
 function formatSummary(
   rows: SummaryRow[],
   field: "balance" | "today_in" | "today_out" | "month_expense",
-  fallbackCurrency: string
+  fallbackCurrency: string,
 ) {
   if (!rows.length) {
     return `0.00 ${fallbackCurrency}`;
   }
 
-  return rows
-    .map(
-      (row) =>
-        `${Number(row[field] || 0).toFixed(2)} ${row.currency}`
-    )
-    .join(" • ");
+  return rows.map((row) => `${Number(row[field] || 0).toFixed(2)} ${row.currency}`).join(" • ");
 }
 
 export function CashboxClient({
@@ -129,6 +133,7 @@ export function CashboxClient({
   initialTransactions,
   initialExpenses,
   summary,
+  balances,
   canViewExpenses,
   canWriteCashbox,
   canWriteExpenses,
@@ -147,6 +152,7 @@ export function CashboxClient({
   initialTransactions: CashTransactionRow[];
   initialExpenses: ExpenseRow[];
   summary: SummaryRow[];
+  balances: CashboxBalance[];
   canViewExpenses: boolean;
   canWriteCashbox: boolean;
   canWriteExpenses: boolean;
@@ -164,11 +170,8 @@ export function CashboxClient({
 
   const defaultCashboxId = useMemo(() => {
     return (
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.currency.toUpperCase() ===
-          defaultCurrency.toUpperCase()
-      )?.id ??
+      cashboxes.find((cashbox) => cashbox.currency.toUpperCase() === defaultCurrency.toUpperCase())
+        ?.id ??
       cashboxes[0]?.id ??
       ""
     );
@@ -183,6 +186,68 @@ export function CashboxClient({
   const [movementType, setMovementType] = useState("adjustment_in");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // إدارة الصناديق: إضافة، تعديل الاسم، إيقاف/تفعيل.
+  const [boxForm, setBoxForm] = useState<{
+    id: string | null;
+    name: string;
+    currency: string;
+  } | null>(null);
+  const [boxMessage, setBoxMessage] = useState("");
+
+  function openNewBox() {
+    setBoxMessage("");
+    setBoxForm({ id: null, name: "", currency: defaultCurrency === "USD" ? "SYP" : "USD" });
+  }
+
+  async function saveBox(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!boxForm) return;
+    const name = boxForm.name.trim();
+    const currency = boxForm.currency.trim().toUpperCase();
+    if (!name) return setBoxMessage("اكتب اسم الصندوق.");
+    if (!/^[A-Z]{3}$/.test(currency))
+      return setBoxMessage("العملة لازم تكون 3 أحرف، متل USD أو SYP.");
+
+    setSaving(true);
+    const { error } = boxForm.id
+      ? await supabase
+          .from("cashboxes")
+          .update({ name })
+          .eq("id", boxForm.id)
+          .eq("company_id", companyId)
+      : await supabase.from("cashboxes").insert({ company_id: companyId, name, currency });
+    setSaving(false);
+
+    if (error) {
+      setBoxMessage(
+        error.code === "23505"
+          ? "في صندوق بنفس الاسم."
+          : "ما قدرنا نحفظ الصندوق. تأكد من الصلاحيات.",
+      );
+      return;
+    }
+    setBoxForm(null);
+    router.refresh();
+  }
+
+  async function toggleBox(box: CashboxBalance) {
+    setFeedback(null);
+    const { error } = await supabase
+      .from("cashboxes")
+      .update({ active: !box.active })
+      .eq("id", box.id)
+      .eq("company_id", companyId);
+    if (error) {
+      setFeedback(
+        error.message.toLowerCase().includes("balance")
+          ? `ما فيك توقف "${box.name}" وفيه مصاري. انقل الرصيد أول.`
+          : "ما قدرنا نغيّر حالة الصندوق.",
+      );
+      return;
+    }
+    router.refresh();
+  }
 
   function openExpense() {
     if (!canWriteExpenses) {
@@ -211,9 +276,7 @@ export function CashboxClient({
     setMovementOpen(true);
   }
 
-  async function addExpense(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
+  async function addExpense(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!cashboxId) {
@@ -250,9 +313,7 @@ export function CashboxClient({
     router.refresh();
   }
 
-  async function addMovement(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
+  async function addMovement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!cashboxId) {
@@ -331,9 +392,7 @@ export function CashboxClient({
         <div>
           <span className="eyebrow">المحاسبة اليومية</span>
           <h2>الصندوق</h2>
-          <p className="muted">
-            كل عملة محسوبة لحالها، بدون خلط أرصدة الصناديق.
-          </p>
+          <p className="muted">كل عملة محسوبة لحالها، بدون خلط أرصدة الصناديق.</p>
         </div>
 
         <div className="rowActions">
@@ -369,19 +428,58 @@ export function CashboxClient({
         </section>
       )}
 
+      <section className="panel panelPad" style={{ marginBottom: 14 }}>
+        <div className="panelHeader">
+          <div>
+            <h2>الصناديق</h2>
+            <p>كل صندوق برصيده وعملته</p>
+          </div>
+          {canWriteCashbox ? (
+            <button type="button" className="softButton" onClick={openNewBox}>
+              <Icons.plus size={14} /> صندوق جديد
+            </button>
+          ) : null}
+        </div>
+        <div className="quickList">
+          {balances.map((box) => (
+            <div className="quickItem" key={box.id}>
+              <div className="quickIcon">
+                <Icons.wallet size={15} />
+              </div>
+              <div>
+                <strong>{box.name}</strong>
+                <span>{box.active ? box.currency : `${box.currency} • موقوف`}</span>
+              </div>
+              <div className="count">
+                {Number(box.balance || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}
+                {box.currency}
+              </div>
+              {canWriteCashbox ? (
+                <div className="rowActions">
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={() => {
+                      setBoxMessage("");
+                      setBoxForm({ id: box.id, name: box.name, currency: box.currency });
+                    }}
+                  >
+                    <Icons.edit size={13} />
+                  </button>
+                  <button type="button" className="softButton" onClick={() => void toggleBox(box)}>
+                    {box.active ? "إيقاف" : "تفعيل"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="statsGrid">
-        <Mini
-          title="الرصيد الحالي"
-          value={formatSummary(summary, "balance", defaultCurrency)}
-        />
-        <Mini
-          title="داخل اليوم"
-          value={formatSummary(summary, "today_in", defaultCurrency)}
-        />
-        <Mini
-          title="خارج اليوم"
-          value={formatSummary(summary, "today_out", defaultCurrency)}
-        />
+        <Mini title="الرصيد الحالي" value={formatSummary(summary, "balance", defaultCurrency)} />
+        <Mini title="داخل اليوم" value={formatSummary(summary, "today_in", defaultCurrency)} />
+        <Mini title="خارج اليوم" value={formatSummary(summary, "today_out", defaultCurrency)} />
         <Mini
           title="مصاريف الشهر"
           value={formatSummary(summary, "month_expense", defaultCurrency)}
@@ -419,53 +517,36 @@ export function CashboxClient({
                 <tbody>
                   {initialTransactions.map((transaction) => {
                     const cashbox = one(transaction.cashboxes);
-                    const supplier = one(transaction.suppliers);
-                    const transactionCurrency =
-                      cashbox?.currency || defaultCurrency;
+                    const supplier = one(transaction.suppliers) ?? one(transaction.traders);
+                    const transactionCurrency = cashbox?.currency || defaultCurrency;
 
                     return (
                       <tr key={transaction.id}>
                         <td>
                           <span
                             className={`chip ${
-                              transaction.direction === "in"
-                                ? "green"
-                                : "orange"
+                              transaction.direction === "in" ? "green" : "orange"
                             }`}
                           >
-                            {transaction.direction === "in"
-                              ? "داخل"
-                              : "خارج"}
+                            {transaction.direction === "in" ? "داخل" : "خارج"}
                           </span>
                         </td>
 
                         <td>
-                          <strong>
-                            {movementLabels[transaction.type] ||
-                              transaction.type}
-                          </strong>
-                          <div className="muted">
-                            {transaction.notes || supplier?.name || ""}
-                          </div>
+                          <strong>{movementLabels[transaction.type] || transaction.type}</strong>
+                          <div className="muted">{transaction.notes || supplier?.name || ""}</div>
                         </td>
 
                         <td>{cashbox?.name || "—"}</td>
 
                         <td
-                          className={
-                            transaction.direction === "in"
-                              ? "kpiPositive"
-                              : "kpiNegative"
-                          }
+                          className={transaction.direction === "in" ? "kpiPositive" : "kpiNegative"}
                         >
                           {transaction.direction === "in" ? "+" : "-"}
-                          {Number(transaction.amount).toFixed(2)}{" "}
-                          {transactionCurrency}
+                          {Number(transaction.amount).toFixed(2)} {transactionCurrency}
                         </td>
 
-                        <td>
-                          {formatDamascusDateTime(transaction.occurred_at)}
-                        </td>
+                        <td>{formatDamascusDateTime(transaction.occurred_at)}</td>
                       </tr>
                     );
                   })}
@@ -502,76 +583,70 @@ export function CashboxClient({
         </section>
 
         {canViewExpenses && (
-        <aside className="panel panelPad">
-          <div className="panelHeader">
-            <div>
-              <h2>مصاريف التشغيل</h2>
-              <p>آخر المصاريف</p>
+          <aside className="panel panelPad">
+            <div className="panelHeader">
+              <div>
+                <h2>مصاريف التشغيل</h2>
+                <p>آخر المصاريف</p>
+              </div>
             </div>
-          </div>
 
-          {!initialExpenses.length ? (
-            <p className="muted">ما في مصاريف مسجلة.</p>
-          ) : (
-            <div className="quickList">
-              {initialExpenses.map((expense) => {
-                const cashbox = one(expense.cashboxes);
+            {!initialExpenses.length ? (
+              <p className="muted">ما في مصاريف مسجلة.</p>
+            ) : (
+              <div className="quickList">
+                {initialExpenses.map((expense) => {
+                  const cashbox = one(expense.cashboxes);
 
-                return (
-                  <div className="quickItem" key={expense.id}>
-                    <div className="quickIcon">
-                      <Icons.money size={14} />
+                  return (
+                    <div className="quickItem" key={expense.id}>
+                      <div className="quickIcon">
+                        <Icons.money size={14} />
+                      </div>
+
+                      <div>
+                        <strong>{expense.category}</strong>
+                        <span>
+                          {expense.notes || formatDamascusDate(expense.occurred_at)}
+                          {cashbox?.name ? ` • ${cashbox.name}` : ""}
+                        </span>
+                      </div>
+
+                      <div className="count">
+                        {Number(expense.amount).toFixed(2)} {cashbox?.currency || defaultCurrency}
+                      </div>
                     </div>
+                  );
+                })}
+              </div>
+            )}
 
-                    <div>
-                      <strong>{expense.category}</strong>
-                      <span>
-                        {expense.notes ||
-                          formatDamascusDate(expense.occurred_at)}
-                        {cashbox?.name ? ` • ${cashbox.name}` : ""}
-                      </span>
-                    </div>
+            {expenseTotalPages > 1 && (
+              <div className="rowActions">
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={expensePage <= 1}
+                  onClick={() => router.push(pageHref("expense", expensePage - 1))}
+                >
+                  السابق
+                </button>
 
-                    <div className="count">
-                      {Number(expense.amount).toFixed(2)}{" "}
-                      {cashbox?.currency || defaultCurrency}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                <span className="muted">
+                  صفحة {expensePage} من {expenseTotalPages}
+                </span>
 
-          {expenseTotalPages > 1 && (
-            <div className="rowActions">
-              <button
-                type="button"
-                className="softButton"
-                disabled={expensePage <= 1}
-                onClick={() =>
-                  router.push(pageHref("expense", expensePage - 1))
-                }
-              >
-                السابق
-              </button>
-
-              <span className="muted">
-                صفحة {expensePage} من {expenseTotalPages}
-              </span>
-
-              <button
-                type="button"
-                className="softButton"
-                disabled={expensePage >= expenseTotalPages}
-                onClick={() =>
-                  router.push(pageHref("expense", expensePage + 1))
-                }
-              >
-                التالي
-              </button>
-            </div>
-          )}
-        </aside>
+                <button
+                  type="button"
+                  className="softButton"
+                  disabled={expensePage >= expenseTotalPages}
+                  onClick={() => router.push(pageHref("expense", expensePage + 1))}
+                >
+                  التالي
+                </button>
+              </div>
+            )}
+          </aside>
         )}
       </div>
 
@@ -604,20 +679,11 @@ export function CashboxClient({
 
             <form onSubmit={addExpense}>
               <div className="formGrid">
-                <CashboxField
-                  cashboxes={cashboxes}
-                  value={cashboxId}
-                  onChange={setCashboxId}
-                />
+                <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
 
                 <label className="field">
                   <span>الفئة</span>
-                  <select
-                    value={category}
-                    onChange={(event) =>
-                      setCategory(event.target.value)
-                    }
-                  >
+                  <select value={category} onChange={(event) => setCategory(event.target.value)}>
                     {expenseCategories.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
@@ -633,9 +699,7 @@ export function CashboxClient({
                     inputMode="decimal"
                     required
                     value={amount}
-                    onChange={(event) =>
-                      setAmount(event.target.value)
-                    }
+                    onChange={(event) => setAmount(event.target.value)}
                   />
                 </label>
 
@@ -645,9 +709,7 @@ export function CashboxClient({
                     rows={3}
                     maxLength={500}
                     value={notes}
-                    onChange={(event) =>
-                      setNotes(event.target.value)
-                    }
+                    onChange={(event) => setNotes(event.target.value)}
                   />
                 </label>
               </div>
@@ -662,10 +724,7 @@ export function CashboxClient({
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={saving}
-                >
+                <button className="primaryButton" disabled={saving}>
                   {saving ? "عم نحفظ..." : "حفظ المصروف"}
                 </button>
               </div>
@@ -703,26 +762,16 @@ export function CashboxClient({
 
             <form onSubmit={addMovement}>
               <div className="formGrid">
-                <CashboxField
-                  cashboxes={cashboxes}
-                  value={cashboxId}
-                  onChange={setCashboxId}
-                />
+                <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
 
                 <label className="field">
                   <span>نوع التسوية</span>
                   <select
                     value={movementType}
-                    onChange={(event) =>
-                      setMovementType(event.target.value)
-                    }
+                    onChange={(event) => setMovementType(event.target.value)}
                   >
-                    <option value="adjustment_in">
-                      رصيد افتتاحي / زيادة بالصندوق
-                    </option>
-                    <option value="adjustment_out">
-                      نقص بالصندوق (بينحسب مصروف)
-                    </option>
+                    <option value="adjustment_in">رصيد افتتاحي / زيادة بالصندوق</option>
+                    <option value="adjustment_out">نقص بالصندوق (بينحسب مصروف)</option>
                   </select>
                   <small className="helpText">
                     لإيداع رأس مال أو سحب شريك استعمل صفحة الشركاء، مشان يتسجل على حسابه.
@@ -738,9 +787,7 @@ export function CashboxClient({
                     inputMode="decimal"
                     required
                     value={amount}
-                    onChange={(event) =>
-                      setAmount(event.target.value)
-                    }
+                    onChange={(event) => setAmount(event.target.value)}
                   />
                 </label>
 
@@ -750,9 +797,7 @@ export function CashboxClient({
                     rows={3}
                     maxLength={500}
                     value={notes}
-                    onChange={(event) =>
-                      setNotes(event.target.value)
-                    }
+                    onChange={(event) => setNotes(event.target.value)}
                   />
                 </label>
               </div>
@@ -767,10 +812,7 @@ export function CashboxClient({
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={saving}
-                >
+                <button className="primaryButton" disabled={saving}>
                   {saving ? "عم نحفظ..." : "تسجيل التسوية"}
                 </button>
               </div>
@@ -778,6 +820,75 @@ export function CashboxClient({
           </section>
         </div>
       )}
+      {boxForm ? (
+        <div className="modalOverlay">
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="box-title">
+            <div className="modalHeader">
+              <h2 id="box-title">{boxForm.id ? "تعديل الصندوق" : "صندوق جديد"}</h2>
+              <button
+                type="button"
+                className="closeButton"
+                aria-label="إغلاق"
+                onClick={() => setBoxForm(null)}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveBox}>
+              <div className="formGrid">
+                <label className="field">
+                  <span>اسم الصندوق</span>
+                  <input
+                    value={boxForm.name}
+                    placeholder="مثلًا: صندوق الليرة"
+                    onChange={(event) => setBoxForm({ ...boxForm, name: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>العملة</span>
+                  <select
+                    value={["USD", "SYP"].includes(boxForm.currency) ? boxForm.currency : "OTHER"}
+                    disabled={Boolean(boxForm.id)}
+                    onChange={(event) =>
+                      setBoxForm({
+                        ...boxForm,
+                        currency: event.target.value === "OTHER" ? "" : event.target.value,
+                      })
+                    }
+                  >
+                    <option value="USD">USD - دولار</option>
+                    <option value="SYP">SYP - ليرة سورية</option>
+                    <option value="OTHER">عملة تانية...</option>
+                  </select>
+                  {!["USD", "SYP"].includes(boxForm.currency) && !boxForm.id ? (
+                    <input
+                      dir="ltr"
+                      maxLength={3}
+                      placeholder="مثلًا CNY"
+                      value={boxForm.currency}
+                      onChange={(event) =>
+                        setBoxForm({ ...boxForm, currency: event.target.value.toUpperCase() })
+                      }
+                    />
+                  ) : null}
+                  {boxForm.id ? (
+                    <small className="helpText">عملة الصندوق ما بتتغيّر بعد ما ينعمل.</small>
+                  ) : null}
+                </label>
+              </div>
+              {boxMessage ? <div className="toastError">{boxMessage}</div> : null}
+              <div className="modalActions">
+                <button type="button" className="softButton" onClick={() => setBoxForm(null)}>
+                  إلغاء
+                </button>
+                <button className="primaryButton" disabled={saving}>
+                  {saving ? "عم نحفظ..." : "حفظ"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -794,11 +905,7 @@ function CashboxField({
   return (
     <label className="field">
       <span>الصندوق</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        required
-      >
+      <select value={value} onChange={(event) => onChange(event.target.value)} required>
         {cashboxes.map((cashbox) => (
           <option key={cashbox.id} value={cashbox.id}>
             {cashbox.name} — {cashbox.currency}
@@ -809,13 +916,7 @@ function CashboxField({
   );
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
+function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
       <div className="statLabel">{title}</div>

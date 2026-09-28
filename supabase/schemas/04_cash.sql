@@ -292,6 +292,35 @@ begin
 end;
 $function$;
 
+create or replace function public.get_cashbox_balances(target_company uuid)
+ RETURNS TABLE(id uuid, name text, currency text, active boolean, balance numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- رصيد كل صندوق لحاله (الملخص فوق بيجمع حسب العملة).
+  select
+    cb.id,
+    cb.name,
+    upper(cb.currency),
+    cb.active,
+    coalesce(
+      (
+        select sum(case when ct.direction = 'in' then ct.amount else -ct.amount end)
+        from public.cash_transactions ct
+        where ct.cashbox_id = cb.id
+      ),
+      0
+    )
+  from public.cashboxes cb
+  where cb.company_id = target_company
+    and public.has_any_permission(
+      target_company,
+      array['finance.cashbox_view', 'finance.cashbox_write', 'finance.expenses_view', 'finance.expenses_write']
+    )
+  order by cb.active desc, cb.created_at
+$function$;
+
 create or replace function public.get_cashbox_summary(target_company uuid, target_date date)
  RETURNS TABLE(currency text, balance numeric, today_in numeric, today_out numeric, month_expense numeric)
  LANGUAGE plpgsql
@@ -422,6 +451,19 @@ begin
 
   if new.currency !~ '^[A-Z]{3}$' then
     raise exception 'Invalid cashbox currency';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.active = true
+     and new.active = false
+     and coalesce((
+       select sum(case when ct.direction = 'in' then ct.amount else -ct.amount end)
+       from public.cash_transactions ct
+       where ct.cashbox_id = old.id
+     ), 0) <> 0
+  then
+    -- ما منوقّف صندوق فيه مصاري، مشان رصيده ما يختفي من الشاشات.
+    raise exception 'Cashbox still has a balance';
   end if;
 
   if tg_op = 'UPDATE' then

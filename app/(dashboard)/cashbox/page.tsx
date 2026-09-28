@@ -36,25 +36,16 @@ export default async function CashboxPage({
     cashbox?: string;
   }>;
 }) {
-  const {
-    companyId,
-    companyName,
-    currency,
-    isOwner,
-    permissions,
-  } = await getCurrentContext();
+  const { companyId, companyName, currency, isOwner, permissions } = await getCurrentContext();
 
-  const canViewCashbox =
-    isOwner || permissions.includes("finance.cashbox_view");
-  const canWriteCashbox =
-    isOwner || permissions.includes("finance.cashbox_write");
+  const canViewCashbox = isOwner || permissions.includes("finance.cashbox_view");
+  const canWriteCashbox = isOwner || permissions.includes("finance.cashbox_write");
   const canViewExpenses =
     isOwner ||
     permissions.includes("finance.expenses_view") ||
     permissions.includes("reports.finance") ||
     permissions.includes("reports.profit");
-  const canWriteExpenses =
-    isOwner || permissions.includes("finance.expenses_write");
+  const canWriteExpenses = isOwner || permissions.includes("finance.expenses_write");
 
   if (!canViewCashbox) {
     redirect("/");
@@ -64,9 +55,7 @@ export default async function CashboxPage({
   const txPage = positivePage(params.txPage);
   const expensePage = positivePage(params.expensePage);
   const q = clean(params.q, 80);
-  const safeSearch = q
-    .replace(/[^\p{L}\p{N}\s@_-]/gu, " ")
-    .trim();
+  const safeSearch = q.replace(/[^\p{L}\p{N}\s@_-]/gu, " ").trim();
   const type = clean(params.type, 50);
   const cashboxFilter = clean(params.cashbox, 80);
 
@@ -79,14 +68,10 @@ export default async function CashboxPage({
     .eq("active", true)
     .order("created_at");
 
-  const activeCashboxIds = new Set(
-    (cashboxesResult.data ?? []).map((item) => item.id)
-  );
+  const activeCashboxIds = new Set((cashboxesResult.data ?? []).map((item) => item.id));
 
   const safeCashboxFilter =
-    cashboxFilter && activeCashboxIds.has(cashboxFilter)
-      ? cashboxFilter
-      : "";
+    cashboxFilter && activeCashboxIds.has(cashboxFilter) ? cashboxFilter : "";
 
   let transactionsQuery = supabase
     .from("cash_transactions")
@@ -100,28 +85,46 @@ export default async function CashboxPage({
         notes,
         occurred_at,
         suppliers(name),
+        traders(name),
         cashboxes(name,currency)
       `,
-      { count: "exact" }
+      { count: "exact" },
     )
     .eq("company_id", companyId);
 
   if (safeCashboxFilter) {
-    transactionsQuery = transactionsQuery.eq(
-      "cashbox_id",
-      safeCashboxFilter
-    );
+    transactionsQuery = transactionsQuery.eq("cashbox_id", safeCashboxFilter);
   }
 
   if (type) {
     transactionsQuery = transactionsQuery.eq("type", type);
   }
 
+  // البحث بكل شي: الملاحظة، المبلغ، أو اسم الزبون/المورد.
   if (safeSearch) {
-    transactionsQuery = transactionsQuery.ilike(
-      "notes",
-      `%${safeSearch.replace(/[%_]/g, "\\$&")}%`
-    );
+    const pattern = `%${safeSearch.replace(/[%_]/g, "\\$&")}%`;
+    const [traderRows, supplierRows] = await Promise.all([
+      supabase
+        .from("traders")
+        .select("id")
+        .eq("company_id", companyId)
+        .ilike("name", pattern)
+        .limit(200),
+      supabase
+        .from("suppliers")
+        .select("id")
+        .eq("company_id", companyId)
+        .ilike("name", pattern)
+        .limit(200),
+    ]);
+    const conditions = [`notes.ilike.${pattern}`];
+    const traderIds = (traderRows.data ?? []).map((row) => row.id);
+    const supplierIds = (supplierRows.data ?? []).map((row) => row.id);
+    if (traderIds.length) conditions.push(`trader_id.in.(${traderIds.join(",")})`);
+    if (supplierIds.length) conditions.push(`supplier_id.in.(${supplierIds.join(",")})`);
+    const amount = Number(safeSearch.replace(/[\s,]/g, ""));
+    if (Number.isFinite(amount) && amount > 0) conditions.push(`amount.eq.${amount}`);
+    transactionsQuery = transactionsQuery.or(conditions.join(","));
   }
 
   const txFrom = (txPage - 1) * TRANSACTION_PAGE_SIZE;
@@ -148,28 +151,21 @@ export default async function CashboxPage({
           occurred_at,
           cashboxes(name,currency)
         `,
-        { count: "exact" }
+        { count: "exact" },
       )
       .eq("company_id", companyId);
 
     if (safeCashboxFilter) {
-      expensesQuery = expensesQuery.eq(
-        "cashbox_id",
-        safeCashboxFilter
-      );
+      expensesQuery = expensesQuery.eq("cashbox_id", safeCashboxFilter);
     }
 
     if (safeSearch) {
       const escaped = safeSearch.replace(/[%_]/g, "\\$&");
-      expensesQuery = expensesQuery.or(
-        `category.ilike.%${escaped}%,notes.ilike.%${escaped}%`
-      );
+      expensesQuery = expensesQuery.or(`category.ilike.%${escaped}%,notes.ilike.%${escaped}%`);
     }
 
-    const expenseFrom =
-      (expensePage - 1) * EXPENSE_PAGE_SIZE;
-    const expenseTo =
-      expenseFrom + EXPENSE_PAGE_SIZE - 1;
+    const expenseFrom = (expensePage - 1) * EXPENSE_PAGE_SIZE;
+    const expenseTo = expenseFrom + EXPENSE_PAGE_SIZE - 1;
 
     const result = await expensesQuery
       .order("occurred_at", { ascending: false })
@@ -180,31 +176,22 @@ export default async function CashboxPage({
     expenseCount = result.count ?? 0;
   }
 
-  const summaryResult = await supabase.rpc(
-    "get_cashbox_summary",
-    {
+  const [summaryResult, balancesResult] = await Promise.all([
+    supabase.rpc("get_cashbox_summary", {
       target_company: companyId,
       target_date: businessDate(),
-    }
-  );
+    }),
+    supabase.rpc("get_cashbox_balances", { target_company: companyId }),
+  ]);
 
   const pageError =
-    cashboxesResult.error ||
-    transactionsResult.error ||
-    expenseError ||
-    summaryResult.error
+    cashboxesResult.error || transactionsResult.error || expenseError || summaryResult.error
       ? "تعذر تحميل بعض بيانات الصندوق. جرّب تحديث الصفحة."
       : null;
 
   const txCount = transactionsResult.count ?? 0;
-  const txTotalPages = Math.max(
-    1,
-    Math.ceil(txCount / TRANSACTION_PAGE_SIZE)
-  );
-  const expenseTotalPages = Math.max(
-    1,
-    Math.ceil(expenseCount / EXPENSE_PAGE_SIZE)
-  );
+  const txTotalPages = Math.max(1, Math.ceil(txCount / TRANSACTION_PAGE_SIZE));
+  const expenseTotalPages = Math.max(1, Math.ceil(expenseCount / EXPENSE_PAGE_SIZE));
 
   return (
     <>
@@ -221,6 +208,7 @@ export default async function CashboxPage({
         initialTransactions={transactionsResult.data ?? []}
         initialExpenses={expenseData}
         summary={summaryResult.data ?? []}
+        balances={balancesResult.data ?? []}
         canViewExpenses={canViewExpenses}
         canWriteCashbox={canWriteCashbox}
         canWriteExpenses={canWriteExpenses}
