@@ -413,7 +413,8 @@ begin
         ),
         v_payment.payment_currency,
         v_invoice_currency,
-        1
+        -- نفس سعر قيد القبض الأصلي (سعر يوم الدفعة)، مش 1، وإلا الليرة بتنحسب دولار.
+        null
       )
       on conflict(
         payment_id,

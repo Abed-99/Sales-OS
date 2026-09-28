@@ -48,6 +48,8 @@ export type TraderSalesSummary = {
   total_invoiced: number;
   outstanding: number;
   currency: string;
+  // رصيد للزبون عنا (دفعة زيادة أو مرتجع من فاتورة مدفوعة) — بينخصم تلقائي من فواتيره الجاية.
+  credits?: { currency: string; amount: number }[];
 };
 
 const traderStatusLabels: Record<string, string> = {
@@ -425,6 +427,15 @@ export function TraderDetailClient({
               <Info
                 t="الرصيد المستحق"
                 v={formatMoney(salesSummary.outstanding, salesSummary.currency)}
+              />
+            ) : null}
+
+            {canViewFinancials && salesSummary?.credits?.length ? (
+              <Info
+                t="رصيد للزبون عنا"
+                v={salesSummary.credits
+                  .map((credit) => formatMoney(credit.amount, credit.currency))
+                  .join(" + ")}
               />
             ) : null}
 

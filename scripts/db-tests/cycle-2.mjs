@@ -170,6 +170,43 @@ must("إلغاء فاتورة الشراء", await u.rpc("cancel_purchase_invoic
 check("ديون المورد", -(await byKey("accounts_payable")), 0);
 check("حساب بضاعة بالطريق رجع صفر", await byKey("inventory_clearing"), 0);
 
+// ---------------------------------------------------------------- F. return after payment
+log("\nF️⃣  مرتجع من فاتورة مدفوعة ← رصيد للزبون ← ينخصم من الفاتورة الجاية");
+async function sellCable(qty) {
+  const q = must(`عرض ${qty} كبل`, await u.rpc("create_sales_quote", { target_company: company, target_trader: trader, target_valid_until: null, target_notes: null, items_payload: [{ product_id: cable, quantity: qty, sale_unit_price: 10 }] }));
+  const qId = typeof q === "string" ? q : q?.quote_id ?? q?.id;
+  await u.rpc("set_sales_quote_status", { target_company: company, target_quote: qId, target_status: "sent" });
+  await u.rpc("set_sales_quote_status", { target_company: company, target_quote: qId, target_status: "accepted" });
+  const c = must("تحويل", await u.rpc("convert_sales_quote_to_order", { target_company: company, target_quote: qId }));
+  const oId = c?.order_id ?? c;
+  const oi = (await admin.from("sales_order_items").select("id").eq("order_id", oId).single()).data.id;
+  must("توصيل", await u.rpc("create_order_delivery", { target_company: company, target_order: oId, items_payload: [{ sales_order_item_id: oi, quantity: qty }] }));
+  must("تسليم", await u.rpc("complete_order_delivery", { target_company: company, target_order: oId, target_notes: null }));
+  return (await admin.from("sales_invoices").select("id, balance_due").eq("order_id", oId).single()).data;
+}
+const advances = async () => -(await byKey("customer_advances"));
+const inv3 = await sellCable(10);
+const pay3 = must("قبض 100$ كامل", await u.rpc("record_customer_payment", { target_company: company, target_trader: trader, target_cashbox: usdBox, target_amount: 100, target_payment_date: today, target_method: "cash", target_reference: null, target_notes: null, allocations_payload: [{ sales_invoice_id: inv3.id, amount: 100 }] }));
+const pay3Id = typeof pay3 === "string" ? pay3 : pay3?.payment_id ?? pay3?.id;
+const i3Item = (await admin.from("sales_invoice_items").select("id").eq("invoice_id", inv3.id).single()).data.id;
+must("مرتجع 3 كبل (30$)", await u.rpc("create_sales_return", { target_company: company, target_invoice: inv3.id, target_warehouse: wh1, target_date: today, target_notes: null, items_payload: [{ sales_invoice_item_id: i3Item, quantity: 3 }] }));
+check("الفاتورة ما عليها شي", (await admin.from("sales_invoices").select("balance_due").eq("id", inv3.id).single()).data.balance_due, 0);
+check("الدفعة: 30$ صارت رصيد للزبون", (await admin.from("customer_payments").select("unallocated_total").eq("id", pay3Id).single()).data.unallocated_total, 30);
+check("رصيد الزبون الدائن بالحسابات", await advances(), 30);
+const inv4 = await sellCable(2);
+check("الفاتورة الجديدة (20$) انخصمت من الرصيد", (await admin.from("sales_invoices").select("balance_due").eq("id", inv4.id).single()).data.balance_due, 0);
+check("ضل للزبون رصيد 10$", await advances(), 10);
+must("عكس الدفعة", await u.rpc("reverse_customer_payment", { target_company: company, target_payment: pay3Id, target_reason: "تجربة" }));
+check("بعد عكس الدفعة: الفاتورة الأولى عليها 70$", (await admin.from("sales_invoices").select("balance_due").eq("id", inv3.id).single()).data.balance_due, 70);
+check("بعد عكس الدفعة: رصيد الزبون الدائن صفر", await advances(), 0);
+check("ديون الزبون = 70 + 20", await byKey("accounts_receivable"), 90);
+const byProduct = await u.rpc("get_sales_return_candidates", { target_company: company, target_search: "كبل", target_limit: 50, target_offset: 0 });
+if (byProduct.error) { failures++; log("   ❌ بحث المرتجعات: " + byProduct.error.message); }
+else check("بحث المرتجعات باسم الصنف لقى الفواتير", byProduct.data.total_count > 0 ? 1 : 0, 1);
+const history = await u.rpc("get_returns_history", { target_company: company, target_search: "كبل", target_kind: null, target_status: null, target_limit: 50, target_offset: 0 });
+if (history.error) { failures++; log("   ❌ سجل المرتجعات: " + history.error.message); }
+else check("سجل المرتجعات باسم الصنف", history.data.total_count > 0 ? 1 : 0, 1);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

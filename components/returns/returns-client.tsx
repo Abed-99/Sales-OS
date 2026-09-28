@@ -1,35 +1,17 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-} from "react";
-import {
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 
-export type ReturnsTab =
-  | "sales"
-  | "purchases"
-  | "history";
+export type ReturnsTab = "sales" | "purchases" | "history";
 
-export type ReturnHistoryKindFilter =
-  | "all"
-  | "sales"
-  | "purchases";
+export type ReturnHistoryKindFilter = "all" | "sales" | "purchases";
 
-export type ReturnHistoryStatusFilter =
-  | "all"
-  | "posted"
-  | "reversed"
-  | "cancelled";
+export type ReturnHistoryStatusFilter = "all" | "posted" | "reversed" | "cancelled";
 
 export type ReturnWarehouse = {
   id: string;
@@ -62,8 +44,7 @@ export type SalesReturnCandidate = {
     name: string;
   } | null;
 
-  items:
-    SalesReturnCandidateItem[];
+  items: SalesReturnCandidateItem[];
 };
 
 export type PurchaseReturnCandidateItem = {
@@ -91,16 +72,13 @@ export type PurchaseReturnCandidate = {
     name: string;
   } | null;
 
-  items:
-    PurchaseReturnCandidateItem[];
+  items: PurchaseReturnCandidateItem[];
 };
 
 export type ReturnHistoryRow = {
   id: string;
 
-  kind:
-    | "sales"
-    | "purchases";
+  kind: "sales" | "purchases";
 
   return_number: string;
   invoice_number: string;
@@ -109,10 +87,7 @@ export type ReturnHistoryRow = {
 
   return_date: string;
 
-  status:
-    | "posted"
-    | "reversed"
-    | "cancelled";
+  status: "posted" | "reversed" | "cancelled";
 
   currency: string;
   total: number;
@@ -121,13 +96,9 @@ export type ReturnHistoryRow = {
 
   created_at: string;
 
-  reversed_at:
-    | string
-    | null;
+  reversed_at: string | null;
 
-  reversal_reason:
-    | string
-    | null;
+  reversal_reason: string | null;
 };
 
 export type ReturnsStats = {
@@ -151,311 +122,158 @@ export type ReturnsStats = {
 };
 
 type Notice = {
-  type:
-    | "success"
-    | "error";
+  type: "success" | "error";
 
   text: string;
 };
 
-function numeric(
-  value: unknown
-) {
-  const result =
-    Number(
-      value ?? 0
-    );
+function numeric(value: unknown) {
+  const result = Number(value ?? 0);
 
-  return Number.isFinite(
-    result
-  )
-    ? result
-    : 0;
+  return Number.isFinite(result) ? result : 0;
 }
 
-function quantity(
-  value: unknown
-) {
-  return numeric(
-    value
-  ).toFixed(3);
+function quantity(value: unknown) {
+  return numeric(value).toFixed(3);
 }
 
-function money(
-  value: unknown,
-  currency: string
-) {
-  return `${new Intl.NumberFormat(
-    "en-US",
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  ).format(
-    numeric(value)
-  )} ${currency}`;
+function money(value: unknown, currency: string) {
+  return `${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numeric(value))} ${currency}`;
 }
 
 function formatTotals(
   rows: {
     currency: string;
     total: number;
-  }[]
+  }[],
 ) {
   if (!rows.length) {
     return "0.00";
   }
 
-  return rows
-    .map(
-      (row) =>
-        money(
-          row.total,
-          row.currency
-        )
-    )
-    .join(" • ");
+  return rows.map((row) => money(row.total, row.currency)).join(" • ");
 }
 
 function businessDate() {
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone:
-          "Asia/Damascus",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }
-    ).formatToParts(
-      new Date()
-    );
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  const year =
-    parts.find(
-      (part) =>
-        part.type ===
-        "year"
-    )?.value;
+  const year = parts.find((part) => part.type === "year")?.value;
 
-  const month =
-    parts.find(
-      (part) =>
-        part.type ===
-        "month"
-    )?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
 
-  const day =
-    parts.find(
-      (part) =>
-        part.type ===
-        "day"
-    )?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
 
   return `${year}-${month}-${day}`;
 }
 
 function friendlyError(
-  error:
-    | {
-        code?: string;
-        message?: string;
-      }
-    | null,
-  action:
-    | "create"
-    | "reverse"
+  error: {
+    code?: string;
+    message?: string;
+  } | null,
+  action: "create" | "reverse",
 ) {
-  const raw =
-    error?.message ?? "";
+  const raw = error?.message ?? "";
 
-  const message =
-    raw.toLowerCase();
+  const message = raw.toLowerCase();
 
   if (
-    error?.code ===
-      "42501" ||
-    message.includes(
-      "not allowed"
-    ) ||
-    message.includes(
-      "permission"
-    )
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
   ) {
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (
-    message.includes(
-      "finance period"
-    ) &&
-    message.includes(
-      "closed"
-    )
-  ) {
+  if (message.includes("finance period") && message.includes("closed")) {
     return "الفترة المحاسبية لهذا التاريخ مغلقة.";
   }
 
-  if (
-    message.includes(
-      "return date cannot be before invoice date"
-    )
-  ) {
+  if (message.includes("return date cannot be before invoice date")) {
     return "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة.";
   }
 
-  if (
-    message.includes(
-      "return date cannot be in the future"
-    )
-  ) {
+  if (message.includes("return date cannot be in the future")) {
     return "تاريخ المرتجع لا يمكن أن يكون بالمستقبل.";
   }
 
-  if (
-    message.includes(
-      "posted sales invoice not found"
-    )
-  ) {
+  if (message.includes("posted sales invoice not found")) {
     return "فاتورة البيع غير موجودة أو لم تعد مرحلة.";
   }
 
-  if (
-    message.includes(
-      "posted purchase invoice not found"
-    )
-  ) {
+  if (message.includes("posted purchase invoice not found")) {
     return "فاتورة الشراء غير موجودة أو لم تعد مرحلة.";
   }
 
-  if (
-    message.includes(
-      "invalid warehouse"
-    )
-  ) {
+  if (message.includes("invalid warehouse")) {
     return "المستودع غير صالح أو أصبح غير نشط.";
   }
 
-  if (
-    message.includes(
-      "return quantity must be greater than zero"
-    )
-  ) {
+  if (message.includes("return quantity must be greater than zero")) {
     return "كمية المرتجع يجب أن تكون أكبر من صفر.";
   }
 
-  if (
-    message.includes(
-      "returned quantity exceeds invoiced quantity"
-    )
-  ) {
+  if (message.includes("returned quantity exceeds invoiced quantity")) {
     return "الكمية المرتجعة أكبر من الكمية المباعة المتاحة للإرجاع.";
   }
 
-  if (
-    message.includes(
-      "returned quantity exceeds received quantity"
-    )
-  ) {
+  if (message.includes("returned quantity exceeds received quantity")) {
     return "الكمية المرتجعة أكبر من الكمية المستلمة فعلياً.";
   }
 
-  if (
-    message.includes(
-      "not enough available stock"
-    )
-  ) {
+  if (message.includes("not enough available stock")) {
     return "المخزون المتاح غير كافٍ لإتمام مرتجع الشراء.";
   }
 
-  if (
-    message.includes(
-      "reversal reason required"
-    )
-  ) {
+  if (message.includes("reversal reason required")) {
     return "سبب عكس المرتجع مطلوب.";
   }
 
-  if (
-    message.includes(
-      "only posted"
-    ) &&
-    message.includes(
-      "return"
-    )
-  ) {
+  if (message.includes("only posted") && message.includes("return")) {
     return "يمكن عكس المرتجعات المرحلة فقط.";
   }
 
-  if (
-    message.includes(
-      "already reserved"
-    ) ||
-    message.includes(
-      "transferred or used"
-    )
-  ) {
+  if (message.includes("already reserved") || message.includes("transferred or used")) {
     return "لا يمكن عكس مرتجع المبيعات لأن البضاعة المرتجعة تم حجزها أو نقلها أو استخدامها.";
   }
 
-  if (
-    message.includes(
-      "original inventory cost"
-    )
-  ) {
+  if (message.includes("original inventory cost")) {
     return "تعذر العثور على حركة المخزون الأصلية لهذا المرتجع.";
   }
 
-  if (
-    message.includes(
-      "financial journal"
-    ) ||
-    message.includes(
-      "original journal"
-    )
-  ) {
+  if (message.includes("financial journal") || message.includes("original journal")) {
     return "تعذر عكس القيد المحاسبي المرتبط بالمرتجع.";
   }
 
-  if (
-    action === "reverse"
-  ) {
+  if (action === "reverse") {
     return "تعذر عكس المرتجع.";
   }
 
   return "تعذر إنشاء المرتجع. راجع البيانات وحاول مرة ثانية.";
 }
 
-function statusLabel(
-  status:
-    ReturnHistoryRow["status"]
-) {
-  if (
-    status ===
-    "posted"
-  ) {
+function statusLabel(status: ReturnHistoryRow["status"]) {
+  if (status === "posted") {
     return "مرحّل";
   }
 
-  if (
-    status ===
-    "reversed"
-  ) {
+  if (status === "reversed") {
     return "معكوس";
   }
 
   return "ملغى";
 }
 
-function statusColor(
-  status:
-    ReturnHistoryRow["status"]
-) {
-  if (
-    status ===
-    "posted"
-  ) {
+function statusColor(status: ReturnHistoryRow["status"]) {
+  if (status === "posted") {
     return "green";
   }
 
@@ -482,23 +300,17 @@ export function ReturnsClient({
 }: {
   companyId: string;
 
-  initialTab:
-    ReturnsTab;
+  initialTab: ReturnsTab;
 
-  initialStats:
-    ReturnsStats;
+  initialStats: ReturnsStats;
 
-  warehouses:
-    ReturnWarehouse[];
+  warehouses: ReturnWarehouse[];
 
-  salesCandidates:
-    SalesReturnCandidate[];
+  salesCandidates: SalesReturnCandidate[];
 
-  purchaseCandidates:
-    PurchaseReturnCandidate[];
+  purchaseCandidates: PurchaseReturnCandidate[];
 
-  historyRows:
-    ReturnHistoryRow[];
+  historyRows: ReturnHistoryRow[];
 
   totalCount: number;
 
@@ -507,255 +319,98 @@ export function ReturnsClient({
 
   searchQuery: string;
 
-  historyKind:
-    ReturnHistoryKindFilter;
+  historyKind: ReturnHistoryKindFilter;
 
-  historyStatus:
-    ReturnHistoryStatusFilter;
+  historyStatus: ReturnHistoryStatusFilter;
 
   canCreate: boolean;
   canReverse: boolean;
 
-  initialError:
-    string | null;
+  initialError: string | null;
 }) {
-  const [supabase] =
-    useState(
-      () =>
-        createClient()
-    );
+  const [supabase] = useState(() => createClient());
 
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const searchParams =
-    useSearchParams();
+  const searchParams = useSearchParams();
 
-  const [
-    tab,
-    setTab,
-  ] =
-    useState<ReturnsTab>(
-      initialTab
-    );
+  const [tab, setTab] = useState<ReturnsTab>(initialTab);
 
-  const [
-    search,
-    setSearch,
-  ] =
-    useState(
-      searchQuery
-    );
+  const [search, setSearch] = useState(searchQuery);
 
-  const [
-    kindFilter,
-    setKindFilter,
-  ] =
-    useState<
-      ReturnHistoryKindFilter
-    >(
-      historyKind
-    );
+  const [kindFilter, setKindFilter] = useState<ReturnHistoryKindFilter>(historyKind);
 
-  const [
-    statusFilter,
-    setStatusFilter,
-  ] =
-    useState<
-      ReturnHistoryStatusFilter
-    >(
-      historyStatus
-    );
+  const [statusFilter, setStatusFilter] = useState<ReturnHistoryStatusFilter>(historyStatus);
 
-  const [
-    notice,
-    setNotice,
-  ] =
-    useState<
-      Notice | null
-    >(
-      initialError
-        ? {
-            type:
-              "error",
+  const [notice, setNotice] = useState<Notice | null>(
+    initialError
+      ? {
+          type: "error",
 
-            text:
-              initialError,
-          }
-        : null
-    );
+          text: initialError,
+        }
+      : null,
+  );
 
-  const [
-    warehouseId,
-    setWarehouseId,
-  ] =
-    useState(
-      warehouses.find(
-        (warehouse) =>
-          warehouse.is_default
-      )?.id ??
-        warehouses[0]?.id ??
-        ""
-    );
+  const [warehouseId, setWarehouseId] = useState(
+    warehouses.find((warehouse) => warehouse.is_default)?.id ?? warehouses[0]?.id ?? "",
+  );
 
-  const [
-    returnDate,
-    setReturnDate,
-  ] =
-    useState(
-      businessDate()
-    );
+  const [returnDate, setReturnDate] = useState(businessDate());
 
-  const [
-    notes,
-    setNotes,
-  ] =
-    useState("");
+  const [notes, setNotes] = useState("");
 
-  const [
-    quantities,
-    setQuantities,
-  ] =
-    useState<
-      Record<
-        string,
-        string
-      >
-    >({});
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
 
-  const [
-    salesTarget,
-    setSalesTarget,
-  ] =
-    useState<
-      SalesReturnCandidate | null
-    >(null);
+  const [salesTarget, setSalesTarget] = useState<SalesReturnCandidate | null>(null);
 
-  const [
-    purchaseTarget,
-    setPurchaseTarget,
-  ] =
-    useState<
-      PurchaseReturnCandidate | null
-    >(null);
+  const [purchaseTarget, setPurchaseTarget] = useState<PurchaseReturnCandidate | null>(null);
 
-  const [
-    reverseTarget,
-    setReverseTarget,
-  ] =
-    useState<
-      ReturnHistoryRow | null
-    >(null);
+  const [reverseTarget, setReverseTarget] = useState<ReturnHistoryRow | null>(null);
 
-  const [
-    reverseReason,
-    setReverseReason,
-  ] =
-    useState("");
+  const [reverseReason, setReverseReason] = useState("");
 
-  const [
-    formMessage,
-    setFormMessage,
-  ] =
-    useState("");
+  const [formMessage, setFormMessage] = useState("");
 
-  const [
-    reverseMessage,
-    setReverseMessage,
-  ] =
-    useState("");
+  const [reverseMessage, setReverseMessage] = useState("");
 
-  const [
-    saving,
-    setSaving,
-  ] =
-    useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const [
-    busyReturn,
-    setBusyReturn,
-  ] =
-    useState<
-      string | null
-    >(null);
+  const [busyReturn, setBusyReturn] = useState<string | null>(null);
 
   useEffect(() => {
-    setTab(
-      initialTab
-    );
+    setTab(initialTab);
 
-    setSearch(
-      searchQuery
-    );
+    setSearch(searchQuery);
 
-    setKindFilter(
-      historyKind
-    );
+    setKindFilter(historyKind);
 
-    setStatusFilter(
-      historyStatus
-    );
-  }, [
-    initialTab,
-    searchQuery,
-    historyKind,
-    historyStatus,
-  ]);
+    setStatusFilter(historyStatus);
+  }, [initialTab, searchQuery, historyKind, historyStatus]);
 
   useEffect(() => {
-    if (
-      initialError
-    ) {
+    if (initialError) {
       setNotice({
         type: "error",
-        text:
-          initialError,
+        text: initialError,
       });
     }
-  }, [
-    initialError,
-  ]);
+  }, [initialError]);
 
   useEffect(() => {
-    if (
-      !warehouses.length
-    ) {
-      setWarehouseId(
-        ""
-      );
+    if (!warehouses.length) {
+      setWarehouseId("");
       return;
     }
 
-    if (
-      warehouses.some(
-        (warehouse) =>
-          warehouse.id ===
-          warehouseId
-      )
-    ) {
+    if (warehouses.some((warehouse) => warehouse.id === warehouseId)) {
       return;
     }
 
-    setWarehouseId(
-      warehouses.find(
-        (warehouse) =>
-          warehouse.is_default
-      )?.id ??
-        warehouses[0].id
-    );
-  }, [
-    warehouses,
-    warehouseId,
-  ]);
+    setWarehouseId(warehouses.find((warehouse) => warehouse.is_default)?.id ?? warehouses[0].id);
+  }, [warehouses, warehouseId]);
 
-  const pageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        totalCount /
-          pageSize
-      )
-    );
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
 
   function navigate({
     nextTab = tab,
@@ -764,121 +419,61 @@ export function ReturnsClient({
     nextKind = kindFilter,
     nextStatus = statusFilter,
   }: {
-    nextTab?:
-      ReturnsTab;
+    nextTab?: ReturnsTab;
 
-    nextSearch?:
-      string;
+    nextSearch?: string;
 
-    nextPage?:
-      number;
+    nextPage?: number;
 
-    nextKind?:
-      ReturnHistoryKindFilter;
+    nextKind?: ReturnHistoryKindFilter;
 
-    nextStatus?:
-      ReturnHistoryStatusFilter;
+    nextStatus?: ReturnHistoryStatusFilter;
   }) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+    const params = new URLSearchParams(searchParams.toString());
 
-    params.set(
-      "tab",
-      nextTab
-    );
+    params.set("tab", nextTab);
 
-    const clean =
-      nextSearch.trim();
+    const clean = nextSearch.trim();
 
     if (clean) {
-      params.set(
-        "q",
-        clean
-      );
+      params.set("q", clean);
     } else {
-      params.delete(
-        "q"
-      );
+      params.delete("q");
     }
 
-    if (
-      nextPage > 1
-    ) {
-      params.set(
-        "page",
-        String(
-          nextPage
-        )
-      );
+    if (nextPage > 1) {
+      params.set("page", String(nextPage));
     } else {
-      params.delete(
-        "page"
-      );
+      params.delete("page");
     }
 
-    if (
-      nextTab ===
-      "history"
-    ) {
-      if (
-        nextKind !==
-        "all"
-      ) {
-        params.set(
-          "kind",
-          nextKind
-        );
+    if (nextTab === "history") {
+      if (nextKind !== "all") {
+        params.set("kind", nextKind);
       } else {
-        params.delete(
-          "kind"
-        );
+        params.delete("kind");
       }
 
-      if (
-        nextStatus !==
-        "all"
-      ) {
-        params.set(
-          "status",
-          nextStatus
-        );
+      if (nextStatus !== "all") {
+        params.set("status", nextStatus);
       } else {
-        params.delete(
-          "status"
-        );
+        params.delete("status");
       }
     } else {
-      params.delete(
-        "kind"
-      );
+      params.delete("kind");
 
-      params.delete(
-        "status"
-      );
+      params.delete("status");
     }
 
-    router.push(
-      `/returns?${params.toString()}`
-    );
+    router.push(`/returns?${params.toString()}`);
   }
 
-  function switchTab(
-    nextTab:
-      ReturnsTab
-  ) {
-    if (
-      !canCreate &&
-      nextTab !==
-        "history"
-    ) {
+  function switchTab(nextTab: ReturnsTab) {
+    if (!canCreate && nextTab !== "history") {
       return;
     }
 
-    setTab(
-      nextTab
-    );
+    setTab(nextTab);
 
     setSearch("");
 
@@ -889,567 +484,310 @@ export function ReturnsClient({
     });
   }
 
-  function openSalesReturn(
-    invoice:
-      SalesReturnCandidate
-  ) {
+  function openSalesReturn(invoice: SalesReturnCandidate) {
     if (!canCreate) {
       return;
     }
 
-    const next:
-      Record<
-        string,
-        string
-      > = {};
+    const next: Record<string, string> = {};
 
-    for (
-      const item of
-      invoice.items
-    ) {
-      next[item.id] =
-        "";
+    for (const item of invoice.items) {
+      next[item.id] = "";
     }
 
-    setQuantities(
-      next
-    );
+    setQuantities(next);
 
-    setReturnDate(
-      businessDate()
-    );
+    setReturnDate(businessDate());
 
     setNotes("");
     setFormMessage("");
 
-    setSalesTarget(
-      invoice
-    );
+    setSalesTarget(invoice);
 
-    setPurchaseTarget(
-      null
-    );
+    setPurchaseTarget(null);
   }
 
-  function openPurchaseReturn(
-    invoice:
-      PurchaseReturnCandidate
-  ) {
+  function openPurchaseReturn(invoice: PurchaseReturnCandidate) {
     if (!canCreate) {
       return;
     }
 
-    const next:
-      Record<
-        string,
-        string
-      > = {};
+    const next: Record<string, string> = {};
 
-    for (
-      const item of
-      invoice.items
-    ) {
-      next[item.id] =
-        "";
+    for (const item of invoice.items) {
+      next[item.id] = "";
     }
 
-    setQuantities(
-      next
-    );
+    setQuantities(next);
 
-    setReturnDate(
-      businessDate()
-    );
+    setReturnDate(businessDate());
 
     setNotes("");
     setFormMessage("");
 
-    setPurchaseTarget(
-      invoice
-    );
+    setPurchaseTarget(invoice);
 
-    setSalesTarget(
-      null
-    );
+    setSalesTarget(null);
   }
 
-  async function saveSalesReturn(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function saveSalesReturn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !salesTarget ||
-      !canCreate ||
-      saving
-    ) {
+    if (!salesTarget || !canCreate || saving) {
       return;
     }
 
-    setFormMessage(
-      ""
-    );
+    setFormMessage("");
 
-    if (
-      !warehouseId
-    ) {
-      setFormMessage(
-        "لا يوجد مستودع صالح للمرتجع."
-      );
+    if (!warehouseId) {
+      setFormMessage("لا يوجد مستودع صالح للمرتجع.");
       return;
     }
 
-    if (
-      !returnDate
-    ) {
-      setFormMessage(
-        "حدد تاريخ المرتجع."
-      );
+    if (!returnDate) {
+      setFormMessage("حدد تاريخ المرتجع.");
       return;
     }
 
-    if (
-      returnDate <
-      salesTarget.invoice_date
-    ) {
-      setFormMessage(
-        "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة."
-      );
+    if (returnDate < salesTarget.invoice_date) {
+      setFormMessage("تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة.");
       return;
     }
 
-    if (
-      returnDate >
-      businessDate()
-    ) {
-      setFormMessage(
-        "تاريخ المرتجع لا يمكن أن يكون بالمستقبل."
-      );
+    if (returnDate > businessDate()) {
+      setFormMessage("تاريخ المرتجع لا يمكن أن يكون بالمستقبل.");
       return;
     }
 
-    const payload:
-      Array<{
-        sales_invoice_item_id:
-          string;
+    const payload: Array<{
+      sales_invoice_item_id: string;
 
-        quantity:
-          number;
-      }> = [];
+      quantity: number;
+    }> = [];
 
-    for (
-      const item of
-      salesTarget.items
-    ) {
-      const value =
-        numeric(
-          quantities[
-            item.id
-          ]
-        );
+    for (const item of salesTarget.items) {
+      const value = numeric(quantities[item.id]);
 
-      const available =
-        numeric(
-          item.available_quantity
-        );
+      const available = numeric(item.available_quantity);
 
-      if (
-        value < 0
-      ) {
-        setFormMessage(
-          "كمية المرتجع لا يمكن أن تكون سالبة."
-        );
+      if (value < 0) {
+        setFormMessage("كمية المرتجع لا يمكن أن تكون سالبة.");
         return;
       }
 
-      if (
-        value >
-        available +
-          0.0005
-      ) {
-        setFormMessage(
-          `كمية ${item.product_name} أكبر من المتاح للإرجاع.`
-        );
+      if (value > available + 0.0005) {
+        setFormMessage(`كمية ${item.product_name} أكبر من المتاح للإرجاع.`);
         return;
       }
 
-      if (
-        value > 0
-      ) {
+      if (value > 0) {
         payload.push({
-          sales_invoice_item_id:
-            item.id,
+          sales_invoice_item_id: item.id,
 
-          quantity:
-            Number(
-              value.toFixed(
-                3
-              )
-            ),
+          quantity: Number(value.toFixed(3)),
         });
       }
     }
 
-    if (
-      !payload.length
-    ) {
-      setFormMessage(
-        "اكتب كمية مرتجعة لصنف واحد على الأقل."
-      );
+    if (!payload.length) {
+      setFormMessage("اكتب كمية مرتجعة لصنف واحد على الأقل.");
       return;
     }
 
     setSaving(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "create_sales_return",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("create_sales_return", {
+        target_company: companyId,
 
-            target_invoice:
-              salesTarget.id,
+        target_invoice: salesTarget.id,
 
-            target_warehouse:
-              warehouseId,
+        target_warehouse: warehouseId,
 
-            target_date:
-              returnDate,
+        target_date: returnDate,
 
-            target_notes:
-              notes.trim() ||
-              null,
+        target_notes: notes.trim() || null,
 
-            items_payload:
-              payload,
-          }
-        );
+        items_payload: payload,
+      });
 
       if (error) {
-        setFormMessage(
-          friendlyError(
-            error,
-            "create"
-          )
-        );
+        setFormMessage(friendlyError(error, "create"));
         return;
       }
 
-      setSalesTarget(
-        null
-      );
+      setSalesTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم ترحيل مرتجع المبيعات وتحديث المخزون والمحاسبة.",
+        text: "تم ترحيل مرتجع المبيعات وتحديث المخزون والمحاسبة.",
       });
 
       router.refresh();
-
     } finally {
       setSaving(false);
     }
   }
 
-  async function savePurchaseReturn(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function savePurchaseReturn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !purchaseTarget ||
-      !canCreate ||
-      saving
-    ) {
+    if (!purchaseTarget || !canCreate || saving) {
       return;
     }
 
-    setFormMessage(
-      ""
-    );
+    setFormMessage("");
 
-    if (
-      !warehouseId
-    ) {
-      setFormMessage(
-        "لا يوجد مستودع صالح للمرتجع."
-      );
+    if (!warehouseId) {
+      setFormMessage("لا يوجد مستودع صالح للمرتجع.");
       return;
     }
 
-    if (
-      !returnDate
-    ) {
-      setFormMessage(
-        "حدد تاريخ المرتجع."
-      );
+    if (!returnDate) {
+      setFormMessage("حدد تاريخ المرتجع.");
       return;
     }
 
-    if (
-      returnDate <
-      purchaseTarget.invoice_date
-    ) {
-      setFormMessage(
-        "تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة."
-      );
+    if (returnDate < purchaseTarget.invoice_date) {
+      setFormMessage("تاريخ المرتجع لا يمكن أن يكون قبل تاريخ الفاتورة.");
       return;
     }
 
-    if (
-      returnDate >
-      businessDate()
-    ) {
-      setFormMessage(
-        "تاريخ المرتجع لا يمكن أن يكون بالمستقبل."
-      );
+    if (returnDate > businessDate()) {
+      setFormMessage("تاريخ المرتجع لا يمكن أن يكون بالمستقبل.");
       return;
     }
 
-    const payload:
-      Array<{
-        purchase_invoice_item_id:
-          string;
+    const payload: Array<{
+      purchase_invoice_item_id: string;
 
-        quantity:
-          number;
-      }> = [];
+      quantity: number;
+    }> = [];
 
-    for (
-      const item of
-      purchaseTarget.items
-    ) {
-      const value =
-        numeric(
-          quantities[
-            item.id
-          ]
-        );
+    for (const item of purchaseTarget.items) {
+      const value = numeric(quantities[item.id]);
 
-      const available =
-        numeric(
-          item.available_quantity
-        );
+      const available = numeric(item.available_quantity);
 
-      if (
-        value < 0
-      ) {
-        setFormMessage(
-          "كمية المرتجع لا يمكن أن تكون سالبة."
-        );
+      if (value < 0) {
+        setFormMessage("كمية المرتجع لا يمكن أن تكون سالبة.");
         return;
       }
 
-      if (
-        value >
-        available +
-          0.0005
-      ) {
-        setFormMessage(
-          `كمية ${item.product_name} أكبر من الكمية المستلمة المتاحة للإرجاع.`
-        );
+      if (value > available + 0.0005) {
+        setFormMessage(`كمية ${item.product_name} أكبر من الكمية المستلمة المتاحة للإرجاع.`);
         return;
       }
 
-      if (
-        value > 0
-      ) {
+      if (value > 0) {
         payload.push({
-          purchase_invoice_item_id:
-            item.id,
+          purchase_invoice_item_id: item.id,
 
-          quantity:
-            Number(
-              value.toFixed(
-                3
-              )
-            ),
+          quantity: Number(value.toFixed(3)),
         });
       }
     }
 
-    if (
-      !payload.length
-    ) {
-      setFormMessage(
-        "اكتب كمية مرتجعة لصنف واحد على الأقل."
-      );
+    if (!payload.length) {
+      setFormMessage("اكتب كمية مرتجعة لصنف واحد على الأقل.");
       return;
     }
 
     setSaving(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "create_purchase_return",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("create_purchase_return", {
+        target_company: companyId,
 
-            target_invoice:
-              purchaseTarget.id,
+        target_invoice: purchaseTarget.id,
 
-            target_warehouse:
-              warehouseId,
+        target_warehouse: warehouseId,
 
-            target_date:
-              returnDate,
+        target_date: returnDate,
 
-            target_notes:
-              notes.trim() ||
-              null,
+        target_notes: notes.trim() || null,
 
-            items_payload:
-              payload,
-          }
-        );
+        items_payload: payload,
+      });
 
       if (error) {
-        setFormMessage(
-          friendlyError(
-            error,
-            "create"
-          )
-        );
+        setFormMessage(friendlyError(error, "create"));
         return;
       }
 
-      setPurchaseTarget(
-        null
-      );
+      setPurchaseTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم ترحيل مرتجع المشتريات وتحديث المخزون والمحاسبة.",
+        text: "تم ترحيل مرتجع المشتريات وتحديث المخزون والمحاسبة.",
       });
 
       router.refresh();
-
     } finally {
       setSaving(false);
     }
   }
 
-  function openReverse(
-    row:
-      ReturnHistoryRow
-  ) {
-    if (
-      !canReverse ||
-      row.status !==
-        "posted"
-    ) {
+  function openReverse(row: ReturnHistoryRow) {
+    if (!canReverse || row.status !== "posted") {
       return;
     }
 
-    setReverseTarget(
-      row
-    );
+    setReverseTarget(row);
 
-    setReverseReason(
-      ""
-    );
+    setReverseReason("");
 
-    setReverseMessage(
-      ""
-    );
+    setReverseMessage("");
   }
 
-  async function saveReverse(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function saveReverse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !reverseTarget ||
-      !canReverse
-    ) {
+    if (!reverseTarget || !canReverse) {
       return;
     }
 
-    const reason =
-      reverseReason.trim();
+    const reason = reverseReason.trim();
 
     if (!reason) {
-      setReverseMessage(
-        "اكتب سبب عكس المرتجع."
-      );
+      setReverseMessage("اكتب سبب عكس المرتجع.");
       return;
     }
 
-    setBusyReturn(
-      reverseTarget.id
-    );
+    setBusyReturn(reverseTarget.id);
 
-    setReverseMessage(
-      ""
-    );
+    setReverseMessage("");
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          reverseTarget.kind ===
-          "sales"
-            ? "reverse_sales_return"
-            : "reverse_purchase_return",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc(
+        reverseTarget.kind === "sales" ? "reverse_sales_return" : "reverse_purchase_return",
+        {
+          target_company: companyId,
 
-            target_return:
-              reverseTarget.id,
+          target_return: reverseTarget.id,
 
-            target_reason:
-              reason,
-          }
-        );
+          target_reason: reason,
+        },
+      );
 
       if (error) {
-        setReverseMessage(
-          friendlyError(
-            error,
-            "reverse"
-          )
-        );
+        setReverseMessage(friendlyError(error, "reverse"));
         return;
       }
 
-      setReverseTarget(
-        null
-      );
+      setReverseTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم عكس المرتجع وحركة المخزون والقيد المحاسبي.",
+        text: "تم عكس المرتجع وحركة المخزون والقيد المحاسبي.",
       });
 
       router.refresh();
-
     } finally {
-      setBusyReturn(
-        null
-      );
+      setBusyReturn(null);
     }
   }
 
@@ -1457,37 +795,20 @@ export function ReturnsClient({
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            Returns Center
-          </span>
+          <span className="eyebrow">Returns Center</span>
 
-          <h2>
-            المرتجعات
-          </h2>
+          <h2>المرتجعات</h2>
 
-          <p className="muted">
-            مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائياً.
-          </p>
+          <p className="muted">مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائياً.</p>
         </div>
       </div>
 
       {notice ? (
         <div
-          className={
-            notice.type ===
-            "error"
-              ? "toastError"
-              : "panel panelPad"
-          }
-          role={
-            notice.type ===
-            "error"
-              ? "alert"
-              : "status"
-          }
+          className={notice.type === "error" ? "toastError" : "panel panelPad"}
+          role={notice.type === "error" ? "alert" : "status"}
           style={{
-            marginBottom:
-              14,
+            marginBottom: 14,
           }}
         >
           {notice.text}
@@ -1497,32 +818,24 @@ export function ReturnsClient({
       <section className="statsGrid">
         <Mini
           title="مرتجعات المبيعات"
-          value={String(
-            initialStats.salesCount
-          )}
+          value={String(initialStats.salesCount)}
           subtitle={`${initialStats.salesPostedCount} مرحلة • ${initialStats.salesReversedCount} معكوسة`}
         />
 
         <Mini
           title="قيمة مرتجعات المبيعات المرحلة"
-          value={formatTotals(
-            initialStats.salesTotals
-          )}
+          value={formatTotals(initialStats.salesTotals)}
         />
 
         <Mini
           title="مرتجعات المشتريات"
-          value={String(
-            initialStats.purchaseCount
-          )}
+          value={String(initialStats.purchaseCount)}
           subtitle={`${initialStats.purchasePostedCount} مرحلة • ${initialStats.purchaseReversedCount} معكوسة`}
         />
 
         <Mini
           title="قيمة مرتجعات المشتريات المرحلة"
-          value={formatTotals(
-            initialStats.purchaseTotals
-          )}
+          value={formatTotals(initialStats.purchaseTotals)}
         />
       </section>
 
@@ -1537,34 +850,16 @@ export function ReturnsClient({
           <>
             <button
               type="button"
-              className={
-                tab ===
-                "sales"
-                  ? "primaryButton"
-                  : "softButton"
-              }
-              onClick={() =>
-                switchTab(
-                  "sales"
-                )
-              }
+              className={tab === "sales" ? "primaryButton" : "softButton"}
+              onClick={() => switchTab("sales")}
             >
               مرتجع مبيعات
             </button>
 
             <button
               type="button"
-              className={
-                tab ===
-                "purchases"
-                  ? "primaryButton"
-                  : "softButton"
-              }
-              onClick={() =>
-                switchTab(
-                  "purchases"
-                )
-              }
+              className={tab === "purchases" ? "primaryButton" : "softButton"}
+              onClick={() => switchTab("purchases")}
             >
               مرتجع مشتريات
             </button>
@@ -1573,17 +868,8 @@ export function ReturnsClient({
 
         <button
           type="button"
-          className={
-            tab ===
-            "history"
-              ? "primaryButton"
-              : "softButton"
-          }
-          onClick={() =>
-            switchTab(
-              "history"
-            )
-          }
+          className={tab === "history" ? "primaryButton" : "softButton"}
+          onClick={() => switchTab("history")}
         >
           سجل المرتجعات
         </button>
@@ -1597,218 +883,132 @@ export function ReturnsClient({
       >
         <form
           className="filters"
-          onSubmit={(
-            event
-          ) => {
+          onSubmit={(event) => {
             event.preventDefault();
 
             navigate({
-              nextSearch:
-                search,
+              nextSearch: search,
               nextPage: 1,
             });
           }}
         >
           <div className="searchBox">
-            <Icons.search
-              size={16}
-            />
+            <Icons.search size={16} />
 
             <input
-              value={
-                search
-              }
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event.target.value
-                )
-              }
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder={
-                tab ===
-                "sales"
-                  ? "رقم فاتورة البيع أو اسم العميل..."
-                  : tab ===
-                    "purchases"
-                    ? "رقم فاتورة الشراء أو اسم المورد..."
-                    : "رقم المرتجع، الفاتورة أو اسم العميل/المورد..."
+                tab === "sales"
+                  ? "رقم الفاتورة أو الطلبية، اسم العميل أو الصنف..."
+                  : tab === "purchases"
+                    ? "رقم الفاتورة، اسم المورد أو الصنف..."
+                    : "رقم المرتجع، الفاتورة، اسم العميل/المورد أو الصنف..."
               }
               aria-label="بحث في المرتجعات"
             />
 
-            <button
-              type="submit"
-              className="softButton"
-            >
+            <button type="submit" className="softButton">
               بحث
             </button>
           </div>
 
-          {tab ===
-          "history" ? (
+          {tab === "history" ? (
             <>
               <select
-                value={
-                  kindFilter
-                }
+                value={kindFilter}
                 aria-label="نوع المرتجع"
-                onChange={(
-                  event
-                ) => {
-                  const value =
-                    event.target
-                      .value as ReturnHistoryKindFilter;
+                onChange={(event) => {
+                  const value = event.target.value as ReturnHistoryKindFilter;
 
-                  setKindFilter(
-                    value
-                  );
+                  setKindFilter(value);
 
                   navigate({
-                    nextKind:
-                      value,
-                    nextPage:
-                      1,
+                    nextKind: value,
+                    nextPage: 1,
                   });
                 }}
               >
-                <option value="all">
-                  كل الأنواع
-                </option>
+                <option value="all">كل الأنواع</option>
 
-                <option value="sales">
-                  مبيعات
-                </option>
+                <option value="sales">مبيعات</option>
 
-                <option value="purchases">
-                  مشتريات
-                </option>
+                <option value="purchases">مشتريات</option>
               </select>
 
               <select
-                value={
-                  statusFilter
-                }
+                value={statusFilter}
                 aria-label="حالة المرتجع"
-                onChange={(
-                  event
-                ) => {
-                  const value =
-                    event.target
-                      .value as ReturnHistoryStatusFilter;
+                onChange={(event) => {
+                  const value = event.target.value as ReturnHistoryStatusFilter;
 
-                  setStatusFilter(
-                    value
-                  );
+                  setStatusFilter(value);
 
                   navigate({
-                    nextStatus:
-                      value,
-                    nextPage:
-                      1,
+                    nextStatus: value,
+                    nextPage: 1,
                   });
                 }}
               >
-                <option value="all">
-                  كل الحالات
-                </option>
+                <option value="all">كل الحالات</option>
 
-                <option value="posted">
-                  مرحّل
-                </option>
+                <option value="posted">مرحّل</option>
 
-                <option value="reversed">
-                  معكوس
-                </option>
+                <option value="reversed">معكوس</option>
 
-                <option value="cancelled">
-                  ملغى
-                </option>
+                <option value="cancelled">ملغى</option>
               </select>
             </>
           ) : (
             <div />
           )}
 
-          <div className="resultCount">
-            {totalCount} نتيجة
-          </div>
+          <div className="resultCount">{totalCount} نتيجة</div>
         </form>
 
-        {tab ===
-        "sales" ? (
+        {tab === "sales" ? (
           <SalesCandidatesTable
-            rows={
-              salesCandidates
-            }
-            canCreate={
-              canCreate
-            }
-            onReturn={
-              openSalesReturn
-            }
+            rows={salesCandidates}
+            canCreate={canCreate}
+            onReturn={openSalesReturn}
           />
         ) : null}
 
-        {tab ===
-        "purchases" ? (
+        {tab === "purchases" ? (
           <PurchaseCandidatesTable
-            rows={
-              purchaseCandidates
-            }
-            canCreate={
-              canCreate
-            }
-            onReturn={
-              openPurchaseReturn
-            }
+            rows={purchaseCandidates}
+            canCreate={canCreate}
+            onReturn={openPurchaseReturn}
           />
         ) : null}
 
-        {tab ===
-        "history" ? (
+        {tab === "history" ? (
           <HistoryTable
-            rows={
-              historyRows
-            }
-            canReverse={
-              canReverse
-            }
-            busyReturn={
-              busyReturn
-            }
-            onReverse={
-              openReverse
-            }
+            rows={historyRows}
+            canReverse={canReverse}
+            busyReturn={busyReturn}
+            onReverse={openReverse}
           />
         ) : null}
 
-        {pageCount >
-        1 ? (
+        {pageCount > 1 ? (
           <div
             className="rowActions"
             style={{
-              justifyContent:
-                "center",
+              justifyContent: "center",
               padding: 16,
             }}
           >
             <button
               type="button"
               className="softButton"
-              disabled={
-                page <= 1
-              }
+              disabled={page <= 1}
               onClick={() =>
                 navigate({
-                  nextSearch:
-                    searchQuery,
-                  nextPage:
-                    page - 1,
-                  nextKind:
-                    historyKind,
-                  nextStatus:
-                    historyStatus,
+                  nextSearch: searchQuery,
+                  nextPage: page - 1,
+                  nextKind: historyKind,
+                  nextStatus: historyStatus,
                 })
               }
             >
@@ -1816,27 +1016,19 @@ export function ReturnsClient({
             </button>
 
             <span className="muted">
-              صفحة {page} من{" "}
-              {pageCount}
+              صفحة {page} من {pageCount}
             </span>
 
             <button
               type="button"
               className="softButton"
-              disabled={
-                page >=
-                pageCount
-              }
+              disabled={page >= pageCount}
               onClick={() =>
                 navigate({
-                  nextSearch:
-                    searchQuery,
-                  nextPage:
-                    page + 1,
-                  nextKind:
-                    historyKind,
-                  nextStatus:
-                    historyStatus,
+                  nextSearch: searchQuery,
+                  nextPage: page + 1,
+                  nextKind: historyKind,
+                  nextStatus: historyStatus,
                 })
               }
             >
@@ -1859,63 +1051,31 @@ export function ReturnsClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  Sales Return
-                </span>
+                <span className="eyebrow">Sales Return</span>
 
-                <h2>
-                  مرتجع فاتورة{" "}
-                  {
-                    salesTarget.invoice_number
-                  }
-                </h2>
+                <h2>مرتجع فاتورة {salesTarget.invoice_number}</h2>
 
-                <p className="muted">
-                  {salesTarget.trader?.name ||
-                    "عميل"}
-                </p>
+                <p className="muted">{salesTarget.trader?.name || "عميل"}</p>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={
-                  saving
-                }
-                onClick={() =>
-                  setSalesTarget(
-                    null
-                  )
-                }
+                disabled={saving}
+                onClick={() => setSalesTarget(null)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={
-                saveSalesReturn
-              }
-            >
+            <form onSubmit={saveSalesReturn}>
               <ReturnHeader
-                warehouses={
-                  warehouses
-                }
-                warehouseId={
-                  warehouseId
-                }
-                setWarehouseId={
-                  setWarehouseId
-                }
-                date={
-                  returnDate
-                }
-                setDate={
-                  setReturnDate
-                }
-                minDate={
-                  salesTarget.invoice_date
-                }
+                warehouses={warehouses}
+                warehouseId={warehouseId}
+                setWarehouseId={setWarehouseId}
+                date={returnDate}
+                setDate={setReturnDate}
+                minDate={salesTarget.invoice_date}
               />
 
               <div
@@ -1927,122 +1087,59 @@ export function ReturnsClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>
-                        الصنف
-                      </th>
-                      <th>
-                        مباع
-                      </th>
-                      <th>
-                        مرتجع سابق
-                      </th>
-                      <th>
-                        متاح
-                      </th>
-                      <th>
-                        الكمية
-                      </th>
+                      <th>الصنف</th>
+                      <th>مباع</th>
+                      <th>مرتجع سابق</th>
+                      <th>متاح</th>
+                      <th>الكمية</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {salesTarget.items.map(
-                      (item) => (
-                        <tr
-                          key={
-                            item.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                item.product_name
-                              }
-                            </strong>
+                    {salesTarget.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <strong>{item.product_name}</strong>
 
-                            <div className="muted">
-                              {item.sku ||
-                                item.unit ||
-                                item.description}
-                            </div>
-                          </td>
+                          <div className="muted">{item.sku || item.unit || item.description}</div>
+                        </td>
 
-                          <td>
-                            {quantity(
-                              item.invoiced_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.invoiced_quantity)}</td>
 
-                          <td>
-                            {quantity(
-                              item.returned_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.returned_quantity)}</td>
 
-                          <td>
-                            {quantity(
-                              item.available_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.available_quantity)}</td>
 
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              max={
-                                item.available_quantity
-                              }
-                              step="0.001"
-                              value={
-                                quantities[
-                                  item.id
-                                ] ??
-                                ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                setQuantities(
-                                  (
-                                    current
-                                  ) => ({
-                                    ...current,
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            max={item.available_quantity}
+                            step="0.001"
+                            value={quantities[item.id] ?? ""}
+                            onChange={(event) =>
+                              setQuantities((current) => ({
+                                ...current,
 
-                                    [item.id]:
-                                      event.target.value,
-                                  })
-                                )
-                              }
-                              style={{
-                                minWidth:
-                                  100,
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      )
-                    )}
+                                [item.id]: event.target.value,
+                              }))
+                            }
+                            style={{
+                              minWidth: 100,
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
-              <Notes
-                value={
-                  notes
-                }
-                setValue={
-                  setNotes
-                }
-              />
+              <Notes value={notes} setValue={setNotes} />
 
               {formMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    formMessage
-                  }
+                <div className="toastError" role="alert">
+                  {formMessage}
                 </div>
               ) : null}
 
@@ -2050,28 +1147,14 @@ export function ReturnsClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    saving
-                  }
-                  onClick={() =>
-                    setSalesTarget(
-                      null
-                    )
-                  }
+                  disabled={saving}
+                  onClick={() => setSalesTarget(null)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  type="submit"
-                  className="primaryButton"
-                  disabled={
-                    saving
-                  }
-                >
-                  {saving
-                    ? "جارٍ الترحيل..."
-                    : "ترحيل مرتجع المبيعات"}
+                <button type="submit" className="primaryButton" disabled={saving}>
+                  {saving ? "جارٍ الترحيل..." : "ترحيل مرتجع المبيعات"}
                 </button>
               </div>
             </form>
@@ -2092,63 +1175,31 @@ export function ReturnsClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  Purchase Return
-                </span>
+                <span className="eyebrow">Purchase Return</span>
 
-                <h2>
-                  مرتجع فاتورة{" "}
-                  {
-                    purchaseTarget.invoice_number
-                  }
-                </h2>
+                <h2>مرتجع فاتورة {purchaseTarget.invoice_number}</h2>
 
-                <p className="muted">
-                  {purchaseTarget.supplier?.name ||
-                    "مورد"}
-                </p>
+                <p className="muted">{purchaseTarget.supplier?.name || "مورد"}</p>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={
-                  saving
-                }
-                onClick={() =>
-                  setPurchaseTarget(
-                    null
-                  )
-                }
+                disabled={saving}
+                onClick={() => setPurchaseTarget(null)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={
-                savePurchaseReturn
-              }
-            >
+            <form onSubmit={savePurchaseReturn}>
               <ReturnHeader
-                warehouses={
-                  warehouses
-                }
-                warehouseId={
-                  warehouseId
-                }
-                setWarehouseId={
-                  setWarehouseId
-                }
-                date={
-                  returnDate
-                }
-                setDate={
-                  setReturnDate
-                }
-                minDate={
-                  purchaseTarget.invoice_date
-                }
+                warehouses={warehouses}
+                warehouseId={warehouseId}
+                setWarehouseId={setWarehouseId}
+                date={returnDate}
+                setDate={setReturnDate}
+                minDate={purchaseTarget.invoice_date}
               />
 
               <div
@@ -2160,131 +1211,62 @@ export function ReturnsClient({
                 <table className="dataTable">
                   <thead>
                     <tr>
-                      <th>
-                        الصنف
-                      </th>
-                      <th>
-                        بالفاتورة
-                      </th>
-                      <th>
-                        مستلم فعلياً
-                      </th>
-                      <th>
-                        مرتجع سابق
-                      </th>
-                      <th>
-                        متاح
-                      </th>
-                      <th>
-                        الكمية
-                      </th>
+                      <th>الصنف</th>
+                      <th>بالفاتورة</th>
+                      <th>مستلم فعلياً</th>
+                      <th>مرتجع سابق</th>
+                      <th>متاح</th>
+                      <th>الكمية</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {purchaseTarget.items.map(
-                      (item) => (
-                        <tr
-                          key={
-                            item.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                item.product_name
-                              }
-                            </strong>
+                    {purchaseTarget.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <strong>{item.product_name}</strong>
 
-                            <div className="muted">
-                              {item.sku ||
-                                item.description ||
-                                ""}
-                            </div>
-                          </td>
+                          <div className="muted">{item.sku || item.description || ""}</div>
+                        </td>
 
-                          <td>
-                            {quantity(
-                              item.invoiced_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.invoiced_quantity)}</td>
 
-                          <td>
-                            {quantity(
-                              item.received_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.received_quantity)}</td>
 
-                          <td>
-                            {quantity(
-                              item.returned_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.returned_quantity)}</td>
 
-                          <td>
-                            {quantity(
-                              item.available_quantity
-                            )}
-                          </td>
+                        <td>{quantity(item.available_quantity)}</td>
 
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              max={
-                                item.available_quantity
-                              }
-                              step="0.001"
-                              value={
-                                quantities[
-                                  item.id
-                                ] ??
-                                ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                setQuantities(
-                                  (
-                                    current
-                                  ) => ({
-                                    ...current,
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            max={item.available_quantity}
+                            step="0.001"
+                            value={quantities[item.id] ?? ""}
+                            onChange={(event) =>
+                              setQuantities((current) => ({
+                                ...current,
 
-                                    [item.id]:
-                                      event.target.value,
-                                  })
-                                )
-                              }
-                              style={{
-                                minWidth:
-                                  100,
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      )
-                    )}
+                                [item.id]: event.target.value,
+                              }))
+                            }
+                            style={{
+                              minWidth: 100,
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
-              <Notes
-                value={
-                  notes
-                }
-                setValue={
-                  setNotes
-                }
-              />
+              <Notes value={notes} setValue={setNotes} />
 
               {formMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    formMessage
-                  }
+                <div className="toastError" role="alert">
+                  {formMessage}
                 </div>
               ) : null}
 
@@ -2292,28 +1274,14 @@ export function ReturnsClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    saving
-                  }
-                  onClick={() =>
-                    setPurchaseTarget(
-                      null
-                    )
-                  }
+                  disabled={saving}
+                  onClick={() => setPurchaseTarget(null)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  type="submit"
-                  className="primaryButton"
-                  disabled={
-                    saving
-                  }
-                >
-                  {saving
-                    ? "جارٍ الترحيل..."
-                    : "ترحيل مرتجع المشتريات"}
+                <button type="submit" className="primaryButton" disabled={saving}>
+                  {saving ? "جارٍ الترحيل..." : "ترحيل مرتجع المشتريات"}
                 </button>
               </div>
             </form>
@@ -2323,73 +1291,36 @@ export function ReturnsClient({
 
       {reverseTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  عكس مرتجع
-                </span>
+                <span className="eyebrow">عكس مرتجع</span>
 
-                <h2>
-                  {
-                    reverseTarget.return_number
-                  }
-                </h2>
+                <h2>{reverseTarget.return_number}</h2>
               </div>
             </div>
 
-            <form
-              onSubmit={
-                saveReverse
-              }
-            >
-              <p>
-                سيتم عكس حركة المخزون والقيد المحاسبي للمرتجع.
-              </p>
+            <form onSubmit={saveReverse}>
+              <p>سيتم عكس حركة المخزون والقيد المحاسبي للمرتجع.</p>
 
               <p className="muted">
-                {reverseTarget.kind ===
-                "sales"
-                  ? "مرتجع مبيعات"
-                  : "مرتجع مشتريات"}{" "}
-                • فاتورة{" "}
-                {
-                  reverseTarget.invoice_number
-                }
+                {reverseTarget.kind === "sales" ? "مرتجع مبيعات" : "مرتجع مشتريات"} • فاتورة{" "}
+                {reverseTarget.invoice_number}
               </p>
 
               <label className="field">
-                <span>
-                  سبب العكس *
-                </span>
+                <span>سبب العكس *</span>
 
                 <textarea
-                  value={
-                    reverseReason
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setReverseReason(
-                      event.target.value
-                    )
-                  }
+                  value={reverseReason}
+                  onChange={(event) => setReverseReason(event.target.value)}
                   placeholder="اكتب سبب واضح لعكس المرتجع..."
                 />
               </label>
 
               {reverseMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    reverseMessage
-                  }
+                <div className="toastError" role="alert">
+                  {reverseMessage}
                 </div>
               ) : null}
 
@@ -2397,15 +1328,8 @@ export function ReturnsClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    busyReturn ===
-                    reverseTarget.id
-                  }
-                  onClick={() =>
-                    setReverseTarget(
-                      null
-                    )
-                  }
+                  disabled={busyReturn === reverseTarget.id}
+                  onClick={() => setReverseTarget(null)}
                 >
                   رجوع
                 </button>
@@ -2413,15 +1337,9 @@ export function ReturnsClient({
                 <button
                   type="submit"
                   className="dangerButton"
-                  disabled={
-                    busyReturn ===
-                    reverseTarget.id
-                  }
+                  disabled={busyReturn === reverseTarget.id}
                 >
-                  {busyReturn ===
-                  reverseTarget.id
-                    ? "جارٍ العكس..."
-                    : "تأكيد عكس المرتجع"}
+                  {busyReturn === reverseTarget.id ? "جارٍ العكس..." : "تأكيد عكس المرتجع"}
                 </button>
               </div>
             </form>
@@ -2437,33 +1355,20 @@ function SalesCandidatesTable({
   canCreate,
   onReturn,
 }: {
-  rows:
-    SalesReturnCandidate[];
+  rows: SalesReturnCandidate[];
 
   canCreate: boolean;
 
-  onReturn:
-    (
-      row:
-        SalesReturnCandidate
-    ) => void;
+  onReturn: (row: SalesReturnCandidate) => void;
 }) {
-  if (
-    !rows.length
-  ) {
+  if (!rows.length) {
     return (
       <div className="empty">
-        <Icons.box
-          size={28}
-        />
+        <Icons.box size={28} />
 
-        <h3>
-          لا توجد فواتير بيع قابلة للإرجاع
-        </h3>
+        <h3>لا توجد فواتير بيع قابلة للإرجاع</h3>
 
-        <p>
-          الفواتير المرحلة التي بقي فيها كمية قابلة للإرجاع ستظهر هنا.
-        </p>
+        <p>الفواتير المرحلة التي بقي فيها كمية قابلة للإرجاع ستظهر هنا.</p>
       </div>
     );
   }
@@ -2473,94 +1378,46 @@ function SalesCandidatesTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>
-              الفاتورة
-            </th>
+            <th>الفاتورة</th>
 
-            <th>
-              العميل
-            </th>
+            <th>العميل</th>
 
-            <th>
-              التاريخ
-            </th>
+            <th>التاريخ</th>
 
-            <th>
-              القيمة
-            </th>
+            <th>القيمة</th>
 
-            <th>
-              أصناف قابلة للإرجاع
-            </th>
+            <th>أصناف قابلة للإرجاع</th>
 
-            <th>
-              الإجراء
-            </th>
+            <th>الإجراء</th>
           </tr>
         </thead>
 
         <tbody>
-          {rows.map(
-            (row) => (
-              <tr
-                key={
-                  row.id
-                }
-              >
-                <td>
-                  <strong>
-                    {
-                      row.invoice_number
-                    }
-                  </strong>
-                </td>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>
+                <strong>{row.invoice_number}</strong>
+              </td>
 
-                <td>
-                  {row.trader?.name ||
-                    "—"}
-                </td>
+              <td>{row.trader?.name || "—"}</td>
 
-                <td>
-                  {
-                    row.invoice_date
-                  }
-                </td>
+              <td>{row.invoice_date}</td>
 
-                <td>
-                  {money(
-                    row.total,
-                    row.currency
-                  )}
-                </td>
+              <td>{money(row.total, row.currency)}</td>
 
-                <td>
-                  {
-                    row.items.length
-                  }
-                </td>
+              <td>{row.items.length}</td>
 
-                <td>
-                  {canCreate ? (
-                    <button
-                      type="button"
-                      className="primaryButton"
-                      onClick={() =>
-                        onReturn(
-                          row
-                        )
-                      }
-                    >
-                      إنشاء مرتجع
-                    </button>
-                  ) : (
-                    <span className="muted">
-                      عرض فقط
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          )}
+              <td>
+                {canCreate ? (
+                  <button type="button" className="primaryButton" onClick={() => onReturn(row)}>
+                    إنشاء مرتجع
+                  </button>
+                ) : (
+                  <span className="muted">عرض فقط</span>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -2572,33 +1429,20 @@ function PurchaseCandidatesTable({
   canCreate,
   onReturn,
 }: {
-  rows:
-    PurchaseReturnCandidate[];
+  rows: PurchaseReturnCandidate[];
 
   canCreate: boolean;
 
-  onReturn:
-    (
-      row:
-        PurchaseReturnCandidate
-    ) => void;
+  onReturn: (row: PurchaseReturnCandidate) => void;
 }) {
-  if (
-    !rows.length
-  ) {
+  if (!rows.length) {
     return (
       <div className="empty">
-        <Icons.box
-          size={28}
-        />
+        <Icons.box size={28} />
 
-        <h3>
-          لا توجد فواتير شراء قابلة للإرجاع
-        </h3>
+        <h3>لا توجد فواتير شراء قابلة للإرجاع</h3>
 
-        <p>
-          تظهر هنا فقط الكميات التي تم استلامها فعلياً وما زالت قابلة للإرجاع للمورد.
-        </p>
+        <p>تظهر هنا فقط الكميات التي تم استلامها فعلياً وما زالت قابلة للإرجاع للمورد.</p>
       </div>
     );
   }
@@ -2608,103 +1452,50 @@ function PurchaseCandidatesTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>
-              الفاتورة
-            </th>
+            <th>الفاتورة</th>
 
-            <th>
-              فاتورة المورد
-            </th>
+            <th>فاتورة المورد</th>
 
-            <th>
-              المورد
-            </th>
+            <th>المورد</th>
 
-            <th>
-              التاريخ
-            </th>
+            <th>التاريخ</th>
 
-            <th>
-              القيمة
-            </th>
+            <th>القيمة</th>
 
-            <th>
-              أصناف قابلة للإرجاع
-            </th>
+            <th>أصناف قابلة للإرجاع</th>
 
-            <th>
-              الإجراء
-            </th>
+            <th>الإجراء</th>
           </tr>
         </thead>
 
         <tbody>
-          {rows.map(
-            (row) => (
-              <tr
-                key={
-                  row.id
-                }
-              >
-                <td>
-                  <strong>
-                    {
-                      row.invoice_number
-                    }
-                  </strong>
-                </td>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>
+                <strong>{row.invoice_number}</strong>
+              </td>
 
-                <td>
-                  {row.supplier_invoice_number ||
-                    "—"}
-                </td>
+              <td>{row.supplier_invoice_number || "—"}</td>
 
-                <td>
-                  {row.supplier?.name ||
-                    "—"}
-                </td>
+              <td>{row.supplier?.name || "—"}</td>
 
-                <td>
-                  {
-                    row.invoice_date
-                  }
-                </td>
+              <td>{row.invoice_date}</td>
 
-                <td>
-                  {money(
-                    row.total,
-                    row.currency
-                  )}
-                </td>
+              <td>{money(row.total, row.currency)}</td>
 
-                <td>
-                  {
-                    row.items.length
-                  }
-                </td>
+              <td>{row.items.length}</td>
 
-                <td>
-                  {canCreate ? (
-                    <button
-                      type="button"
-                      className="primaryButton"
-                      onClick={() =>
-                        onReturn(
-                          row
-                        )
-                      }
-                    >
-                      إنشاء مرتجع
-                    </button>
-                  ) : (
-                    <span className="muted">
-                      عرض فقط
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          )}
+              <td>
+                {canCreate ? (
+                  <button type="button" className="primaryButton" onClick={() => onReturn(row)}>
+                    إنشاء مرتجع
+                  </button>
+                ) : (
+                  <span className="muted">عرض فقط</span>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -2717,32 +1508,20 @@ function HistoryTable({
   busyReturn,
   onReverse,
 }: {
-  rows:
-    ReturnHistoryRow[];
+  rows: ReturnHistoryRow[];
 
   canReverse: boolean;
 
-  busyReturn:
-    string | null;
+  busyReturn: string | null;
 
-  onReverse:
-    (
-      row:
-        ReturnHistoryRow
-    ) => void;
+  onReverse: (row: ReturnHistoryRow) => void;
 }) {
-  if (
-    !rows.length
-  ) {
+  if (!rows.length) {
     return (
       <div className="empty">
-        <Icons.box
-          size={28}
-        />
+        <Icons.box size={28} />
 
-        <h3>
-          لا يوجد سجل مرتجعات
-        </h3>
+        <h3>لا يوجد سجل مرتجعات</h3>
       </div>
     );
   }
@@ -2752,150 +1531,69 @@ function HistoryTable({
       <table className="dataTable">
         <thead>
           <tr>
-            <th>
-              المرتجع
-            </th>
+            <th>المرتجع</th>
 
-            <th>
-              النوع
-            </th>
+            <th>النوع</th>
 
-            <th>
-              الفاتورة
-            </th>
+            <th>الفاتورة</th>
 
-            <th>
-              العميل / المورد
-            </th>
+            <th>العميل / المورد</th>
 
-            <th>
-              المستودع
-            </th>
+            <th>المستودع</th>
 
-            <th>
-              التاريخ
-            </th>
+            <th>التاريخ</th>
 
-            <th>
-              المبلغ
-            </th>
+            <th>المبلغ</th>
 
-            <th>
-              الحالة
-            </th>
+            <th>الحالة</th>
 
-            <th>
-              الإجراء
-            </th>
+            <th>الإجراء</th>
           </tr>
         </thead>
 
         <tbody>
-          {rows.map(
-            (row) => (
-              <tr
-                key={
-                  row.id
-                }
-              >
-                <td>
-                  <strong>
-                    {
-                      row.return_number
-                    }
-                  </strong>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>
+                <strong>{row.return_number}</strong>
 
-                  {row.reversal_reason ? (
-                    <div className="muted">
-                      سبب العكس:{" "}
-                      {
-                        row.reversal_reason
-                      }
-                    </div>
-                  ) : null}
-                </td>
+                {row.reversal_reason ? (
+                  <div className="muted">سبب العكس: {row.reversal_reason}</div>
+                ) : null}
+              </td>
 
-                <td>
-                  {row.kind ===
-                  "sales"
-                    ? "مبيعات"
-                    : "مشتريات"}
-                </td>
+              <td>{row.kind === "sales" ? "مبيعات" : "مشتريات"}</td>
 
-                <td>
-                  {
-                    row.invoice_number
-                  }
-                </td>
+              <td>{row.invoice_number}</td>
 
-                <td>
-                  {
-                    row.party_name
-                  }
-                </td>
+              <td>{row.party_name}</td>
 
-                <td>
-                  {
-                    row.warehouse_name
-                  }
-                </td>
+              <td>{row.warehouse_name}</td>
 
-                <td>
-                  {
-                    row.return_date
-                  }
-                </td>
+              <td>{row.return_date}</td>
 
-                <td>
-                  {money(
-                    row.total,
-                    row.currency
-                  )}
-                </td>
+              <td>{money(row.total, row.currency)}</td>
 
-                <td>
-                  <span
-                    className={`chip ${statusColor(
-                      row.status
-                    )}`}
+              <td>
+                <span className={`chip ${statusColor(row.status)}`}>{statusLabel(row.status)}</span>
+              </td>
+
+              <td>
+                {canReverse && row.status === "posted" ? (
+                  <button
+                    type="button"
+                    className="dangerButton"
+                    disabled={busyReturn === row.id}
+                    onClick={() => onReverse(row)}
                   >
-                    {statusLabel(
-                      row.status
-                    )}
-                  </span>
-                </td>
-
-                <td>
-                  {canReverse &&
-                  row.status ===
-                    "posted" ? (
-                    <button
-                      type="button"
-                      className="dangerButton"
-                      disabled={
-                        busyReturn ===
-                        row.id
-                      }
-                      onClick={() =>
-                        onReverse(
-                          row
-                        )
-                      }
-                    >
-                      {busyReturn ===
-                      row.id
-                        ? "جارٍ العكس..."
-                        : "عكس المرتجع"}
-                    </button>
-                  ) : (
-                    <span className="muted">
-                      —
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          )}
+                    {busyReturn === row.id ? "جارٍ العكس..." : "عكس المرتجع"}
+                  </button>
+                ) : (
+                  <span className="muted">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -2910,95 +1608,44 @@ function ReturnHeader({
   setDate,
   minDate,
 }: {
-  warehouses:
-    ReturnWarehouse[];
+  warehouses: ReturnWarehouse[];
 
   warehouseId: string;
 
-  setWarehouseId:
-    (
-      value: string
-    ) => void;
+  setWarehouseId: (value: string) => void;
 
   date: string;
 
-  setDate:
-    (
-      value: string
-    ) => void;
+  setDate: (value: string) => void;
 
   minDate: string;
 }) {
   return (
     <div className="formGrid">
       <label className="field">
-        <span>
-          المستودع
-        </span>
+        <span>المستودع</span>
 
-        <select
-          value={
-            warehouseId
-          }
-          onChange={(
-            event
-          ) =>
-            setWarehouseId(
-              event.target.value
-            )
-          }
-        >
-          <option value="">
-            اختر المستودع
-          </option>
+        <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+          <option value="">اختر المستودع</option>
 
-          {warehouses.map(
-            (
-              warehouse
-            ) => (
-              <option
-                key={
-                  warehouse.id
-                }
-                value={
-                  warehouse.id
-                }
-              >
-                {
-                  warehouse.name
-                }
-                {warehouse.code
-                  ? ` - ${warehouse.code}`
-                  : ""}
-              </option>
-            )
-          )}
+          {warehouses.map((warehouse) => (
+            <option key={warehouse.id} value={warehouse.id}>
+              {warehouse.name}
+              {warehouse.code ? ` - ${warehouse.code}` : ""}
+            </option>
+          ))}
         </select>
       </label>
 
       <label className="field">
-        <span>
-          تاريخ المرتجع
-        </span>
+        <span>تاريخ المرتجع</span>
 
         <input
           type="date"
-          min={
-            minDate
-          }
-          max={
-            businessDate()
-          }
-          value={
-            date
-          }
-          onChange={(
-            event
-          ) =>
-            setDate(
-              event.target.value
-            )
-          }
+          min={minDate}
+          max={businessDate()}
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
         />
       </label>
     </div>
@@ -3011,10 +1658,7 @@ function Notes({
 }: {
   value: string;
 
-  setValue:
-    (
-      value: string
-    ) => void;
+  setValue: (value: string) => void;
 }) {
   return (
     <label
@@ -3023,51 +1667,25 @@ function Notes({
         marginTop: 14,
       }}
     >
-      <span>
-        ملاحظات
-      </span>
+      <span>ملاحظات</span>
 
       <textarea
-        value={
-          value
-        }
-        onChange={(
-          event
-        ) =>
-          setValue(
-            event.target.value
-          )
-        }
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
         placeholder="اختياري"
       />
     </label>
   );
 }
 
-function Mini({
-  title,
-  value,
-  subtitle,
-}: {
-  title: string;
-  value: string;
-  subtitle?: string;
-}) {
+function Mini({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {title}
-      </div>
+      <div className="statLabel">{title}</div>
 
-      <div className="statValue">
-        {value}
-      </div>
+      <div className="statValue">{value}</div>
 
-      {subtitle ? (
-        <div className="muted">
-          {subtitle}
-        </div>
-      ) : null}
+      {subtitle ? <div className="muted">{subtitle}</div> : null}
     </div>
   );
 }

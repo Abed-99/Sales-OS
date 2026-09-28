@@ -293,6 +293,23 @@ begin
         );
     end loop;
 
+    -- التحريرات بسبب المرتجعات لازم تنعكس مع تخصيصها (إذا التخصيص انحذف كلو، القيدين بيلغوا بعض).
+    for v_alloc in
+      select id
+      from public.customer_payment_releases
+      where payment_id = new.id
+        and allocation_id is not null
+    loop
+      perform
+        public.reverse_system_journal(
+          new.company_id,
+          'customer_payment_release',
+          v_alloc.id,
+          new.payment_date,
+          'عكس تحرير دفعة'
+        );
+    end loop;
+
     return new;
   end if;
 

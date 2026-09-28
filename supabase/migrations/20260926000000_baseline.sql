@@ -8129,7 +8129,8 @@ begin
         ),
         v_payment.payment_currency,
         v_invoice_currency,
-        1
+        -- نفس سعر قيد القبض الأصلي (سعر يوم الدفعة)، مش 1، وإلا الليرة بتنحسب دولار.
+        null
       )
       on conflict(
         payment_id,
@@ -16616,6 +16617,28 @@ create index approval_requests_reference_idx on public.approval_requests using b
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- لما الزبون يرجّع بضاعة من فاتورة كان دافعها، جزء من دفعته بيتحرّر وبيصير رصيد إلو
+-- (بينخصم تلقائي من فاتورته الجاية). كل تحرير إلو قيد خاص، لحتى إذا انعكست الدفعة ينعكس معها.
+create table public.customer_payment_releases (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  payment_id uuid not null references public.customer_payments(id) on delete restrict,
+  allocation_id uuid references public.customer_payment_allocations(id) on delete set null,
+  sales_return_id uuid not null references public.sales_returns(id) on delete restrict,
+  sales_invoice_id uuid not null references public.sales_invoices(id) on delete restrict,
+  amount numeric(14,2) not null check (amount > 0),
+  payment_amount numeric(20,2) not null check (payment_amount > 0),
+  payment_currency text not null,
+  created_at timestamp with time zone default now() not null
+);
+create index customer_payment_releases_payment_idx on public.customer_payment_releases using btree (payment_id);
+create index customer_payment_releases_return_idx on public.customer_payment_releases using btree (sales_return_id);
+revoke insert, update, delete on public.customer_payment_releases from authenticated;
+alter table public.customer_payment_releases enable row level security;
+create policy customer_payment_releases_read on public.customer_payment_releases
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['payments.sales_view'::text, 'traders.view_balance'::text, 'reports.finance'::text]));
+
 create or replace function public.block_invoice_cancel_with_posted_return()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -17434,6 +17457,12 @@ declare
 
   v_lines jsonb := '[]'::jsonb;
   v_entry uuid;
+
+  v_alloc record;
+  v_to_free numeric(18,2);
+  v_cut numeric(18,2);
+  v_cut_pay numeric(20,2);
+  v_release uuid;
 begin
   if not public.has_any_permission(
     target_company,
@@ -17893,6 +17922,115 @@ begin
       'customer_advances'
     );
 
+  -- الفاتورة مدفوعة (كلها أو قسم منها) أكتر من اللي ضل عليها بعد المرتجع:
+  -- منحرّر الفرق من آخر دفعات انخصمت عليها، فبيصير رصيد للزبون بينخصم من فواتيره الجاية.
+  v_to_free := v_credit_part;
+
+  for v_alloc in
+    select
+      a.*,
+      (
+        select je.exchange_rate_to_base
+        from public.journal_entries je
+        where je.company_id = target_company
+          and je.source_type = 'customer_payment_allocation'
+          and je.source_id = a.id
+          and je.reversed_from_id is null
+        limit 1
+      ) as journal_rate
+    from public.customer_payment_allocations a
+    join public.customer_payments p
+      on p.id = a.payment_id
+    where a.sales_invoice_id = target_invoice
+      and p.status = 'posted'
+    order by p.payment_date desc, p.created_at desc
+    for update of a
+  loop
+    exit when v_to_free <= 0;
+
+    v_cut := least(v_alloc.amount, v_to_free);
+
+    v_cut_pay :=
+      case
+        when v_cut >= v_alloc.amount
+          then coalesce(v_alloc.payment_amount, v_alloc.amount)
+        else round(
+          coalesce(v_alloc.payment_amount, v_alloc.amount) * v_cut / v_alloc.amount,
+          2
+        )
+      end;
+
+    insert into public.customer_payment_releases(
+      company_id,
+      payment_id,
+      allocation_id,
+      sales_return_id,
+      sales_invoice_id,
+      amount,
+      payment_amount,
+      payment_currency
+    )
+    values(
+      target_company,
+      v_alloc.payment_id,
+      v_alloc.id,
+      v_return,
+      target_invoice,
+      v_cut,
+      v_cut_pay,
+      coalesce(v_alloc.payment_currency, v_currency)
+    )
+    returning id
+    into v_release;
+
+    -- عكس جزء التخصيص: الذمة بترجع، ورصيد الزبون الدائن بيزيد (بنفس عملة وسعر الدفعة).
+    perform
+      public.post_system_journal(
+        target_company,
+        v_return_date,
+        'تحرير دفعة بسبب مرتجع ' || v_number,
+        coalesce(v_alloc.payment_currency, v_currency),
+        v_alloc.journal_rate,
+        'customer_payment_release',
+        v_release,
+        jsonb_build_array(
+          jsonb_build_object(
+            'account_id', v_ar_account,
+            'debit', v_cut_pay,
+            'credit', 0,
+            'party_type', 'trader',
+            'party_id', v_trader,
+            'memo', 'تحرير دفعة'
+          ),
+          jsonb_build_object(
+            'account_id', v_customer_advance,
+            'debit', 0,
+            'credit', v_cut_pay,
+            'party_type', 'trader',
+            'party_id', v_trader,
+            'memo', 'رصيد دائن للعميل'
+          )
+        )
+      );
+
+    if v_cut >= v_alloc.amount then
+      delete from public.customer_payment_allocations
+      where id = v_alloc.id;
+    else
+      update public.customer_payment_allocations
+      set
+        amount = amount - v_cut,
+        payment_amount = coalesce(payment_amount, amount) - v_cut_pay
+      where id = v_alloc.id;
+    end if;
+
+    v_to_free := v_to_free - v_cut;
+  end loop;
+
+  -- اللي ما لقينالو دفعة (حالة نادرة) بيضل رصيد دائن مباشر متل قبل.
+  v_credit_part := greatest(v_to_free, 0);
+  v_ar_part := v_total - v_credit_part;
+
   if v_subtotal > 0 then
     v_lines :=
       v_lines ||
@@ -18113,6 +18251,14 @@ begin
       or s.name
          ilike
          '%' || v_search || '%'
+
+      or exists (
+        select 1
+        from public.purchase_invoice_items x
+        join public.products pr on pr.id = x.product_id
+        where x.invoice_id = pi.id
+          and pr.name ilike '%' || v_search || '%'
+      )
     )
 
     and exists (
@@ -18389,6 +18535,14 @@ begin
         or s.name
            ilike
            '%' || v_search || '%'
+
+        or exists (
+          select 1
+          from public.purchase_invoice_items x
+          join public.products pr on pr.id = x.product_id
+          where x.invoice_id = pi.id
+            and pr.name ilike '%' || v_search || '%'
+        )
       )
 
       and exists (
@@ -18703,6 +18857,24 @@ begin
       or h.party_name
          ilike
          '%' || v_search || '%'
+
+      or exists (
+        select 1
+        from public.sales_return_items x
+        join public.products pr on pr.id = x.product_id
+        where h.kind = 'sales'
+          and x.sales_return_id = h.id
+          and pr.name ilike '%' || v_search || '%'
+      )
+
+      or exists (
+        select 1
+        from public.purchase_return_items x
+        join public.products pr on pr.id = x.product_id
+        where h.kind = 'purchases'
+          and x.purchase_return_id = h.id
+          and pr.name ilike '%' || v_search || '%'
+      )
     );
 
   with history as (
@@ -18861,6 +19033,24 @@ begin
         or h.party_name
            ilike
            '%' || v_search || '%'
+
+        or exists (
+          select 1
+          from public.sales_return_items x
+          join public.products pr on pr.id = x.product_id
+          where h.kind = 'sales'
+            and x.sales_return_id = h.id
+            and pr.name ilike '%' || v_search || '%'
+        )
+
+        or exists (
+          select 1
+          from public.purchase_return_items x
+          join public.products pr on pr.id = x.product_id
+          where h.kind = 'purchases'
+            and x.purchase_return_id = h.id
+            and pr.name ilike '%' || v_search || '%'
+        )
       )
 
     order by
@@ -19127,6 +19317,21 @@ begin
       or t.name
          ilike
          '%' || v_search || '%'
+
+      or exists (
+        select 1
+        from public.sales_orders so
+        where so.id = si.order_id
+          and so.order_number ilike '%' || v_search || '%'
+      )
+
+      or exists (
+        select 1
+        from public.sales_invoice_items x
+        join public.products pr on pr.id = x.product_id
+        where x.invoice_id = si.id
+          and pr.name ilike '%' || v_search || '%'
+      )
     )
 
     and exists (
@@ -19341,6 +19546,21 @@ begin
         or t.name
            ilike
            '%' || v_search || '%'
+
+        or exists (
+          select 1
+          from public.sales_orders so
+          where so.id = si.order_id
+            and so.order_number ilike '%' || v_search || '%'
+        )
+
+        or exists (
+          select 1
+          from public.sales_invoice_items x
+          join public.products pr on pr.id = x.product_id
+          where x.invoice_id = si.id
+            and pr.name ilike '%' || v_search || '%'
+        )
       )
 
       and exists (
@@ -20446,6 +20666,12 @@ begin
 
   perform
     public.recalc_sales_invoice_payment(
+      v_invoice
+    );
+
+  -- الفاتورة رجعت عليها ذمة: إذا الزبون عندو رصيد (من دفعة محرّرة مثلًا) بينخصم فورًا.
+  perform
+    public.apply_customer_credit_to_invoice(
       v_invoice
     );
 
@@ -24351,6 +24577,23 @@ begin
           v_alloc.id,
           new.payment_date,
           'عكس تخصيص قبض عميل'
+        );
+    end loop;
+
+    -- التحريرات بسبب المرتجعات لازم تنعكس مع تخصيصها (إذا التخصيص انحذف كلو، القيدين بيلغوا بعض).
+    for v_alloc in
+      select id
+      from public.customer_payment_releases
+      where payment_id = new.id
+        and allocation_id is not null
+    loop
+      perform
+        public.reverse_system_journal(
+          new.company_id,
+          'customer_payment_release',
+          v_alloc.id,
+          new.payment_date,
+          'عكس تحرير دفعة'
         );
     end loop;
 

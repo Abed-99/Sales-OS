@@ -173,11 +173,26 @@ export default async function CustomerDetailPage({
   }
 
   if (canViewFinancials) {
-    const result = await supabase.rpc("get_trader_sales_summary", {
-      target_company: context.companyId,
+    const [result, creditResult] = await Promise.all([
+      supabase.rpc("get_trader_sales_summary", {
+        target_company: context.companyId,
+        target_trader: id,
+      }),
+      supabase
+        .from("customer_payments")
+        .select("unallocated_total,payment_currency,cashboxes(currency)")
+        .eq("company_id", context.companyId)
+        .eq("trader_id", id)
+        .eq("status", "posted")
+        .gt("unallocated_total", 0),
+    ]);
 
-      target_trader: id,
-    });
+    const creditByCurrency = new Map<string, number>();
+    for (const row of creditResult.data ?? []) {
+      const box = Array.isArray(row.cashboxes) ? row.cashboxes[0] : row.cashboxes;
+      const code = String(row.payment_currency ?? box?.currency ?? context.currency).toUpperCase();
+      creditByCurrency.set(code, (creditByCurrency.get(code) ?? 0) + Number(row.unallocated_total));
+    }
 
     if (result.error) {
       relatedError = "تعذر تحميل بعض بيانات العميل.";
@@ -193,6 +208,8 @@ export default async function CustomerDetailPage({
           outstanding: Number(raw.outstanding ?? 0),
 
           currency: String(raw.currency ?? context.currency),
+
+          credits: [...creditByCurrency].map(([currency, amount]) => ({ currency, amount })),
         };
       }
     }
