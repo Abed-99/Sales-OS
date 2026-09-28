@@ -7,26 +7,19 @@ import { createClient } from "@/lib/supabase/server";
 
 export default async function SettingsPage() {
   const context = await getCurrentContext();
-  const canView =
-    hasPermission(
-      context.permissions,
-      "settings.view",
-      context.isOwner
-    );
+  const canView = hasPermission(context.permissions, "settings.view", context.isOwner);
 
   if (!canView) {
     return (
       <>
         <Topbar
           title="الإعدادات"
-        subtitle="الحساب، الشركة وإعدادات النظام"
+          subtitle="الحساب، الشركة وإعدادات النظام"
           companyName={context.companyName}
         />
 
         <div className="page">
-          <section className="panel panelPad">
-            ما عندك صلاحية لعرض الإعدادات.
-          </section>
+          <section className="panel panelPad">ما عندك صلاحية لعرض الإعدادات.</section>
         </div>
       </>
     );
@@ -34,15 +27,8 @@ export default async function SettingsPage() {
 
   const supabase = await createClient();
 
-  const [
-    profileResult,
-    companyResult,
-  ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", context.user.id)
-      .maybeSingle(),
+  const [profileResult, companyResult] = await Promise.all([
+    supabase.from("profiles").select("full_name").eq("id", context.user.id).maybeSingle(),
     supabase
       .from("companies")
       .select("id,name,phone,whatsapp,default_currency")
@@ -50,15 +36,17 @@ export default async function SettingsPage() {
       .maybeSingle(),
   ]);
 
-  const profile =
-    profileResult.data;
+  // بعد أول قيد محاسبي ما عاد فينا نغيّر العملة الأساسية.
+  const { count: journalCount } = await supabase
+    .from("journal_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", context.companyId);
 
-  const company =
-    companyResult.data;
+  const profile = profileResult.data;
 
-  const pageError =
-    Boolean(profileResult.error) ||
-    Boolean(companyResult.error);
+  const company = companyResult.data;
+
+  const pageError = Boolean(profileResult.error) || Boolean(companyResult.error);
 
   return (
     <>
@@ -69,10 +57,7 @@ export default async function SettingsPage() {
       />
       {pageError && (
         <div className="page">
-          <div
-            className="toastError"
-            role="alert"
-          >
+          <div className="toastError" role="alert">
             تعذر تحميل بعض بيانات الإعدادات. حاول تحديث الصفحة.
           </div>
         </div>
@@ -84,17 +69,17 @@ export default async function SettingsPage() {
         isOwner={context.isOwner}
         permissions={context.permissions}
         initialName={profile?.full_name || context.userName}
+        currencyLocked={(journalCount ?? 0) > 0}
         company={
-          (company || {
+          company || {
             id: context.companyId,
             name: context.companyName,
             phone: null,
             whatsapp: null,
             default_currency: context.currency,
-          })
+          }
         }
       />
     </>
   );
 }
-

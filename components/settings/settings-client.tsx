@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import {
-  normalizeSyrianMobile,
-  syrianPhoneState,
-} from "@/lib/phone";
+import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 import { hasPermission } from "@/lib/permissions";
 
 type Company = {
@@ -23,6 +21,7 @@ export function SettingsClient({
   permissions,
   initialName,
   company,
+  currencyLocked,
 }: {
   email: string;
   roleName: string;
@@ -30,26 +29,53 @@ export function SettingsClient({
   permissions: string[];
   initialName: string;
   company: Company;
+  currencyLocked: boolean;
 }) {
+  const router = useRouter();
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordOk, setPasswordOk] = useState(false);
+
+  async function changePassword() {
+    setPasswordMessage("");
+    setPasswordOk(false);
+    if (newPassword.length < 8) {
+      setPasswordMessage("كلمة السر لازم تكون 8 أحرف على الأقل.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("كلمتين السر مو متطابقين.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await createClient().auth.updateUser({ password: newPassword });
+    setBusy(false);
+    if (error) {
+      setPasswordMessage(
+        error.message.toLowerCase().includes("different")
+          ? "كلمة السر الجديدة لازم تكون غير القديمة."
+          : "تعذر تغيير كلمة السر. جرّب مرة تانية.",
+      );
+      return;
+    }
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordOk(true);
+    setPasswordMessage("تغيّرت كلمة السر.");
+  }
+
   const [name, setName] = useState(initialName);
-  const [companyName, setCompanyName] =
-    useState(company.name);
-  const [phone, setPhone] =
-    useState(company.phone || "");
-  const [whatsapp, setWhatsapp] =
-    useState(company.whatsapp || "");
-  const [currency, setCurrency] =
-    useState(company.default_currency || "USD");
+  const [companyName, setCompanyName] = useState(company.name);
+  const [phone, setPhone] = useState(company.phone || "");
+  const [whatsapp, setWhatsapp] = useState(company.whatsapp || "");
+  const [currency, setCurrency] = useState(company.default_currency || "USD");
 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
 
-  const canManage = hasPermission(
-    permissions,
-    "settings.manage_company",
-    isOwner
-  );
+  const canManage = hasPermission(permissions, "settings.manage_company", isOwner);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -62,13 +88,9 @@ export function SettingsClient({
       return;
     }
 
-    const normalizedPhone =
-      phone.trim() ? normalizeSyrianMobile(phone) : null;
+    const normalizedPhone = phone.trim() ? normalizeAnyPhone(phone) : null;
 
-    const normalizedWhatsapp =
-      whatsapp.trim()
-        ? normalizeSyrianMobile(whatsapp)
-        : null;
+    const normalizedWhatsapp = whatsapp.trim() ? normalizeAnyPhone(whatsapp) : null;
 
     if (phone && !normalizedPhone) {
       setMessage("رقم الشركة غير صحيح.");
@@ -94,13 +116,12 @@ export function SettingsClient({
         return;
       }
 
-      const { error: profileError } =
-        await supabase
-          .from("profiles")
-          .update({
-            full_name: name.trim(),
-          })
-          .eq("id", user.id);
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: name.trim(),
+        })
+        .eq("id", user.id);
 
       if (profileError) {
         setMessage("تعذر تحديث بيانات الحساب.");
@@ -113,25 +134,29 @@ export function SettingsClient({
           return;
         }
 
-        const { error: companyError } =
-          await supabase
-            .from("companies")
-            .update({
-              name: companyName.trim(),
-              phone: normalizedPhone,
-              whatsapp: normalizedWhatsapp,
-              default_currency: currency.trim().toUpperCase(),
-            })
-            .eq("id", company.id);
+        const { error: companyError } = await supabase
+          .from("companies")
+          .update({
+            name: companyName.trim(),
+            phone: normalizedPhone,
+            whatsapp: normalizedWhatsapp,
+            ...(currencyLocked ? {} : { default_currency: currency.trim().toUpperCase() }),
+          })
+          .eq("id", company.id);
 
         if (companyError) {
-          setMessage("تعذر تحديث بيانات الشركة. تحقق من الصلاحيات والعملة.");
+          setMessage(
+            companyError.message.includes("cannot change after accounting history")
+              ? "ما فيك تغيّر العملة الأساسية بعد ما صار في حركات مالية."
+              : "تعذر تحديث بيانات الشركة. تحقق من الصلاحيات.",
+          );
           return;
         }
       }
 
       setSuccess(true);
       setMessage("تم حفظ الإعدادات بنجاح.");
+      router.refresh();
     } finally {
       setBusy(false);
     }
@@ -140,19 +165,11 @@ export function SettingsClient({
   function phoneStatus(value: string) {
     if (!value.trim()) return null;
 
-    const state = syrianPhoneState(value);
+    const state = anyPhoneState(value);
 
     return (
-      <small
-        className={
-          state === "valid"
-            ? "validText"
-            : "invalidText"
-        }
-      >
-        {state === "valid"
-          ? "✓ رقم صحيح"
-          : "رقم غير صحيح"}
+      <small className={state === "valid" ? "validText" : "invalidText"}>
+        {state === "valid" ? "✓ رقم صحيح" : "رقم غير صحيح"}
       </small>
     );
   }
@@ -171,31 +188,17 @@ export function SettingsClient({
           <div className="authForm">
             <label className="field">
               <span>الاسم</span>
-              <input
-                value={name}
-                onChange={(event) =>
-                  setName(event.target.value)
-                }
-              />
+              <input value={name} onChange={(event) => setName(event.target.value)} />
             </label>
 
             <label className="field">
               <span>البريد الإلكتروني</span>
-              <input
-                value={email}
-                readOnly
-                dir="ltr"
-                className="readOnlyInput"
-              />
+              <input value={email} readOnly dir="ltr" className="readOnlyInput" />
             </label>
 
             <label className="field">
               <span>الصلاحية</span>
-              <input
-                value={roleName}
-                readOnly
-                className="readOnlyInput"
-              />
+              <input value={roleName} readOnly className="readOnlyInput" />
             </label>
           </div>
         </section>
@@ -204,11 +207,7 @@ export function SettingsClient({
           <div className="panelHeader">
             <div>
               <h2>الشركة</h2>
-              <p>
-                {canManage
-                  ? "تعديل معلومات الشركة الحالية"
-                  : "هذه المعلومات للعرض فقط"}
-              </p>
+              <p>{canManage ? "تعديل معلومات الشركة الحالية" : "هذه المعلومات للعرض فقط"}</p>
             </div>
           </div>
 
@@ -218,12 +217,8 @@ export function SettingsClient({
               <input
                 value={companyName}
                 readOnly={!canManage}
-                className={
-                  canManage ? "" : "readOnlyInput"
-                }
-                onChange={(event) =>
-                  setCompanyName(event.target.value)
-                }
+                className={canManage ? "" : "readOnlyInput"}
+                onChange={(event) => setCompanyName(event.target.value)}
               />
             </label>
 
@@ -233,12 +228,8 @@ export function SettingsClient({
                 dir="ltr"
                 value={phone}
                 readOnly={!canManage}
-                className={
-                  canManage ? "" : "readOnlyInput"
-                }
-                onChange={(event) =>
-                  setPhone(event.target.value)
-                }
+                className={canManage ? "" : "readOnlyInput"}
+                onChange={(event) => setPhone(event.target.value)}
               />
               {canManage && phoneStatus(phone)}
             </label>
@@ -249,12 +240,8 @@ export function SettingsClient({
                 dir="ltr"
                 value={whatsapp}
                 readOnly={!canManage}
-                className={
-                  canManage ? "" : "readOnlyInput"
-                }
-                onChange={(event) =>
-                  setWhatsapp(event.target.value)
-                }
+                className={canManage ? "" : "readOnlyInput"}
+                onChange={(event) => setWhatsapp(event.target.value)}
               />
               {canManage && phoneStatus(whatsapp)}
             </label>
@@ -264,33 +251,71 @@ export function SettingsClient({
 
               <select
                 value={currency}
-                disabled={!canManage}
-                onChange={(event) =>
-                  setCurrency(event.target.value)
-                }
+                disabled={!canManage || currencyLocked}
+                onChange={(event) => setCurrency(event.target.value)}
               >
                 <option value="USD">USD - دولار</option>
                 <option value="SYP">SYP - ليرة سورية</option>
               </select>
+              {currencyLocked ? (
+                <small className="helpText">
+                  ما بتتغيّر بعد أول حركة مالية، لأنو كل الحسابات مكتوبة على أساسها.
+                </small>
+              ) : null}
             </label>
           </div>
         </section>
 
-        <div className="settingsActions">
-          {message && (
-            <div
-              className={
-                success ? "toastSuccess" : "toastError"
-              }
-            >
-              {message}
+        <section className="panel panelPad">
+          <div className="panelHeader">
+            <div>
+              <h2>كلمة السر</h2>
+              <p>غيّر كلمة السر تبع حسابك</p>
             </div>
-          )}
+          </div>
 
-          <button
-            className="primaryButton"
-            disabled={busy}
-          >
+          <div className="authForm">
+            <label className="field">
+              <span>كلمة السر الجديدة</span>
+              <input
+                type="password"
+                dir="ltr"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+              />
+            </label>
+
+            <label className="field">
+              <span>أعد كتابتها</span>
+              <input
+                type="password"
+                dir="ltr"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+            </label>
+
+            {passwordMessage ? (
+              <div className={passwordOk ? "toastSuccess" : "toastError"}>{passwordMessage}</div>
+            ) : null}
+
+            <button
+              type="button"
+              className="softButton"
+              disabled={busy || !newPassword}
+              onClick={() => void changePassword()}
+            >
+              تغيير كلمة السر
+            </button>
+          </div>
+        </section>
+
+        <div className="settingsActions">
+          {message && <div className={success ? "toastSuccess" : "toastError"}>{message}</div>}
+
+          <button className="primaryButton" disabled={busy}>
             {busy ? "عم نحفظ..." : "حفظ الإعدادات"}
           </button>
         </div>
