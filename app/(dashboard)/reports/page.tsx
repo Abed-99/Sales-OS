@@ -14,40 +14,24 @@ import {
 } from "@/components/reports/reports-client";
 
 import { getCurrentContext } from "@/lib/current-context";
-import {
-  hasAnyPermission,
-  hasPermission,
-} from "@/lib/permissions";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 function damascusToday() {
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone: "Asia/Damascus",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }
-    ).formatToParts(new Date());
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  const get = (type: string) =>
-    parts.find(
-      (part) =>
-        part.type === type
-    )?.value ?? "";
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function validDate(
-  value: string | undefined
-) {
-  return Boolean(
-    value &&
-      /^\d{4}-\d{2}-\d{2}$/.test(value)
-  );
+function validDate(value: string | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
 export default async function ReportsPage({
@@ -58,14 +42,11 @@ export default async function ReportsPage({
     to?: string;
   }>;
 }) {
-  const params =
-    await searchParams;
+  const params = await searchParams;
 
-  const context =
-    await getCurrentContext();
+  const context = await getCurrentContext();
 
-  const supabase =
-    await createClient();
+  const supabase = await createClient();
 
   const canView = hasAnyPermission(
     context.permissions,
@@ -78,180 +59,105 @@ export default async function ReportsPage({
       "assets.view",
       "partners.view",
     ],
-    context.isOwner
+    context.isOwner,
   );
 
   if (!canView) {
     return (
       <>
-        <Topbar
-          title="التقارير"
-          subtitle="تقارير النظام"
-          companyName={context.companyName}
-        />
+        <Topbar title="التقارير" subtitle="تقارير النظام" companyName={context.companyName} />
 
         <div className="page">
-          <section className="panel panelPad">
-            ما عندك صلاحية لعرض التقارير.
-          </section>
+          <section className="panel panelPad">ما عندك صلاحية لعرض التقارير.</section>
         </div>
       </>
     );
   }
 
-  const defaultTo =
-    damascusToday();
+  const defaultTo = damascusToday();
 
-  const defaultFrom =
-    `${defaultTo.slice(0, 4)}-01-01`;
+  const defaultFrom = `${defaultTo.slice(0, 4)}-01-01`;
 
-  const from =
-    validDate(params.from)
-      ? params.from!
-      : defaultFrom;
+  const from = validDate(params.from) ? params.from! : defaultFrom;
 
-  const to =
-    validDate(params.to)
-      ? params.to!
-      : defaultTo;
+  const to = validDate(params.to) ? params.to! : defaultTo;
 
-  const canFinance =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "reports.finance",
-        "reports.profit",
-        "finance.accounts_view",
-      ],
-      context.isOwner
-    );
+  const canFinance = hasAnyPermission(
+    context.permissions,
+    ["reports.finance", "reports.profit", "finance.accounts_view"],
+    context.isOwner,
+  );
 
-  const canSales =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "reports.sales",
-        "reports.profit",
-        "reports.finance",
-      ],
-      context.isOwner
-    );
+  const canSales = hasAnyPermission(
+    context.permissions,
+    ["reports.sales", "reports.profit", "reports.finance"],
+    context.isOwner,
+  );
 
-  const canPurchases =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "purchases.view",
-        "reports.profit",
-        "reports.finance",
-      ],
-      context.isOwner
-    );
+  const canPurchases = hasAnyPermission(
+    context.permissions,
+    ["purchases.view", "reports.profit", "reports.finance"],
+    context.isOwner,
+  );
 
-  const canInventoryCost =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "reports.finance",
-        "reports.profit",
-        "products.view_cost",
-        "suppliers.view_finance",
-      ],
-      context.isOwner
-    );
+  const canInventoryCost = hasAnyPermission(
+    context.permissions,
+    ["reports.finance", "reports.profit", "products.view_cost", "suppliers.view_finance"],
+    context.isOwner,
+  );
 
-  const canPayroll =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "payroll.reports",
-        "payroll.view",
-      ],
-      context.isOwner
-    );
+  const canPayroll = hasAnyPermission(
+    context.permissions,
+    ["payroll.reports", "payroll.view"],
+    context.isOwner,
+  );
 
-  const canAssets =
-    hasPermission(
-      context.permissions,
-      "assets.view",
-      context.isOwner
-    );
+  const canAssets = hasPermission(context.permissions, "assets.view", context.isOwner);
 
-  const canPartners =
-    hasPermission(
-      context.permissions,
-      "partners.view",
-      context.isOwner
-    );
+  const canPartners = hasPermission(context.permissions, "partners.view", context.isOwner);
 
-  let financialReport:
-    FinancialReport | null =
-    null;
+  let financialReport: FinancialReport | null = null;
 
-  let receivables:
-    ReceivableAging[] = [];
+  let receivables: ReceivableAging[] = [];
 
-  let payables:
-    PayableAging[] = [];
+  let payables: PayableAging[] = [];
 
-  let inventory:
-    InventoryValuation[] = [];
+  let inventory: InventoryValuation[] = [];
 
-  let salesMonthly:
-    SalesMonthlyReport[] = [];
+  // المجموع من القاعدة مباشرة (القائمة ممكن تنقص إذا الأسطر فوق الألف).
+  let inventoryValue: number | null = null;
 
-  let purchaseMonthly:
-    PurchaseMonthlyReport[] = [];
+  let inventoryLines: number | null = null;
 
-  let payrollRuns:
-    ReportPayrollRun[] = [];
+  let salesMonthly: SalesMonthlyReport[] = [];
 
-  let assets:
-    ReportAsset[] = [];
+  let purchaseMonthly: PurchaseMonthlyReport[] = [];
 
-  let partners:
-    ReportPartner[] = [];
+  let payrollRuns: ReportPayrollRun[] = [];
 
-  const warnings:
-    string[] = [];
+  let assets: ReportAsset[] = [];
+
+  let partners: ReportPartner[] = [];
+
+  const warnings: string[] = [];
 
   if (canFinance) {
-    const [
-      financialResult,
-      receivableResult,
-      payableResult,
-    ] = await Promise.all([
-      supabase.rpc(
-        "get_financial_report",
-        {
-          target_company:
-            context.companyId,
-          target_start:
-            from,
-          target_end:
-            to,
-        }
-      ),
+    const [financialResult, receivableResult, payableResult] = await Promise.all([
+      supabase.rpc("get_financial_report", {
+        target_company: context.companyId,
+        target_start: from,
+        target_end: to,
+      }),
 
-      supabase.rpc(
-        "get_receivables_aging",
-        {
-          target_company:
-            context.companyId,
-          target_as_of:
-            to,
-        }
-      ),
+      supabase.rpc("get_receivables_aging", {
+        target_company: context.companyId,
+        target_as_of: to,
+      }),
 
-      supabase.rpc(
-        "get_payables_aging",
-        {
-          target_company:
-            context.companyId,
-          target_as_of:
-            to,
-        }
-      ),
+      supabase.rpc("get_payables_aging", {
+        target_company: context.companyId,
+        target_as_of: to,
+      }),
     ]);
 
     if (financialResult.error) {
@@ -266,168 +172,115 @@ export default async function ReportsPage({
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    financialReport =
-      financialResult.data as unknown as FinancialReport;
+    financialReport = financialResult.data as unknown as FinancialReport;
 
-    receivables =
-      (receivableResult.data ??
-        []) as unknown as ReceivableAging[];
+    receivables = (receivableResult.data ?? []) as unknown as ReceivableAging[];
 
-    payables =
-      (payableResult.data ??
-        []) as unknown as PayableAging[];
+    payables = (payableResult.data ?? []) as unknown as PayableAging[];
   }
 
   if (canSales) {
-    const { data, error } =
-      await supabase.rpc(
-        "get_sales_monthly_report",
-        {
-          target_company:
-            context.companyId,
-          target_start:
-            from,
-          target_end:
-            to,
-        }
-      );
+    const { data, error } = await supabase.rpc("get_sales_monthly_report", {
+      target_company: context.companyId,
+      target_start: from,
+      target_end: to,
+    });
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    salesMonthly =
-      (data ??
-        []) as unknown as SalesMonthlyReport[];
+    salesMonthly = (data ?? []) as unknown as SalesMonthlyReport[];
   }
 
   if (canPurchases) {
-    const { data, error } =
-      await supabase.rpc(
-        "get_purchase_monthly_report",
-        {
-          target_company:
-            context.companyId,
-          target_start:
-            from,
-          target_end:
-            to,
-        }
-      );
+    const { data, error } = await supabase.rpc("get_purchase_monthly_report", {
+      target_company: context.companyId,
+      target_start: from,
+      target_end: to,
+    });
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    purchaseMonthly =
-      (data ??
-        []) as unknown as PurchaseMonthlyReport[];
+    purchaseMonthly = (data ?? []) as unknown as PurchaseMonthlyReport[];
   }
 
   if (canInventoryCost) {
-    const { data, error } =
-      await supabase.rpc(
-        "get_inventory_valuation",
-        {
-          target_company:
-            context.companyId,
-        }
-      );
+    const [{ data, error }, statsResult, linesResult] = await Promise.all([
+      supabase.rpc("get_inventory_valuation", {
+        target_company: context.companyId,
+      }),
+      supabase.rpc("get_inventory_stats", { target_company: context.companyId }),
+      supabase
+        .from("inventory_stock")
+        .select("product_id", { count: "exact", head: true })
+        .eq("company_id", context.companyId)
+        .neq("on_hand", 0),
+    ]);
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    inventory =
-      (data ??
-        []) as unknown as InventoryValuation[];
+    inventory = (data ?? []) as unknown as InventoryValuation[];
+
+    const stats = Array.isArray(statsResult.data) ? statsResult.data[0] : null;
+    inventoryValue = stats?.stock_value == null ? null : Number(stats.stock_value);
+    inventoryLines = linesResult.count ?? null;
   }
 
   if (canPayroll) {
-    const { data, error } =
-      await supabase
-        .from("payroll_runs")
-        .select(
-          "id,period_start,period_end,pay_date,status,currency,total_gross,total_deductions,total_net,total_paid,created_at"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .gte(
-          "period_end",
-          from
-        )
-        .lte(
-          "period_start",
-          to
-        )
-        .order(
-          "period_start",
-          {
-            ascending: false,
-          }
-        );
+    const { data, error } = await supabase
+      .from("payroll_runs")
+      .select(
+        "id,period_start,period_end,pay_date,status,currency,total_gross,total_deductions,total_net,total_paid,created_at",
+      )
+      .eq("company_id", context.companyId)
+      .gte("period_end", from)
+      .lte("period_start", to)
+      .order("period_start", {
+        ascending: false,
+      });
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    payrollRuns =
-      (data ??
-        []) as unknown as ReportPayrollRun[];
+    payrollRuns = (data ?? []) as unknown as ReportPayrollRun[];
   }
 
   if (canAssets) {
-    const { data, error } =
-      await supabase
-        .from(
-          "fixed_asset_summary"
-        )
-        .select(
-          "id,asset_number,name,category,currency,purchase_cost,accumulated_depreciation,book_value,monthly_depreciation,status,in_service_date,useful_life_months"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .order(
-          "asset_number"
-        );
+    const { data, error } = await supabase
+      .from("fixed_asset_summary")
+      .select(
+        "id,asset_number,name,category,currency,purchase_cost,accumulated_depreciation,book_value,monthly_depreciation,status,in_service_date,useful_life_months",
+      )
+      .eq("company_id", context.companyId)
+      .order("asset_number");
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    assets =
-      (data ??
-        []) as unknown as ReportAsset[];
+    assets = (data ?? []) as unknown as ReportAsset[];
   }
 
   if (canPartners) {
-    const { data, error } =
-      await supabase
-        .from(
-          "partner_summary"
-        )
-        .select(
-          "id,partner_number,name,ownership_percent,profit_share_percent,active,capital_contributions,drawings,partner_loan_balance,profit_distributions"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .order(
-          "name"
-        );
+    const { data, error } = await supabase
+      .from("partner_summary")
+      .select(
+        "id,partner_number,name,ownership_percent,profit_share_percent,active,capital_contributions,drawings,partner_loan_balance,profit_distributions",
+      )
+      .eq("company_id", context.companyId)
+      .order("name");
 
     if (error) {
       warnings.push("تعذر تحميل جزء من التقرير.");
     }
 
-    partners =
-      (data ??
-        []) as unknown as ReportPartner[];
+    partners = (data ?? []) as unknown as ReportPartner[];
   }
 
   return (
@@ -440,69 +293,34 @@ export default async function ReportsPage({
 
       {warnings.length > 0 && (
         <div className="page">
-          <div
-            className="toastError"
-            role="alert"
-          >
+          <div className="toastError" role="alert">
             تعذر تحميل بعض أقسام التقارير. البيانات المتاحة فقط هي الظاهرة.
           </div>
         </div>
       )}
 
       <ReportsClient
-        baseCurrency={
-          context.currency
-        }
+        baseCurrency={context.currency}
         from={from}
         to={to}
-        financialReport={
-          financialReport
-        }
-        receivables={
-          receivables
-        }
-        payables={
-          payables
-        }
-        inventory={
-          inventory
-        }
-        salesMonthly={
-          salesMonthly
-        }
-        purchaseMonthly={
-          purchaseMonthly
-        }
-        payrollRuns={
-          payrollRuns
-        }
-        assets={
-          assets
-        }
-        partners={
-          partners
-        }
-        canFinance={
-          canFinance
-        }
-        canSales={
-          canSales
-        }
-        canPurchases={
-          canPurchases
-        }
-        canInventoryCost={
-          canInventoryCost
-        }
-        canPayroll={
-          canPayroll
-        }
-        canAssets={
-          canAssets
-        }
-        canPartners={
-          canPartners
-        }
+        financialReport={financialReport}
+        receivables={receivables}
+        payables={payables}
+        inventory={inventory}
+        inventoryValue={inventoryValue}
+        inventoryLines={inventoryLines}
+        salesMonthly={salesMonthly}
+        purchaseMonthly={purchaseMonthly}
+        payrollRuns={payrollRuns}
+        assets={assets}
+        partners={partners}
+        canFinance={canFinance}
+        canSales={canSales}
+        canPurchases={canPurchases}
+        canInventoryCost={canInventoryCost}
+        canPayroll={canPayroll}
+        canAssets={canAssets}
+        canPartners={canPartners}
       />
     </>
   );

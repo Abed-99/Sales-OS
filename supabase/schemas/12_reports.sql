@@ -85,7 +85,7 @@ begin
 
   select
     round(
-      coalesce(sum((si.total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))), 0),
+      coalesce(sum(public.finance_to_base(target_company, si.currency, si.total, si.invoice_date)), 0),
       2
     ),
     count(*)
@@ -161,7 +161,7 @@ begin
   from public.sales_invoices si
   where si.company_id = target_company
     and si.status = 'posted'
-    and (si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date)) > 0;
+    and public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date) > 0;
 
   -- "Customers" means actual customer status, not leads/inactive.
   select
@@ -1055,17 +1055,17 @@ begin
       count(*) as invoice_count,
 
       coalesce(
-        sum((pi.total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
+        sum(public.finance_to_base(target_company, pi.currency, pi.total, pi.invoice_date)),
         0
       ) as gross_purchases,
 
       coalesce(
-        sum((pi.paid_total * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
+        sum(public.finance_to_base(target_company, pi.currency, pi.paid_total, pi.invoice_date)),
         0
       ) as paid,
 
       coalesce(
-        sum((pi.balance_due * public.finance_rate_to_base(target_company, pi.currency, pi.invoice_date))),
+        sum(public.finance_to_base(target_company, pi.currency, pi.balance_due, pi.invoice_date)),
         0
       ) as outstanding
 
@@ -1102,7 +1102,7 @@ begin
       )::date as month_start,
 
       coalesce(
-        sum((pr.total * public.finance_rate_to_base(target_company, pr.currency, pr.return_date))),
+        sum(public.finance_to_base(target_company, pr.currency, pr.total, pr.return_date)),
         0
       ) as return_total
 
@@ -1131,12 +1131,13 @@ begin
     group by 1
   )
 
+  -- full join: الشهر اللي فيه مرتجعات بس (بدون فواتير) لازم يطلع كمان.
   select
-    i.month_start,
-    i.invoice_count,
+    coalesce(i.month_start, r.month_start),
+    coalesce(i.invoice_count, 0)::bigint,
 
     round(
-      i.gross_purchases,
+      coalesce(i.gross_purchases, 0),
       2
     ),
 
@@ -1149,7 +1150,7 @@ begin
     ),
 
     round(
-      i.gross_purchases -
+      coalesce(i.gross_purchases, 0) -
       coalesce(
         r.return_total,
         0
@@ -1158,23 +1159,23 @@ begin
     ),
 
     round(
-      i.paid,
+      coalesce(i.paid, 0),
       2
     ),
 
     round(
-      i.outstanding,
+      coalesce(i.outstanding, 0),
       2
     )
 
   from invoice_data i
 
-  left join return_data r
+  full join return_data r
     on r.month_start =
        i.month_start
 
   order by
-    i.month_start;
+    1;
 end;
 $function$;
 
@@ -1384,17 +1385,17 @@ begin
       count(*) as invoice_count,
 
       coalesce(
-        sum((si.total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
+        sum(public.finance_to_base(target_company, si.currency, si.total, si.invoice_date)),
         0
       ) as gross_sales,
 
       coalesce(
-        sum((si.paid_total * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
+        sum(public.finance_to_base(target_company, si.currency, si.paid_total, si.invoice_date)),
         0
       ) as collected,
 
       coalesce(
-        sum((si.balance_due * public.finance_rate_to_base(target_company, si.currency, si.invoice_date))),
+        sum(public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date)),
         0
       ) as outstanding
 
@@ -1431,7 +1432,7 @@ begin
       )::date as month_start,
 
       coalesce(
-        sum((sr.total * public.finance_rate_to_base(target_company, sr.currency, sr.return_date))),
+        sum(public.finance_to_base(target_company, sr.currency, sr.total, sr.return_date)),
         0
       ) as return_total
 
@@ -1460,12 +1461,13 @@ begin
     group by 1
   )
 
+  -- full join: الشهر اللي فيه مرتجعات بس (بدون فواتير) لازم يطلع كمان.
   select
-    i.month_start,
-    i.invoice_count,
+    coalesce(i.month_start, r.month_start),
+    coalesce(i.invoice_count, 0)::bigint,
 
     round(
-      i.gross_sales,
+      coalesce(i.gross_sales, 0),
       2
     ),
 
@@ -1478,7 +1480,7 @@ begin
     ),
 
     round(
-      i.gross_sales -
+      coalesce(i.gross_sales, 0) -
       coalesce(
         r.return_total,
         0
@@ -1487,22 +1489,22 @@ begin
     ),
 
     round(
-      i.collected,
+      coalesce(i.collected, 0),
       2
     ),
 
     round(
-      i.outstanding,
+      coalesce(i.outstanding, 0),
       2
     )
 
   from invoice_data i
 
-  left join return_data r
+  full join return_data r
     on r.month_start =
        i.month_start
 
   order by
-    i.month_start;
+    1;
 end;
 $function$;

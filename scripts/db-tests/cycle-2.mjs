@@ -280,6 +280,14 @@ check("ديون الموردين بالحسابات = مجموع الفواتي�
 const pa = await u.rpc("get_payables_aging", { target_company: company, target_as_of: today });
 if (pa.error) { failures++; log("   ❌ تقرير أعمار ديون الموردين: " + pa.error.message); }
 else check("= تقرير أعمار ديون الموردين", -(await byKey("accounts_payable")), pa.data.reduce((s, r) => s + Number(r.total_due), 0));
+const sm = await u.rpc("get_sales_monthly_report", { target_company: company, target_start: start, target_end: today });
+const pm = await u.rpc("get_purchase_monthly_report", { target_company: company, target_start: start, target_end: today });
+if (sm.error || pm.error) { failures++; log("   ❌ تقارير المبيعات/المشتريات الشهرية: " + (sm.error ?? pm.error).message); }
+else {
+  const { data: allSi } = await admin.from("sales_invoices").select("total").eq("company_id", company).eq("status", "posted");
+  const { data: allSr } = await admin.from("sales_returns").select("total").eq("company_id", company).eq("status", "posted");
+  check("تقرير المبيعات الشهري = الفواتير − المرتجعات", sm.data.reduce((t, r) => t + Number(r.net_sales), 0), allSi.reduce((t, r) => t + Number(r.total), 0) - allSr.reduce((t, r) => t + Number(r.total), 0));
+}
 const cs = await u.rpc("get_cashbox_summary", { target_company: company, target_date: today });
 if (cs.error) { failures++; log("   ❌ ملخص الصناديق: " + cs.error.message); }
 else {

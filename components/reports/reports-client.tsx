@@ -1,31 +1,18 @@
 "use client";
 
-import {
-  useMemo,
-  useState,
-} from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 
-function num(
-  value: unknown
-) {
-  const n =
-    Number(value || 0);
+function num(value: unknown) {
+  const n = Number(value || 0);
 
-  return Number.isFinite(n)
-    ? n
-    : 0;
+  return Number.isFinite(n) ? n : 0;
 }
 
-function money(
-  value: unknown,
-  currency: string
-) {
-  return `${num(value).toFixed(
-    2
-  )} ${currency}`;
+function money(value: unknown, currency: string) {
+  return `${num(value).toFixed(2)} ${currency}`;
 }
 
 export type FinancialReport = {
@@ -181,6 +168,8 @@ export function ReportsClient({
   receivables,
   payables,
   inventory,
+  inventoryValue,
+  inventoryLines,
   salesMonthly,
   purchaseMonthly,
   payrollRuns,
@@ -201,6 +190,8 @@ export function ReportsClient({
   receivables: ReceivableAging[];
   payables: PayableAging[];
   inventory: InventoryValuation[];
+  inventoryValue?: number | null;
+  inventoryLines?: number | null;
   salesMonthly: SalesMonthlyReport[];
   purchaseMonthly: PurchaseMonthlyReport[];
   payrollRuns: ReportPayrollRun[];
@@ -214,265 +205,161 @@ export function ReportsClient({
   canAssets: boolean;
   canPartners: boolean;
 }) {
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const firstTab: Tab =
-    canFinance
-      ? "overview"
-      : canSales
+  const firstTab: Tab = canFinance
+    ? "overview"
+    : canSales
       ? "sales"
       : canPurchases
-      ? "purchases"
-      : canInventoryCost
-      ? "inventory"
-      : canPayroll
-      ? "payroll"
-      : canAssets
-      ? "assets"
-      : "partners";
+        ? "purchases"
+        : canInventoryCost
+          ? "inventory"
+          : canPayroll
+            ? "payroll"
+            : canAssets
+              ? "assets"
+              : "partners";
 
-  const [tab, setTab] =
-    useState<Tab>(
-      firstTab
-    );
+  const [tab, setTab] = useState<Tab>(firstTab);
 
-  const [startDate, setStartDate] =
-    useState(from);
+  const [startDate, setStartDate] = useState(from);
 
-  const [endDate, setEndDate] =
-    useState(to);
+  const [endDate, setEndDate] = useState(to);
 
   function applyDates() {
-    if (
-      !startDate ||
-      !endDate
-    ) {
+    if (!startDate || !endDate) {
       return;
     }
 
-    const query =
-      new URLSearchParams({
-        from: startDate,
-        to: endDate,
-      });
+    const query = new URLSearchParams({
+      from: startDate,
+      to: endDate,
+    });
 
-    router.push(
-      `/reports?${query.toString()}`
-    );
+    router.push(`/reports?${query.toString()}`);
   }
-const inventoryTotal =
-    inventory.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.stock_value
-        ),
-      0
-    );
+  const inventoryTotal =
+    inventoryValue ?? inventory.reduce((sum, row) => sum + num(row.stock_value), 0);
 
-  const totalSales =
-    salesMonthly.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.net_sales
-        ),
-      0
-    );
+  const totalSales = salesMonthly.reduce((sum, row) => sum + num(row.net_sales), 0);
 
-  const totalPurchases =
-    purchaseMonthly.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.net_purchases
-        ),
-      0
-    );
+  const totalPurchases = purchaseMonthly.reduce((sum, row) => sum + num(row.net_purchases), 0);
 
-  const totalPayroll =
-    payrollRuns
-      .filter(
-        (run) =>
-          run.status !==
-          "cancelled"
-      )
-      .reduce(
-        (sum, row) =>
-          sum +
-          num(
-            row.total_net
-          ),
-        0
+  const totalPayroll = payrollRuns
+    .filter((run) => run.status !== "cancelled")
+    .reduce((sum, row) => sum + num(row.total_net), 0);
+
+  const payrollCurrencies = [
+    ...new Set(
+      payrollRuns
+        .filter((run) => run.status !== "cancelled")
+        .map((run) => run.currency.trim().toUpperCase()),
+    ),
+  ];
+
+  const mixedPayrollCurrencies = payrollCurrencies.length > 1;
+
+  const assetCurrencies = [...new Set(assets.map((asset) => asset.currency.trim().toUpperCase()))];
+
+  const mixedAssetCurrencies = assetCurrencies.length > 1;
+
+  // الأصول المبيوعة أو المشطوبة ما بتنحسب بالمجموع.
+  const ownedAssets = assets.filter((asset) => asset.status !== "disposed");
+
+  const assetCost = ownedAssets.reduce((sum, row) => sum + num(row.purchase_cost), 0);
+
+  const assetBookValue = ownedAssets.reduce((sum, row) => sum + num(row.book_value), 0);
+
+  const partnerCapital = partners.reduce((sum, row) => sum + num(row.capital_contributions), 0);
+
+  const availableTabs = useMemo(() => {
+    const rows: {
+      key: Tab;
+      label: string;
+    }[] = [];
+
+    if (canFinance) {
+      rows.push(
+        {
+          key: "overview",
+          label: "الملخص",
+        },
+        {
+          key: "profit",
+          label: "الأرباح والخسائر",
+        },
+        {
+          key: "balance",
+          label: "الميزانية",
+        },
+        {
+          key: "cash",
+          label: "التدفق النقدي",
+        },
+        {
+          key: "receivables",
+          label: "ذمم العملاء",
+        },
+        {
+          key: "payables",
+          label: "ذمم الموردين",
+        },
       );
+    }
 
-  const payrollCurrencies =
-    [
-      ...new Set(
-        payrollRuns
-          .filter(
-            (run) =>
-              run.status !==
-              "cancelled"
-          )
-          .map(
-            (run) =>
-              run.currency
-                .trim()
-                .toUpperCase()
-          )
-      ),
-    ];
+    if (canInventoryCost) {
+      rows.push({
+        key: "inventory",
+        label: "تقييم المخزون",
+      });
+    }
 
-  const mixedPayrollCurrencies =
-    payrollCurrencies.length > 1;
+    if (canSales) {
+      rows.push({
+        key: "sales",
+        label: "المبيعات",
+      });
+    }
 
-  const assetCurrencies =
-    [
-      ...new Set(
-        assets.map(
-          (asset) =>
-            asset.currency
-              .trim()
-              .toUpperCase()
-        )
-      ),
-    ];
+    if (canPurchases) {
+      rows.push({
+        key: "purchases",
+        label: "المشتريات",
+      });
+    }
 
-  const mixedAssetCurrencies =
-    assetCurrencies.length > 1;
+    if (canPayroll) {
+      rows.push({
+        key: "payroll",
+        label: "الرواتب",
+      });
+    }
 
-  const assetCost =
-    assets.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.purchase_cost
-        ),
-      0
-    );
+    if (canAssets) {
+      rows.push({
+        key: "assets",
+        label: "الأصول",
+      });
+    }
 
-  const assetBookValue =
-    assets.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.book_value
-        ),
-      0
-    );
+    if (canPartners) {
+      rows.push({
+        key: "partners",
+        label: "الشركاء",
+      });
+    }
 
-  const partnerCapital =
-    partners.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.capital_contributions
-        ),
-      0
-    );
-
-  const availableTabs =
-    useMemo(() => {
-      const rows: {
-        key: Tab;
-        label: string;
-      }[] = [];
-
-      if (canFinance) {
-        rows.push(
-          {
-            key: "overview",
-            label: "الملخص",
-          },
-          {
-            key: "profit",
-            label: "الأرباح والخسائر",
-          },
-          {
-            key: "balance",
-            label: "الميزانية",
-          },
-          {
-            key: "cash",
-            label: "التدفق النقدي",
-          },
-          {
-            key: "receivables",
-            label: "ذمم العملاء",
-          },
-          {
-            key: "payables",
-            label: "ذمم الموردين",
-          }
-        );
-      }
-
-      if (canInventoryCost) {
-        rows.push({
-          key: "inventory",
-          label: "تقييم المخزون",
-        });
-      }
-
-      if (canSales) {
-        rows.push({
-          key: "sales",
-          label: "المبيعات",
-        });
-      }
-
-      if (canPurchases) {
-        rows.push({
-          key: "purchases",
-          label: "المشتريات",
-        });
-      }
-
-      if (canPayroll) {
-        rows.push({
-          key: "payroll",
-          label: "الرواتب",
-        });
-      }
-
-      if (canAssets) {
-        rows.push({
-          key: "assets",
-          label: "الأصول",
-        });
-      }
-
-      if (canPartners) {
-        rows.push({
-          key: "partners",
-          label: "الشركاء",
-        });
-      }
-
-      return rows;
-    }, [
-      canFinance,
-      canInventoryCost,
-      canSales,
-      canPurchases,
-      canPayroll,
-      canAssets,
-      canPartners,
-    ]);
+    return rows;
+  }, [canFinance, canInventoryCost, canSales, canPurchases, canPayroll, canAssets, canPartners]);
 
   return (
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            Business Intelligence
-          </span>
+          <span className="eyebrow">التقارير</span>
 
-          <h2>
-            مركز التقارير
-          </h2>
+          <h2>مركز التقارير</h2>
 
           <p className="muted">
             الأرقام المالية مأخوذة من القيود المحاسبية والحركات الفعلية للنظام.
@@ -483,44 +370,22 @@ const inventoryTotal =
       <section className="panel panelPad">
         <div className="formGrid">
           <label className="field">
-            <span>
-              من تاريخ
-            </span>
+            <span>من تاريخ</span>
 
             <input
               type="date"
-              value={
-                startDate
-              }
-              onChange={(
-                event
-              ) =>
-                setStartDate(
-                  event.target
-                    .value
-                )
-              }
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
             />
           </label>
 
           <label className="field">
-            <span>
-              إلى تاريخ
-            </span>
+            <span>إلى تاريخ</span>
 
             <input
               type="date"
-              value={
-                endDate
-              }
-              onChange={(
-                event
-              ) =>
-                setEndDate(
-                  event.target
-                    .value
-                )
-              }
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
             />
           </label>
         </div>
@@ -531,16 +396,8 @@ const inventoryTotal =
             marginTop: 12,
           }}
         >
-          <button
-            type="button"
-            className="primaryButton"
-            onClick={
-              applyDates
-            }
-          >
-            <Icons.search
-              size={14}
-            />
+          <button type="button" className="primaryButton" onClick={applyDates}>
+            <Icons.search size={14} />
             تحديث التقرير
           </button>
         </div>
@@ -553,1113 +410,554 @@ const inventoryTotal =
           flexWrap: "wrap",
         }}
       >
-        {availableTabs.map(
-          (item) => (
-            <button
-              type="button"
-              key={
-                item.key
-              }
-              className={
-                tab ===
-                item.key
-                  ? "primaryButton"
-                  : "softButton"
-              }
-              onClick={() =>
-                setTab(
-                  item.key
-                )
-              }
-            >
-              {
-                item.label
-              }
-            </button>
-          )
-        )}
+        {availableTabs.map((item) => (
+          <button
+            type="button"
+            key={item.key}
+            className={tab === item.key ? "primaryButton" : "softButton"}
+            onClick={() => setTab(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      {tab ===
-        "overview" &&
-        financialReport && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="صافي المبيعات / الإيرادات"
-                value={money(
-                  financialReport
-                    .profit_loss
-                    .revenue,
-                  baseCurrency
-                )}
-              />
+      {tab === "overview" && financialReport && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini
+              title="صافي المبيعات / الإيرادات"
+              value={money(financialReport.profit_loss.revenue, baseCurrency)}
+            />
 
-              <Mini
-                title="مجمل الربح"
-                value={money(
-                  financialReport
-                    .profit_loss
-                    .gross_profit,
-                  baseCurrency
-                )}
-              />
+            <Mini
+              title="مجمل الربح"
+              value={money(financialReport.profit_loss.gross_profit, baseCurrency)}
+            />
 
-              <Mini
-                title="صافي الربح"
-                value={money(
-                  financialReport
-                    .profit_loss
-                    .net_profit,
-                  baseCurrency
-                )}
-              />
+            <Mini
+              title="صافي الربح"
+              value={money(financialReport.profit_loss.net_profit, baseCurrency)}
+            />
 
-              <Mini
-                title="صافي التدفق النقدي"
-                value={money(
-                  financialReport
-                    .cash_flow
-                    .net_cash_flow,
-                  baseCurrency
-                )}
+            <Mini
+              title="صافي التدفق النقدي"
+              value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
+            />
+          </section>
+
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini
+              title="ذمم العملاء"
+              value={money(financialReport.working_capital.accounts_receivable, baseCurrency)}
+            />
+
+            <Mini
+              title="ذمم الموردين"
+              value={money(financialReport.working_capital.accounts_payable, baseCurrency)}
+            />
+
+            <Mini
+              title="قيمة المخزون"
+              value={money(financialReport.working_capital.inventory_value, baseCurrency)}
+            />
+
+            <Mini
+              title="الأصول المحاسبية"
+              value={money(financialReport.balance_sheet.assets, baseCurrency)}
+            />
+          </section>
+
+          <div
+            className="pageGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <section className="panel panelPad">
+              <div className="panelHeader">
+                <div>
+                  <h2>الربحية</h2>
+                  <p>للفترة المختارة</p>
+                </div>
+              </div>
+
+              <ReportLines
+                currency={baseCurrency}
+                rows={[
+                  ["الإيرادات", financialReport.profit_loss.revenue],
+                  ["تكلفة البضاعة المباعة", financialReport.profit_loss.cost_of_goods_sold],
+                  ["مجمل الربح", financialReport.profit_loss.gross_profit],
+                  ["المصاريف التشغيلية", financialReport.profit_loss.operating_expenses],
+                  ["صافي الربح", financialReport.profit_loss.net_profit],
+                ]}
               />
             </section>
 
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="ذمم العملاء"
-                value={money(
-                  financialReport
-                    .working_capital
-                    .accounts_receivable,
-                  baseCurrency
-                )}
-              />
+            <section className="panel panelPad">
+              <div className="panelHeader">
+                <div>
+                  <h2>المركز المالي</h2>
+                  <p>كما في {to}</p>
+                </div>
+              </div>
 
-              <Mini
-                title="ذمم الموردين"
-                value={money(
-                  financialReport
-                    .working_capital
-                    .accounts_payable,
-                  baseCurrency
-                )}
-              />
-
-              <Mini
-                title="قيمة المخزون"
-                value={money(
-                  financialReport
-                    .working_capital
-                    .inventory_value,
-                  baseCurrency
-                )}
-              />
-
-              <Mini
-                title="الأصول المحاسبية"
-                value={money(
-                  financialReport
-                    .balance_sheet
-                    .assets,
-                  baseCurrency
-                )}
+              <ReportLines
+                currency={baseCurrency}
+                rows={[
+                  ["الأصول", financialReport.balance_sheet.assets],
+                  ["الالتزامات", financialReport.balance_sheet.liabilities],
+                  ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
+                  ["الأرباح الحالية", financialReport.balance_sheet.current_earnings],
+                  [
+                    "حقوق الملكية مع الأرباح",
+                    financialReport.balance_sheet.equity_with_current_earnings,
+                  ],
+                ]}
               />
             </section>
+          </div>
+        </>
+      )}
 
-            <div
-              className="pageGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <section className="panel panelPad">
-                <div className="panelHeader">
-                  <div>
-                    <h2>
-                      الربحية
-                    </h2>
-                    <p>
-                      للفترة المختارة
-                    </p>
-                  </div>
-                </div>
+      {tab === "profit" && financialReport && (
+        <section
+          className="panel panelPad"
+          style={{
+            marginTop: 14,
+          }}
+        >
+          <div className="panelHeader">
+            <div>
+              <h2>قائمة الأرباح والخسائر</h2>
 
-                <ReportLines
-                  currency={
-                    baseCurrency
-                  }
-                  rows={[
-                    [
-                      "الإيرادات",
-                      financialReport
-                        .profit_loss
-                        .revenue,
-                    ],
-                    [
-                      "تكلفة البضاعة المباعة",
-                      financialReport
-                        .profit_loss
-                        .cost_of_goods_sold,
-                    ],
-                    [
-                      "مجمل الربح",
-                      financialReport
-                        .profit_loss
-                        .gross_profit,
-                    ],
-                    [
-                      "المصاريف التشغيلية",
-                      financialReport
-                        .profit_loss
-                        .operating_expenses,
-                    ],
-                    [
-                      "صافي الربح",
-                      financialReport
-                        .profit_loss
-                        .net_profit,
-                    ],
-                  ]}
-                />
-              </section>
-
-              <section className="panel panelPad">
-                <div className="panelHeader">
-                  <div>
-                    <h2>
-                      المركز المالي
-                    </h2>
-                    <p>
-                      كما في{" "}
-                      {to}
-                    </p>
-                  </div>
-                </div>
-
-                <ReportLines
-                  currency={
-                    baseCurrency
-                  }
-                  rows={[
-                    [
-                      "الأصول",
-                      financialReport
-                        .balance_sheet
-                        .assets,
-                    ],
-                    [
-                      "الالتزامات",
-                      financialReport
-                        .balance_sheet
-                        .liabilities,
-                    ],
-                    [
-                      "حقوق الملكية المرحلة",
-                      financialReport
-                        .balance_sheet
-                        .equity_posted,
-                    ],
-                    [
-                      "الأرباح الحالية",
-                      financialReport
-                        .balance_sheet
-                        .current_earnings,
-                    ],
-                    [
-                      "حقوق الملكية مع الأرباح",
-                      financialReport
-                        .balance_sheet
-                        .equity_with_current_earnings,
-                    ],
-                  ]}
-                />
-              </section>
+              <p>
+                {from} → {to}
+              </p>
             </div>
-          </>
-        )}
+          </div>
 
-      {tab ===
-        "profit" &&
-        financialReport && (
+          <ReportLines
+            currency={baseCurrency}
+            rows={[
+              ["الإيرادات", financialReport.profit_loss.revenue],
+              ["تكلفة البضاعة المباعة", -num(financialReport.profit_loss.cost_of_goods_sold)],
+              ["مجمل الربح", financialReport.profit_loss.gross_profit],
+              ["المصاريف التشغيلية", -num(financialReport.profit_loss.operating_expenses)],
+              ["صافي الربح", financialReport.profit_loss.net_profit],
+            ]}
+            emphasizeLast
+          />
+        </section>
+      )}
+
+      {tab === "balance" && financialReport && (
+        <section
+          className="panel panelPad"
+          style={{
+            marginTop: 14,
+          }}
+        >
+          <div className="panelHeader">
+            <div>
+              <h2>الميزانية العمومية</h2>
+
+              <p>كما في {to}</p>
+            </div>
+          </div>
+
+          <ReportLines
+            currency={baseCurrency}
+            rows={[
+              ["إجمالي الأصول", financialReport.balance_sheet.assets],
+              ["إجمالي الالتزامات", financialReport.balance_sheet.liabilities],
+              ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
+              ["أرباح الفترة والحالية", financialReport.balance_sheet.current_earnings],
+              [
+                "حقوق الملكية الإجمالية",
+                financialReport.balance_sheet.equity_with_current_earnings,
+              ],
+            ]}
+          />
+        </section>
+      )}
+
+      {tab === "cash" && financialReport && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini
+              title="التدفقات الداخلة"
+              value={money(financialReport.cash_flow.cash_in, baseCurrency)}
+            />
+
+            <Mini
+              title="التدفقات الخارجة"
+              value={money(financialReport.cash_flow.cash_out, baseCurrency)}
+            />
+
+            <Mini
+              title="صافي التدفق"
+              value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
+            />
+          </section>
+
           <section
             className="panel panelPad"
             style={{
               marginTop: 14,
             }}
           >
-            <div className="panelHeader">
-              <div>
-                <h2>
-                  قائمة الأرباح والخسائر
-                </h2>
-
-                <p>
-                  {from} →{" "}
-                  {to}
-                </p>
-              </div>
-            </div>
-
             <ReportLines
-              currency={
-                baseCurrency
-              }
+              currency={baseCurrency}
               rows={[
-                [
-                  "الإيرادات",
-                  financialReport
-                    .profit_loss
-                    .revenue,
-                ],
-                [
-                  "تكلفة البضاعة المباعة",
-                  -num(
-                    financialReport
-                      .profit_loss
-                      .cost_of_goods_sold
-                  ),
-                ],
-                [
-                  "مجمل الربح",
-                  financialReport
-                    .profit_loss
-                    .gross_profit,
-                ],
-                [
-                  "المصاريف التشغيلية",
-                  -num(
-                    financialReport
-                      .profit_loss
-                      .operating_expenses
-                  ),
-                ],
-                [
-                  "صافي الربح",
-                  financialReport
-                    .profit_loss
-                    .net_profit,
-                ],
+                ["النقد الداخل", financialReport.cash_flow.cash_in],
+                ["النقد الخارج", -num(financialReport.cash_flow.cash_out)],
+                ["صافي حركة النقد", financialReport.cash_flow.net_cash_flow],
               ]}
               emphasizeLast
             />
           </section>
-        )}
+        </>
+      )}
 
-      {tab ===
-        "balance" &&
-        financialReport && (
+      {tab === "receivables" && (
+        <AgingTable type="customer" rows={receivables} currency={baseCurrency} />
+      )}
+
+      {tab === "payables" && <AgingTable type="supplier" rows={payables} currency={baseCurrency} />}
+
+      {tab === "inventory" && (
+        <>
           <section
-            className="panel panelPad"
+            className="statsGrid"
             style={{
               marginTop: 14,
             }}
           >
-            <div className="panelHeader">
-              <div>
-                <h2>
-                  الميزانية العمومية
-                </h2>
+            <Mini title="قيمة المخزون" value={money(inventoryTotal, baseCurrency)} />
 
-                <p>
-                  كما في{" "}
-                  {to}
-                </p>
-              </div>
-            </div>
-
-            <ReportLines
-              currency={
-                baseCurrency
-              }
-              rows={[
-                [
-                  "إجمالي الأصول",
-                  financialReport
-                    .balance_sheet
-                    .assets,
-                ],
-                [
-                  "إجمالي الالتزامات",
-                  financialReport
-                    .balance_sheet
-                    .liabilities,
-                ],
-                [
-                  "حقوق الملكية المرحلة",
-                  financialReport
-                    .balance_sheet
-                    .equity_posted,
-                ],
-                [
-                  "أرباح الفترة والحالية",
-                  financialReport
-                    .balance_sheet
-                    .current_earnings,
-                ],
-                [
-                  "حقوق الملكية الإجمالية",
-                  financialReport
-                    .balance_sheet
-                    .equity_with_current_earnings,
-                ],
-              ]}
+            <Mini
+              title="عدد الأصناف بالمستودعات"
+              value={String(inventoryLines ?? inventory.length)}
             />
           </section>
-        )}
 
-      {tab ===
-        "cash" &&
-        financialReport && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="التدفقات الداخلة"
-                value={money(
-                  financialReport
-                    .cash_flow
-                    .cash_in,
-                  baseCurrency
-                )}
-              />
+          <section
+            className="panel"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>المستودع</th>
+                    <th>المنتج</th>
+                    <th>SKU</th>
+                    <th>موجود</th>
+                    <th>محجوز</th>
+                    <th>متاح</th>
+                    <th>متوسط التكلفة</th>
+                    <th>قيمة المخزون</th>
+                  </tr>
+                </thead>
 
-              <Mini
-                title="التدفقات الخارجة"
-                value={money(
-                  financialReport
-                    .cash_flow
-                    .cash_out,
-                  baseCurrency
-                )}
-              />
+                <tbody>
+                  {inventory.map((row) => (
+                    <tr key={`${row.warehouse_id}-${row.product_id}`}>
+                      <td>{row.warehouse_name}</td>
 
-              <Mini
-                title="صافي التدفق"
-                value={money(
-                  financialReport
-                    .cash_flow
-                    .net_cash_flow,
-                  baseCurrency
-                )}
-              />
-            </section>
+                      <td>
+                        <strong>{row.product_name}</strong>
+                      </td>
 
-            <section
-              className="panel panelPad"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <ReportLines
-                currency={
-                  baseCurrency
-                }
-                rows={[
-                  [
-                    "النقد الداخل",
-                    financialReport
-                      .cash_flow
-                      .cash_in,
-                  ],
-                  [
-                    "النقد الخارج",
-                    -num(
-                      financialReport
-                        .cash_flow
-                        .cash_out
-                    ),
-                  ],
-                  [
-                    "صافي حركة النقد",
-                    financialReport
-                      .cash_flow
-                      .net_cash_flow,
-                  ],
-                ]}
-                emphasizeLast
-              />
-            </section>
-          </>
-        )}
+                      <td>{row.sku || "—"}</td>
 
-      {tab ===
-        "receivables" && (
-          <AgingTable
-            type="customer"
-            rows={
-              receivables
-            }
-            currency={
-              baseCurrency
-            }
-          />
-        )}
+                      <td>{num(row.on_hand).toFixed(3)}</td>
 
-      {tab ===
-        "payables" && (
-          <AgingTable
-            type="supplier"
-            rows={
-              payables
-            }
-            currency={
-              baseCurrency
-            }
-          />
-        )}
+                      <td>{num(row.reserved).toFixed(3)}</td>
 
-      {tab ===
-        "inventory" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="قيمة المخزون"
-                value={money(
-                  inventoryTotal,
-                  baseCurrency
-                )}
-              />
+                      <td>{num(row.available).toFixed(3)}</td>
 
-              <Mini
-                title="عدد الأصناف بالمستودعات"
-                value={String(
-                  inventory.length
-                )}
-              />
-            </section>
+                      <td>{num(row.average_cost).toFixed(4)}</td>
 
-            <section
-              className="panel"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <div className="tableWrap">
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>
-                        المستودع
-                      </th>
-                      <th>
-                        المنتج
-                      </th>
-                      <th>
-                        SKU
-                      </th>
-                      <th>
-                        موجود
-                      </th>
-                      <th>
-                        محجوز
-                      </th>
-                      <th>
-                        متاح
-                      </th>
-                      <th>
-                        متوسط التكلفة
-                      </th>
-                      <th>
-                        قيمة المخزون
-                      </th>
+                      <td>
+                        <strong>{money(row.stock_value, baseCurrency)}</strong>
+                      </td>
                     </tr>
-                  </thead>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
 
-                  <tbody>
-                    {inventory.map(
-                      (row) => (
-                        <tr
-                          key={`${row.warehouse_id}-${row.product_id}`}
-                        >
-                          <td>
-                            {
-                              row.warehouse_name
-                            }
-                          </td>
+      {tab === "sales" && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini title="صافي المبيعات" value={money(totalSales, baseCurrency)} />
 
-                          <td>
-                            <strong>
-                              {
-                                row.product_name
-                              }
-                            </strong>
-                          </td>
+            <Mini title="عدد الأشهر" value={String(salesMonthly.length)} />
+          </section>
 
-                          <td>
-                            {row.sku ||
-                              "—"}
-                          </td>
+          <MonthlySalesTable rows={salesMonthly} currency={baseCurrency} />
+        </>
+      )}
 
-                          <td>
-                            {num(
-                              row.on_hand
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+      {tab === "purchases" && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini title="صافي المشتريات" value={money(totalPurchases, baseCurrency)} />
 
-                          <td>
-                            {num(
-                              row.reserved
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+            <Mini title="عدد الأشهر" value={String(purchaseMonthly.length)} />
+          </section>
 
-                          <td>
-                            {num(
-                              row.available
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+          <MonthlyPurchaseTable rows={purchaseMonthly} currency={baseCurrency} />
+        </>
+      )}
 
-                          <td>
-                            {num(
-                              row.average_cost
-                            ).toFixed(
-                              4
-                            )}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {money(
-                                row.stock_value,
-                                baseCurrency
-                              )}
-                            </strong>
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </>
-        )}
-
-      {tab ===
-        "sales" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="صافي المبيعات"
-                value={money(
-                  totalSales,
-                  baseCurrency
-                )}
-              />
-
-              <Mini
-                title="عدد الأشهر"
-                value={String(
-                  salesMonthly.length
-                )}
-              />
-            </section>
-
-            <MonthlySalesTable
-              rows={
-                salesMonthly
-              }
-              currency={
-                baseCurrency
+      {tab === "payroll" && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini
+              title="صافي الرواتب"
+              value={
+                mixedPayrollCurrencies
+                  ? "حسب العملة"
+                  : money(totalPayroll, payrollCurrencies[0] ?? baseCurrency)
               }
             />
-          </>
-        )}
 
-      {tab ===
-        "purchases" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="صافي المشتريات"
-                value={money(
-                  totalPurchases,
-                  baseCurrency
-                )}
-              />
+            <Mini title="عدد المسيرات" value={String(payrollRuns.length)} />
+          </section>
 
-              <Mini
-                title="عدد الأشهر"
-                value={String(
-                  purchaseMonthly.length
-                )}
-              />
-            </section>
+          <section
+            className="panel"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>الفترة</th>
+                    <th>الحالة</th>
+                    <th>الإجمالي</th>
+                    <th>الخصومات</th>
+                    <th>الصافي</th>
+                    <th>المدفوع</th>
+                    <th>المتبقي</th>
+                  </tr>
+                </thead>
 
-            <MonthlyPurchaseTable
-              rows={
-                purchaseMonthly
-              }
-              currency={
-                baseCurrency
+                <tbody>
+                  {payrollRuns.map((run) => (
+                    <tr key={run.id}>
+                      <td>
+                        <strong>{run.period_start}</strong>
+                        {" → "}
+                        {run.period_end}
+                      </td>
+
+                      <td>{payrollStatus(run.status)}</td>
+
+                      <td>{money(run.total_gross, run.currency)}</td>
+
+                      <td>{money(run.total_deductions, run.currency)}</td>
+
+                      <td>
+                        <strong>{money(run.total_net, run.currency)}</strong>
+                      </td>
+
+                      <td>{money(run.total_paid, run.currency)}</td>
+
+                      <td>
+                        {money(Math.max(num(run.total_net) - num(run.total_paid), 0), run.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      {tab === "assets" && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini
+              title="تكلفة الأصول"
+              value={
+                mixedAssetCurrencies
+                  ? "حسب العملة"
+                  : money(assetCost, assetCurrencies[0] ?? baseCurrency)
               }
             />
-          </>
-        )}
 
-      {tab ===
-        "payroll" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="صافي الرواتب"
-                value={
-                  mixedPayrollCurrencies
-                    ? "حسب العملة"
-                    : money(
-                        totalPayroll,
-                        payrollCurrencies[0] ??
-                          baseCurrency
-                      )
-                }
-              />
+            <Mini
+              title="القيمة الدفترية"
+              value={
+                mixedAssetCurrencies
+                  ? "حسب العملة"
+                  : money(assetBookValue, assetCurrencies[0] ?? baseCurrency)
+              }
+            />
 
-              <Mini
-                title="عدد المسيرات"
-                value={String(
-                  payrollRuns.length
-                )}
-              />
-            </section>
+            <Mini title="عدد الأصول" value={String(assets.length)} />
+          </section>
 
-            <section
-              className="panel"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <div className="tableWrap">
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>
-                        الفترة
-                      </th>
-                      <th>
-                        الحالة
-                      </th>
-                      <th>
-                        الإجمالي
-                      </th>
-                      <th>
-                        الخصومات
-                      </th>
-                      <th>
-                        الصافي
-                      </th>
-                      <th>
-                        المدفوع
-                      </th>
-                      <th>
-                        المتبقي
-                      </th>
+          <section
+            className="panel"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>الأصل</th>
+                    <th>التصنيف</th>
+                    <th>التكلفة</th>
+                    <th>الإهلاك المتراكم</th>
+                    <th>القيمة الدفترية</th>
+                    <th>إهلاك شهري</th>
+                    <th>الحالة</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {assets.map((asset) => (
+                    <tr key={asset.id}>
+                      <td>
+                        <strong>{asset.name}</strong>
+
+                        <div className="muted">{asset.asset_number}</div>
+                      </td>
+
+                      <td>{asset.category || "—"}</td>
+
+                      <td>{money(asset.purchase_cost, asset.currency)}</td>
+
+                      <td>{money(asset.accumulated_depreciation, asset.currency)}</td>
+
+                      <td>
+                        <strong>{money(asset.book_value, asset.currency)}</strong>
+                      </td>
+
+                      <td>{money(asset.monthly_depreciation, asset.currency)}</td>
+
+                      <td>{assetStatus(asset.status)}</td>
                     </tr>
-                  </thead>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
 
-                  <tbody>
-                    {payrollRuns.map(
-                      (run) => (
-                        <tr
-                          key={
-                            run.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                run.period_start
-                              }
-                            </strong>
-                            {" → "}
-                            {
-                              run.period_end
-                            }
-                          </td>
+      {tab === "partners" && (
+        <>
+          <section
+            className="statsGrid"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <Mini title="إجمالي رأس المال المدخل" value={money(partnerCapital, baseCurrency)} />
 
-                          <td>
-                            {
-                              payrollStatus(
-                                run.status
-                              )
-                            }
-                          </td>
+            <Mini
+              title="عدد الشركاء"
+              value={String(partners.filter((partner) => partner.active).length)}
+            />
+          </section>
 
-                          <td>
-                            {money(
-                              run.total_gross,
-                              run.currency
-                            )}
-                          </td>
+          <section
+            className="panel"
+            style={{
+              marginTop: 14,
+            }}
+          >
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>الشريك</th>
+                    <th>الملكية</th>
+                    <th>حصة الربح</th>
+                    <th>رأس المال</th>
+                    <th>المسحوبات</th>
+                    <th>رصيد القرض</th>
+                    <th>توزيعات الأرباح</th>
+                  </tr>
+                </thead>
 
-                          <td>
-                            {money(
-                              run.total_deductions,
-                              run.currency
-                            )}
-                          </td>
+                <tbody>
+                  {partners.map((partner) => (
+                    <tr key={partner.id}>
+                      <td>
+                        <strong>{partner.name}</strong>
+                      </td>
 
-                          <td>
-                            <strong>
-                              {money(
-                                run.total_net,
-                                run.currency
-                              )}
-                            </strong>
-                          </td>
+                      <td>{num(partner.ownership_percent).toFixed(2)}%</td>
 
-                          <td>
-                            {money(
-                              run.total_paid,
-                              run.currency
-                            )}
-                          </td>
+                      <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
 
-                          <td>
-                            {money(
-                              Math.max(
-                                num(
-                                  run.total_net
-                                ) -
-                                  num(
-                                    run.total_paid
-                                  ),
-                                0
-                              ),
-                              run.currency
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </>
-        )}
+                      <td>{money(partner.capital_contributions, baseCurrency)}</td>
 
-      {tab ===
-        "assets" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="تكلفة الأصول"
-                value={
-                  mixedAssetCurrencies
-                    ? "حسب العملة"
-                    : money(
-                        assetCost,
-                        assetCurrencies[0] ??
-                          baseCurrency
-                      )
-                }
-              />
+                      <td>{money(partner.drawings, baseCurrency)}</td>
 
-              <Mini
-                title="القيمة الدفترية"
-                value={
-                  mixedAssetCurrencies
-                    ? "حسب العملة"
-                    : money(
-                        assetBookValue,
-                        assetCurrencies[0] ??
-                          baseCurrency
-                      )
-                }
-              />
+                      <td>{money(partner.partner_loan_balance, baseCurrency)}</td>
 
-              <Mini
-                title="عدد الأصول"
-                value={String(
-                  assets.length
-                )}
-              />
-            </section>
-
-            <section
-              className="panel"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <div className="tableWrap">
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>
-                        الأصل
-                      </th>
-                      <th>
-                        التصنيف
-                      </th>
-                      <th>
-                        التكلفة
-                      </th>
-                      <th>
-                        الإهلاك المتراكم
-                      </th>
-                      <th>
-                        القيمة الدفترية
-                      </th>
-                      <th>
-                        إهلاك شهري
-                      </th>
-                      <th>
-                        الحالة
-                      </th>
+                      <td>{money(partner.profit_distributions, baseCurrency)}</td>
                     </tr>
-                  </thead>
-
-                  <tbody>
-                    {assets.map(
-                      (asset) => (
-                        <tr
-                          key={
-                            asset.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                asset.name
-                              }
-                            </strong>
-
-                            <div className="muted">
-                              {
-                                asset.asset_number
-                              }
-                            </div>
-                          </td>
-
-                          <td>
-                            {asset.category ||
-                              "—"}
-                          </td>
-
-                          <td>
-                            {money(
-                              asset.purchase_cost,
-                              asset.currency
-                            )}
-                          </td>
-
-                          <td>
-                            {money(
-                              asset.accumulated_depreciation,
-                              asset.currency
-                            )}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {money(
-                                asset.book_value,
-                                asset.currency
-                              )}
-                            </strong>
-                          </td>
-
-                          <td>
-                            {money(
-                              asset.monthly_depreciation,
-                              asset.currency
-                            )}
-                          </td>
-
-                          <td>
-                            {assetStatus(
-                              asset.status
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </>
-        )}
-
-      {tab ===
-        "partners" && (
-          <>
-            <section
-              className="statsGrid"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Mini
-                title="إجمالي رأس المال المدخل"
-                value={money(
-                  partnerCapital,
-                  baseCurrency
-                )}
-              />
-
-              <Mini
-                title="عدد الشركاء"
-                value={String(
-                  partners.filter(
-                    (partner) =>
-                      partner.active
-                  ).length
-                )}
-              />
-            </section>
-
-            <section
-              className="panel"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <div className="tableWrap">
-                <table className="dataTable">
-                  <thead>
-                    <tr>
-                      <th>
-                        الشريك
-                      </th>
-                      <th>
-                        الملكية
-                      </th>
-                      <th>
-                        حصة الربح
-                      </th>
-                      <th>
-                        رأس المال
-                      </th>
-                      <th>
-                        المسحوبات
-                      </th>
-                      <th>
-                        رصيد القرض
-                      </th>
-                      <th>
-                        توزيعات الأرباح
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {partners.map(
-                      (partner) => (
-                        <tr
-                          key={
-                            partner.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                partner.name
-                              }
-                            </strong>
-                          </td>
-
-                          <td>
-                            {num(
-                              partner.ownership_percent
-                            ).toFixed(
-                              2
-                            )}
-                            %
-                          </td>
-
-                          <td>
-                            {num(
-                              partner.profit_share_percent
-                            ).toFixed(
-                              2
-                            )}
-                            %
-                          </td>
-
-                          <td>
-                            {money(
-                              partner.capital_contributions,
-                              baseCurrency
-                            )}
-                          </td>
-
-                          <td>
-                            {money(
-                              partner.drawings,
-                              baseCurrency
-                            )}
-                          </td>
-
-                          <td>
-                            {money(
-                              partner.partner_loan_balance,
-                              baseCurrency
-                            )}
-                          </td>
-
-                          <td>
-                            {money(
-                              partner.profit_distributions,
-                              baseCurrency
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </>
-        )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
@@ -1669,23 +967,11 @@ function AgingTable({
   rows,
   currency,
 }: {
-  type:
-    | "customer"
-    | "supplier";
-  rows:
-    | ReceivableAging[]
-    | PayableAging[];
+  type: "customer" | "supplier";
+  rows: ReceivableAging[] | PayableAging[];
   currency: string;
 }) {
-  const total =
-    rows.reduce(
-      (sum, row) =>
-        sum +
-        num(
-          row.total_due
-        ),
-      0
-    );
+  const total = rows.reduce((sum, row) => sum + num(row.total_due), 0);
 
   return (
     <>
@@ -1696,28 +982,13 @@ function AgingTable({
         }}
       >
         <Mini
-          title={
-            type ===
-            "customer"
-              ? "إجمالي ذمم العملاء"
-              : "إجمالي ذمم الموردين"
-          }
-          value={money(
-            total,
-            currency
-          )}
+          title={type === "customer" ? "إجمالي ذمم العملاء" : "إجمالي ذمم الموردين"}
+          value={money(total, currency)}
         />
 
         <Mini
-          title={
-            type ===
-            "customer"
-              ? "عملاء عليهم رصيد"
-              : "موردين عليهم رصيد"
-          }
-          value={String(
-            rows.length
-          )}
+          title={type === "customer" ? "عملاء عليهم رصيد" : "موردين عليهم رصيد"}
+          value={String(rows.length)}
         />
       </section>
 
@@ -1731,121 +1002,50 @@ function AgingTable({
           <table className="dataTable">
             <thead>
               <tr>
-                <th>
-                  {type ===
-                  "customer"
-                    ? "العميل"
-                    : "المورد"}
-                </th>
-                <th>
-                  حالي
-                </th>
-                <th>
-                  1-30
-                </th>
-                <th>
-                  31-60
-                </th>
-                <th>
-                  61-90
-                </th>
-                <th>
-                  أكثر من 90
-                </th>
-                <th>
-                  الإجمالي
-                </th>
+                <th>{type === "customer" ? "العميل" : "المورد"}</th>
+                <th>حالي</th>
+                <th>1-30</th>
+                <th>31-60</th>
+                <th>61-90</th>
+                <th>أكثر من 90</th>
+                <th>الإجمالي</th>
               </tr>
             </thead>
 
             <tbody>
-              {rows.map(
-                (row) => {
-                  const name =
-                    type ===
-                    "customer"
-                      ? (
-                          row as ReceivableAging
-                        )
-                          .trader_name
-                      : (
-                          row as PayableAging
-                        )
-                          .supplier_name;
+              {rows.map((row) => {
+                const name =
+                  type === "customer"
+                    ? (row as ReceivableAging).trader_name
+                    : (row as PayableAging).supplier_name;
 
-                  const id =
-                    type ===
-                    "customer"
-                      ? (
-                          row as ReceivableAging
-                        )
-                          .trader_id
-                      : (
-                          row as PayableAging
-                        )
-                          .supplier_id;
+                const id =
+                  type === "customer"
+                    ? (row as ReceivableAging).trader_id
+                    : (row as PayableAging).supplier_id;
 
-                  return (
-                    <tr
-                      key={
-                        id
-                      }
-                    >
-                      <td>
-                        <strong>
-                          {
-                            name
-                          }
-                        </strong>
-                      </td>
+                return (
+                  <tr key={id}>
+                    <td>
+                      <strong>{name}</strong>
+                    </td>
 
-                      <td>
-                        {money(
-                          row.current_amount,
-                          currency
-                        )}
-                      </td>
+                    <td>{money(row.current_amount, currency)}</td>
 
-                      <td>
-                        {money(
-                          row.days_1_30,
-                          currency
-                        )}
-                      </td>
+                    <td>{money(row.days_1_30, currency)}</td>
 
-                      <td>
-                        {money(
-                          row.days_31_60,
-                          currency
-                        )}
-                      </td>
+                    <td>{money(row.days_31_60, currency)}</td>
 
-                      <td>
-                        {money(
-                          row.days_61_90,
-                          currency
-                        )}
-                      </td>
+                    <td>{money(row.days_61_90, currency)}</td>
 
-                      <td>
-                        {money(
-                          row.over_90,
-                          currency
-                        )}
-                      </td>
+                    <td>{money(row.over_90, currency)}</td>
 
-                      <td>
-                        <strong>
-                          {money(
-                            row.total_due,
-                            currency
-                          )}
-                        </strong>
-                      </td>
-                    </tr>
-                  );
-                }
-              )}
+                    <td>
+                      <strong>{money(row.total_due, currency)}</strong>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1854,13 +1054,7 @@ function AgingTable({
   );
 }
 
-function MonthlySalesTable({
-  rows,
-  currency,
-}: {
-  rows: SalesMonthlyReport[];
-  currency: string;
-}) {
+function MonthlySalesTable({ rows, currency }: { rows: SalesMonthlyReport[]; currency: string }) {
   return (
     <section
       className="panel"
@@ -1872,92 +1066,38 @@ function MonthlySalesTable({
         <table className="dataTable">
           <thead>
             <tr>
-              <th>
-                الشهر
-              </th>
-              <th>
-                الفواتير
-              </th>
-              <th>
-                إجمالي المبيعات
-              </th>
-              <th>
-                المرتجعات
-              </th>
-              <th>
-                صافي المبيعات
-              </th>
-              <th>
-                المحصل
-              </th>
-              <th>
-                المتبقي
-              </th>
+              <th>الشهر</th>
+              <th>الفواتير</th>
+              <th>إجمالي المبيعات</th>
+              <th>المرتجعات</th>
+              <th>صافي المبيعات</th>
+              <th>المحصل</th>
+              <th>المتبقي</th>
             </tr>
           </thead>
 
           <tbody>
-            {rows.map(
-              (row) => (
-                <tr
-                  key={
-                    row.month_start
-                  }
-                >
-                  <td>
-                    <strong>
-                      {row.month_start.slice(
-                        0,
-                        7
-                      )}
-                    </strong>
-                  </td>
+            {rows.map((row) => (
+              <tr key={row.month_start}>
+                <td>
+                  <strong>{row.month_start.slice(0, 7)}</strong>
+                </td>
 
-                  <td>
-                    {
-                      row.invoice_count
-                    }
-                  </td>
+                <td>{row.invoice_count}</td>
 
-                  <td>
-                    {money(
-                      row.gross_sales,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.gross_sales, currency)}</td>
 
-                  <td>
-                    {money(
-                      row.sales_returns,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.sales_returns, currency)}</td>
 
-                  <td>
-                    <strong>
-                      {money(
-                        row.net_sales,
-                        currency
-                      )}
-                    </strong>
-                  </td>
+                <td>
+                  <strong>{money(row.net_sales, currency)}</strong>
+                </td>
 
-                  <td>
-                    {money(
-                      row.collected,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.collected, currency)}</td>
 
-                  <td>
-                    {money(
-                      row.outstanding,
-                      currency
-                    )}
-                  </td>
-                </tr>
-              )
-            )}
+                <td>{money(row.outstanding, currency)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1983,92 +1123,38 @@ function MonthlyPurchaseTable({
         <table className="dataTable">
           <thead>
             <tr>
-              <th>
-                الشهر
-              </th>
-              <th>
-                الفواتير
-              </th>
-              <th>
-                إجمالي المشتريات
-              </th>
-              <th>
-                المرتجعات
-              </th>
-              <th>
-                صافي المشتريات
-              </th>
-              <th>
-                المدفوع
-              </th>
-              <th>
-                المتبقي
-              </th>
+              <th>الشهر</th>
+              <th>الفواتير</th>
+              <th>إجمالي المشتريات</th>
+              <th>المرتجعات</th>
+              <th>صافي المشتريات</th>
+              <th>المدفوع</th>
+              <th>المتبقي</th>
             </tr>
           </thead>
 
           <tbody>
-            {rows.map(
-              (row) => (
-                <tr
-                  key={
-                    row.month_start
-                  }
-                >
-                  <td>
-                    <strong>
-                      {row.month_start.slice(
-                        0,
-                        7
-                      )}
-                    </strong>
-                  </td>
+            {rows.map((row) => (
+              <tr key={row.month_start}>
+                <td>
+                  <strong>{row.month_start.slice(0, 7)}</strong>
+                </td>
 
-                  <td>
-                    {
-                      row.invoice_count
-                    }
-                  </td>
+                <td>{row.invoice_count}</td>
 
-                  <td>
-                    {money(
-                      row.gross_purchases,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.gross_purchases, currency)}</td>
 
-                  <td>
-                    {money(
-                      row.purchase_returns,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.purchase_returns, currency)}</td>
 
-                  <td>
-                    <strong>
-                      {money(
-                        row.net_purchases,
-                        currency
-                      )}
-                    </strong>
-                  </td>
+                <td>
+                  <strong>{money(row.net_purchases, currency)}</strong>
+                </td>
 
-                  <td>
-                    {money(
-                      row.paid,
-                      currency
-                    )}
-                  </td>
+                <td>{money(row.paid, currency)}</td>
 
-                  <td>
-                    {money(
-                      row.outstanding,
-                      currency
-                    )}
-                  </td>
-                </tr>
-              )
-            )}
+                <td>{money(row.outstanding, currency)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -2081,128 +1167,74 @@ function ReportLines({
   currency,
   emphasizeLast = false,
 }: {
-  rows: [
-    string,
-    number
-  ][];
+  rows: [string, number][];
   currency: string;
   emphasizeLast?: boolean;
 }) {
   return (
     <div className="quickList">
-      {rows.map(
-        (
-          [
-            label,
-            value,
-          ],
-          index
-        ) => (
+      {rows.map(([label, value], index) => (
+        <div className="quickItem" key={label}>
+          <div>
+            <strong>{label}</strong>
+          </div>
+
           <div
-            className="quickItem"
-            key={
-              label
+            className="count"
+            style={
+              emphasizeLast && index === rows.length - 1
+                ? {
+                    fontWeight: 800,
+                  }
+                : undefined
             }
           >
-            <div>
-              <strong>
-                {
-                  label
-                }
-              </strong>
-            </div>
-
-            <div
-              className="count"
-              style={
-                emphasizeLast &&
-                index ===
-                  rows.length -
-                    1
-                  ? {
-                      fontWeight:
-                        800,
-                    }
-                  : undefined
-              }
-            >
-              {money(
-                value,
-                currency
-              )}
-            </div>
+            {money(value, currency)}
           </div>
-        )
-      )}
+        </div>
+      ))}
     </div>
   );
 }
 
-function payrollStatus(
-  status: string
-) {
-  if (
-    status === "draft"
-  ) {
+function payrollStatus(status: string) {
+  if (status === "draft") {
     return "مسودة";
   }
 
-  if (
-    status === "posted"
-  ) {
+  if (status === "posted") {
     return "مرحّل";
   }
 
-  if (
-    status === "partial"
-  ) {
+  if (status === "partial") {
     return "دفع جزئي";
   }
 
-  if (
-    status === "paid"
-  ) {
+  if (status === "paid") {
     return "مدفوع";
   }
 
   return "ملغى";
 }
 
-function assetStatus(
-  status: string
-) {
-  if (
-    status === "active"
-  ) {
+function assetStatus(status: string) {
+  if (status === "active") {
     return "نشط";
   }
 
-  if (
-    status ===
-    "fully_depreciated"
-  ) {
+  if (status === "fully_depreciated") {
     return "مستهلك بالكامل";
   }
 
   return "مستبعد";
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
+function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {title}
-      </div>
+      <div className="statLabel">{title}</div>
 
-      <div className="statValue">
-        {value}
-      </div>
+      <div className="statValue">{value}</div>
     </div>
   );
 }
