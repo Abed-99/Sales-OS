@@ -40,6 +40,7 @@ AS $function$
       when 'employee_loan' then 'قرض موظف'
       when 'partner_distribution' then 'توزيع أرباح'
       when 'asset_purchase' then 'شراء أصل'
+      when 'asset_sale' then 'بيع أصل'
     end,
     target_type
   );

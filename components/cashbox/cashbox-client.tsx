@@ -82,6 +82,7 @@ const movementLabels: Record<string, string> = {
   supplier_payment_reversal: "عكس دفعة مورد",
   payroll_payment: "دفع راتب",
   asset_purchase: "شراء أصل",
+  asset_sale: "بيع أصل",
   employee_advance: "سلفة موظف",
   employee_loan: "قرض موظف",
   partner_distribution: "توزيع شريك",

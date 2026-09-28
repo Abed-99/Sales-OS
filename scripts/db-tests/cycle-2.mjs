@@ -242,6 +242,12 @@ must("إهلاك الشهر", await u.rpc("post_asset_depreciation_month", { tar
 check("مصروف الإهلاك", await byKey("depreciation_expense"), 100);
 await u.rpc("post_asset_depreciation_month", { target_company: company, target_year: Y, target_month: M });
 check("إهلاك نفس الشهر مرتين ما بيتكرر", await byKey("depreciation_expense"), 100);
+const carId = (await admin.from("fixed_assets").select("id").eq("company_id", company).single()).data.id;
+must("بيع السيارة بـ 1000$ (قيمتها الدفترية 1100)", await u.rpc("dispose_fixed_asset", { target_company: company, target_asset: carId, target_date: today, target_amount: 1000, target_cashbox: usdBox, target_notes: "بعناها" }));
+check("الأصول الثابتة بعد البيع", await byKey("fixed_assets"), 0);
+check("مجمع الإهلاك بعد البيع", await byKey("accumulated_depreciation"), 0);
+check("خسارة بيع الأصل", await byKey("asset_disposal_loss"), 100);
+mustFail("بيعها مرة تانية", await u.rpc("dispose_fixed_asset", { target_company: company, target_asset: carId, target_date: today, target_amount: 5, target_cashbox: usdBox, target_notes: null }));
 
 // ---------------------------------------------------------------- I. month close
 log("\nI️⃣  إقفال الشهر");

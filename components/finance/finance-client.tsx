@@ -1864,6 +1864,7 @@ function sourceLabel(source: string | null) {
     customer_payment_release: "رصيد للزبون من مرتجع",
     employee_loan_disbursement: "صرف سلفة موظف",
     fixed_asset: "شراء أصل",
+    asset_disposal: "بيع أو شطب أصل",
     asset_depreciation: "إهلاك أصول",
     partner_transaction: "حركة شريك",
     goods_receipt: "استلام بضاعة",

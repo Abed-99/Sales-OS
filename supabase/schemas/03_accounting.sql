@@ -1154,7 +1154,9 @@ begin
       ('3400', '3000', 'أرباح موزعة مستحقة', 'equity', 'debit', 'profit_distributions'),
       ('3500', '3000', 'أرصدة افتتاحية', 'equity', 'credit', 'opening_balance_equity'),
       ('4300', '4000', 'خصومات المبيعات', 'revenue', 'debit', 'sales_discounts'),
-      ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance')
+      ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance'),
+      ('4400', '4000', 'أرباح بيع أصول', 'revenue', 'credit', 'asset_disposal_gain'),
+      ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company

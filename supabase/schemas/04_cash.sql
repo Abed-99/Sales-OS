@@ -64,7 +64,7 @@ create table public.cash_transactions (
   partner_transaction_id uuid,
   constraint cash_transactions_amount_check check ((amount > (0)::numeric)),
   constraint cash_transactions_direction_check check ((direction = any (array['in'::text, 'out'::text]))),
-  constraint cash_transactions_type_check check ((type = any (array['sale_receipt'::text, 'supplier_payment'::text, 'expense'::text, 'partner_deposit'::text, 'partner_withdrawal'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'customer_payment_reversal'::text, 'supplier_payment_reversal'::text, 'payroll_payment'::text, 'employee_advance'::text, 'employee_loan'::text, 'partner_distribution'::text, 'asset_purchase'::text])))
+  constraint cash_transactions_type_check check ((type = any (array['sale_receipt'::text, 'supplier_payment'::text, 'expense'::text, 'partner_deposit'::text, 'partner_withdrawal'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'customer_payment_reversal'::text, 'supplier_payment_reversal'::text, 'payroll_payment'::text, 'employee_advance'::text, 'employee_loan'::text, 'partner_distribution'::text, 'asset_purchase'::text, 'asset_sale'::text])))
 );
 create index cash_transactions_company_idx on public.cash_transactions using btree (company_id, occurred_at desc);
 create index cash_transactions_customer_payment_idx on public.cash_transactions using btree (customer_payment_id) where (customer_payment_id is not null);

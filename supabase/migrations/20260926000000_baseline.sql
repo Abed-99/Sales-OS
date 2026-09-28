@@ -3215,7 +3215,9 @@ begin
       ('3400', '3000', 'أرباح موزعة مستحقة', 'equity', 'debit', 'profit_distributions'),
       ('3500', '3000', 'أرصدة افتتاحية', 'equity', 'credit', 'opening_balance_equity'),
       ('4300', '4000', 'خصومات المبيعات', 'revenue', 'debit', 'sales_discounts'),
-      ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance')
+      ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance'),
+      ('4400', '4000', 'أرباح بيع أصول', 'revenue', 'credit', 'asset_disposal_gain'),
+      ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company
@@ -5123,7 +5125,7 @@ create table public.cash_transactions (
   partner_transaction_id uuid,
   constraint cash_transactions_amount_check check ((amount > (0)::numeric)),
   constraint cash_transactions_direction_check check ((direction = any (array['in'::text, 'out'::text]))),
-  constraint cash_transactions_type_check check ((type = any (array['sale_receipt'::text, 'supplier_payment'::text, 'expense'::text, 'partner_deposit'::text, 'partner_withdrawal'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'customer_payment_reversal'::text, 'supplier_payment_reversal'::text, 'payroll_payment'::text, 'employee_advance'::text, 'employee_loan'::text, 'partner_distribution'::text, 'asset_purchase'::text])))
+  constraint cash_transactions_type_check check ((type = any (array['sale_receipt'::text, 'supplier_payment'::text, 'expense'::text, 'partner_deposit'::text, 'partner_withdrawal'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'customer_payment_reversal'::text, 'supplier_payment_reversal'::text, 'payroll_payment'::text, 'employee_advance'::text, 'employee_loan'::text, 'partner_distribution'::text, 'asset_purchase'::text, 'asset_sale'::text])))
 );
 create index cash_transactions_company_idx on public.cash_transactions using btree (company_id, occurred_at desc);
 create index cash_transactions_customer_payment_idx on public.cash_transactions using btree (customer_payment_id) where (customer_payment_id is not null);
@@ -23454,6 +23456,125 @@ begin
 end;
 $function$;
 
+-- بيع أصل (بمبلغ لصندوق) أو شطبو (مبلغ صفر، مثلًا انسرق أو خرب).
+-- القيد: من مجمع الإهلاك + الصندوق، إلى الأصول الثابتة (بالكلفة)، والفرق ربح أو خسارة.
+create or replace function public.dispose_fixed_asset(target_company uuid, target_asset uuid, target_date date, target_amount numeric, target_cashbox uuid, target_notes text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_asset public.fixed_assets%rowtype;
+  v_date date := coalesce(target_date, (now() at time zone 'Asia/Damascus')::date);
+  v_amount numeric(18,2) := round(coalesce(target_amount, 0), 2);
+  v_book numeric(18,2);
+  v_diff numeric(18,2);
+  v_lines jsonb;
+begin
+  if not public.has_permission(target_company, 'assets.manage') then
+    raise exception 'Not allowed';
+  end if;
+
+  select * into v_asset
+  from public.fixed_assets
+  where id = target_asset and company_id = target_company
+  for update;
+
+  if v_asset.id is null then
+    raise exception 'Asset not found';
+  end if;
+
+  if v_asset.status = 'disposed' then
+    raise exception 'Asset already disposed';
+  end if;
+
+  if v_amount < 0 then
+    raise exception 'Invalid amount';
+  end if;
+
+  if v_date < v_asset.purchase_date then
+    raise exception 'Disposal date cannot be before purchase date';
+  end if;
+
+  if v_amount > 0 and not exists (
+    select 1 from public.cashboxes
+    where id = target_cashbox and company_id = target_company and active
+      and upper(currency) = upper(v_asset.currency)
+  ) then
+    raise exception 'Cashbox must be active and in the asset currency';
+  end if;
+
+  perform public.assert_finance_period_open(target_company, v_date);
+
+  v_book := round(v_asset.purchase_cost - v_asset.accumulated_depreciation, 2);
+  v_diff := v_amount - v_book;
+
+  v_lines := jsonb_build_array(
+    jsonb_build_object(
+      'account_id', public.finance_system_account(target_company, 'fixed_assets'),
+      'debit', 0,
+      'credit', v_asset.purchase_cost
+    )
+  );
+
+  if v_asset.accumulated_depreciation > 0 then
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account_id', public.finance_system_account(target_company, 'accumulated_depreciation'),
+      'debit', v_asset.accumulated_depreciation,
+      'credit', 0
+    ));
+  end if;
+
+  if v_amount > 0 then
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account_id', public.finance_cashbox_account(target_company, target_cashbox),
+      'debit', v_amount,
+      'credit', 0
+    ));
+
+    insert into public.cash_transactions(company_id, cashbox_id, direction, type, amount, notes, occurred_at)
+    values (
+      target_company, target_cashbox, 'in', 'asset_sale', v_amount,
+      'بيع أصل ' || v_asset.asset_number || ' - ' || v_asset.name,
+      (v_date::timestamp + time '12:00') at time zone 'Asia/Damascus'
+    );
+  end if;
+
+  if v_diff > 0 then
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account_id', public.finance_system_account(target_company, 'asset_disposal_gain'),
+      'debit', 0,
+      'credit', v_diff
+    ));
+  elsif v_diff < 0 then
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account_id', public.finance_system_account(target_company, 'asset_disposal_loss'),
+      'debit', -v_diff,
+      'credit', 0
+    ));
+  end if;
+
+  perform public.post_system_journal(
+    target_company,
+    v_date,
+    case when v_amount > 0 then 'بيع أصل ' else 'شطب أصل ' end || v_asset.asset_number || ' - ' || v_asset.name,
+    v_asset.currency,
+    null,
+    'asset_disposal',
+    v_asset.id,
+    v_lines
+  );
+
+  update public.fixed_assets
+  set status = 'disposed',
+      disposal_date = v_date,
+      disposal_amount = v_amount,
+      notes = coalesce(nullif(trim(target_notes), ''), notes)
+  where id = v_asset.id;
+end;
+$function$;
+
 create or replace function public.next_asset_number(target_company uuid, target_date date)
  RETURNS text
  LANGUAGE plpgsql
@@ -24384,6 +24505,7 @@ AS $function$
       when 'employee_loan' then 'قرض موظف'
       when 'partner_distribution' then 'توزيع أرباح'
       when 'asset_purchase' then 'شراء أصل'
+      when 'asset_sale' then 'بيع أصل'
     end,
     target_type
   );
