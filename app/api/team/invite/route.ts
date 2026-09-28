@@ -7,6 +7,8 @@ type InviteBody = {
   companyId?: unknown;
   email?: unknown;
   roleId?: unknown;
+  fullName?: unknown;
+  password?: unknown;
 };
 
 function asText(value: unknown) {
@@ -25,9 +27,7 @@ async function findAuthUserByEmail(email: string) {
 
     if (error) throw error;
 
-    const match = data.users.find(
-      (user) => user.email?.toLowerCase() === email.toLowerCase()
-    );
+    const match = data.users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
 
     if (match) return match;
     if (data.users.length < perPage) return null;
@@ -42,19 +42,19 @@ export async function POST(request: NextRequest) {
     const companyId = asText(body.companyId);
     const email = asText(body.email).toLowerCase();
     const roleId = asText(body.roleId);
+    const fullName = asText(body.fullName).slice(0, 80);
+    const password = asText(body.password);
+
+    if (password && password.length < 8) {
+      return NextResponse.json({ error: "كلمة السر لازم تكون 8 أحرف على الأقل." }, { status: 400 });
+    }
 
     if (!companyId || !email || !roleId) {
-      return NextResponse.json(
-        { error: "بيانات الموظف ناقصة." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "بيانات الموظف ناقصة." }, { status: 400 });
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json(
-        { error: "البريد الإلكتروني غير صالح." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "البريد الإلكتروني غير صالح." }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -64,10 +64,7 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (currentUserError || !currentUser) {
-      return NextResponse.json(
-        { error: "يجب تسجيل الدخول أولًا." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "يجب تسجيل الدخول أولًا." }, { status: 401 });
     }
 
     const { data: company, error: companyError } = await supabase
@@ -77,17 +74,11 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (companyError) {
-      return NextResponse.json(
-        { error: "تعذر التحقق من الشركة." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "تعذر التحقق من الشركة." }, { status: 500 });
     }
 
     if (!company || company.owner_user_id !== currentUser.id) {
-      return NextResponse.json(
-        { error: "هذه العملية متاحة لمالك الشركة فقط." },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "هذه العملية متاحة لمالك الشركة فقط." }, { status: 403 });
     }
 
     const { data: role, error: roleError } = await supabase
@@ -98,22 +89,37 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (roleError) {
-      return NextResponse.json(
-        { error: "تعذر التحقق من صفة الموظف." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "تعذر التحقق من صفة الموظف." }, { status: 500 });
     }
 
     if (!role || role.is_owner || !role.active) {
-      return NextResponse.json(
-        { error: "صفة الموظف غير صالحة." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "صفة الموظف غير صالحة." }, { status: 400 });
     }
 
     const admin = createAdminClient();
     let targetUser = await findAuthUserByEmail(email);
     let newlyInvited = false;
+    let newlyCreated = false;
+
+    if (!targetUser && password) {
+      // المالك حط كلمة السر: منعمل الحساب مؤكّد فورًا بدون إيميل.
+      const { data, error } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: fullName ? { full_name: fullName } : {},
+      });
+
+      if (error || !data.user) {
+        return NextResponse.json(
+          { error: "تعذر إنشاء حساب الموظف. تأكد من البريد وكلمة السر." },
+          { status: 400 },
+        );
+      }
+
+      targetUser = data.user;
+      newlyCreated = true;
+    }
 
     if (!targetUser) {
       const callbackUrl = new URL("/auth/callback", request.nextUrl.origin);
@@ -123,13 +129,14 @@ export async function POST(request: NextRequest) {
         redirectTo: callbackUrl.toString(),
         data: {
           invited_company_id: companyId,
+          ...(fullName ? { full_name: fullName } : {}),
         },
       });
 
       if (error || !data.user) {
         return NextResponse.json(
           { error: "تعذر إرسال الدعوة. تحقق من البريد وحاول مرة أخرى." },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -138,43 +145,34 @@ export async function POST(request: NextRequest) {
     }
 
     if (targetUser.id === currentUser.id) {
-      return NextResponse.json(
-        { error: "حساب المالك موجود أصلًا ضمن الشركة." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "حساب المالك موجود أصلًا ضمن الشركة." }, { status: 400 });
     }
 
-    const { error: membershipError } = await supabase.rpc(
-      "assign_company_member_role",
-      {
-        target_company: companyId,
-        target_user: targetUser.id,
-        target_role: roleId,
-      }
-    );
+    const { error: membershipError } = await supabase.rpc("assign_company_member_role", {
+      target_company: companyId,
+      target_user: targetUser.id,
+      target_role: roleId,
+    });
 
     if (membershipError) {
-      if (newlyInvited) {
+      if (newlyInvited || newlyCreated) {
         await admin.auth.admin.deleteUser(targetUser.id);
       }
 
-      return NextResponse.json(
-        { error: "تعذر إضافة الموظف إلى الشركة." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "تعذر إضافة الموظف إلى الشركة." }, { status: 400 });
     }
 
     return NextResponse.json({
       ok: true,
       invited: newlyInvited,
+      created: newlyCreated,
     });
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "حدث خطأ غير متوقع.",
+        error: error instanceof Error ? error.message : "حدث خطأ غير متوقع.",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

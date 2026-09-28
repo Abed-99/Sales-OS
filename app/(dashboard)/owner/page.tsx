@@ -141,10 +141,7 @@ export default async function OwnerPage() {
 
   const [rolePermissionsResult, authUsers] = await Promise.all([
     roleIds.length
-      ? supabase
-          .from("role_permissions")
-          .select("role_id,permission_code")
-          .in("role_id", roleIds)
+      ? supabase.from("role_permissions").select("role_id,permission_code").in("role_id", roleIds)
       : Promise.resolve({ data: [] as RolePermissionRow[], error: null }),
     loadAuthUsers(memberIds),
   ]);
@@ -187,9 +184,7 @@ export default async function OwnerPage() {
     return {
       userId: member.user_id,
       email,
-      name:
-        authUser?.metadataName ??
-        (email !== "—" ? email.split("@")[0] : "مستخدم"),
+      name: authUser?.metadataName ?? (email !== "—" ? email.split("@")[0] : "مستخدم"),
       roleId: member.role_id,
       createdAt: member.created_at,
       lastSignInAt: authUser?.lastSignInAt ?? null,
@@ -214,4 +209,3 @@ export default async function OwnerPage() {
     </>
   );
 }
-

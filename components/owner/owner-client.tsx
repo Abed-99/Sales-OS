@@ -36,12 +36,10 @@ export type TeamMember = {
   isOwner: boolean;
 };
 
-type Notice =
-  | {
-      kind: "success" | "error";
-      text: string;
-    }
-  | null;
+type Notice = {
+  kind: "success" | "error";
+  text: string;
+} | null;
 
 const moduleLabels: Record<string, string> = {
   dashboard: "لوحة التحكم",
@@ -71,13 +69,11 @@ const teamErrorLabels: Record<string, string> = {
   "Role name already exists": "في صفة بنفس الاسم أصلًا.",
   "Protected role cannot be edited": "الصفة المحمية ما فينا نعدلها.",
   "Protected role cannot be deleted": "الصفة المحمية ما فينا نحذفها.",
-  "Role is assigned to employees":
-    "ما فينا نحذف الصفة لأنها مستخدمة عند موظف. غيّر صفته أولًا.",
+  "Role is assigned to employees": "ما فينا نحذف الصفة لأنها مستخدمة عند موظف. غيّر صفته أولًا.",
   "Role not found": "الصفة غير موجودة.",
   "Role is inactive": "الصفة غير مفعلة.",
   "Company owner must keep owner role": "لا يمكن تغيير صفة مالك الشركة.",
-  "Owner role cannot be assigned to an employee":
-    "صفة المالك محجوزة لمالك الشركة فقط.",
+  "Owner role cannot be assigned to an employee": "صفة المالك محجوزة لمالك الشركة فقط.",
   "Company owner cannot be removed": "لا يمكن إزالة مالك الشركة.",
 };
 
@@ -99,6 +95,12 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function randomPassword() {
+  const letters = "abcdefghjkmnpqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return Array.from(bytes, (byte) => letters[byte % letters.length]).join("");
+}
+
 export function OwnerClient({
   companyId,
   members,
@@ -116,6 +118,13 @@ export function OwnerClient({
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  // "password" = المالك بيحط كلمة السر وبيبعتها للموظف (أضمن من الإيميل).
+  const [inviteMode, setInviteMode] = useState<"password" | "email">("password");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [createdLogin, setCreatedLogin] = useState<{ email: string; password: string } | null>(
+    null,
+  );
   const [inviteRoleId, setInviteRoleId] = useState("");
   const [inviting, setInviting] = useState(false);
 
@@ -123,15 +132,13 @@ export function OwnerClient({
   const [editingRole, setEditingRole] = useState<TeamRole | null>(null);
   const [roleName, setRoleName] = useState("");
   const [roleDescription, setRoleDescription] = useState("");
-  const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(
-    () => new Set()
-  );
+  const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(() => new Set());
   const [savingRole, setSavingRole] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const assignableRoles = useMemo(
     () => roles.filter((role) => !role.isOwner && role.active),
-    [roles]
+    [roles],
   );
 
   const groupedPermissions = useMemo(() => {
@@ -146,10 +153,7 @@ export function OwnerClient({
     return [...groups.entries()];
   }, [permissions]);
 
-  const roleById = useMemo(
-    () => new Map(roles.map((role) => [role.id, role] as const)),
-    [roles]
-  );
+  const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role] as const)), [roles]);
 
   function showNotice(kind: "success" | "error", text: string) {
     setNotice({ kind, text });
@@ -158,6 +162,9 @@ export function OwnerClient({
 
   function openInvite() {
     setInviteEmail("");
+    setInviteName("");
+    setInviteMode("password");
+    setInvitePassword(randomPassword());
     setInviteRoleId(assignableRoles[0]?.id ?? "");
     setInviteOpen(true);
   }
@@ -191,10 +198,7 @@ export function OwnerClient({
     });
   }
 
-  function setModulePermissions(
-    modulePermissions: readonly TeamPermission[],
-    enabled: boolean
-  ) {
+  function setModulePermissions(modulePermissions: readonly TeamPermission[], enabled: boolean) {
     setSelectedPermissions((current) => {
       const next = new Set(current);
 
@@ -217,6 +221,11 @@ export function OwnerClient({
       return;
     }
 
+    if (inviteMode === "password" && invitePassword.trim().length < 8) {
+      showNotice("error", "كلمة السر لازم تكون 8 أحرف على الأقل.");
+      return;
+    }
+
     setInviting(true);
 
     try {
@@ -227,12 +236,15 @@ export function OwnerClient({
           companyId,
           email,
           roleId: inviteRoleId,
+          fullName: inviteName.trim() || null,
+          password: inviteMode === "password" ? invitePassword.trim() : null,
         }),
       });
 
       const result = (await response.json()) as {
         ok?: boolean;
         invited?: boolean;
+        created?: boolean;
         error?: string;
       };
 
@@ -241,19 +253,22 @@ export function OwnerClient({
       }
 
       setInviteOpen(false);
+      if (result.created) {
+        setCreatedLogin({ email, password: invitePassword.trim() });
+      }
       showNotice(
         "success",
-        result.invited
-          ? "تمت إضافة الموظف وإرسال دعوة إلى بريده."
-          : "الحساب موجود؛ تم ربطه بالشركة وتحديد صفته."
+        result.created
+          ? "انعمل حساب الموظف. ابعتلو معلومات الدخول."
+          : result.invited
+            ? "تمت إضافة الموظف وإرسال دعوة إلى بريده."
+            : "الحساب موجود؛ تم ربطه بالشركة وتحديد صفته.",
       );
       router.refresh();
     } catch (error) {
       showNotice(
         "error",
-        readableError(
-          error instanceof Error ? error.message : "تعذر إضافة الموظف."
-        )
+        readableError(error instanceof Error ? error.message : "تعذر إضافة الموظف."),
       );
     } finally {
       setInviting(false);
@@ -286,21 +301,14 @@ export function OwnerClient({
     }
 
     setRoleOpen(false);
-    showNotice(
-      "success",
-      editingRole ? "تم تحديث الصفة والصلاحيات." : "تم إنشاء الصفة."
-    );
+    showNotice("success", editingRole ? "تم تحديث الصفة والصلاحيات." : "تم إنشاء الصفة.");
     router.refresh();
   }
 
   async function deleteRole(role: TeamRole) {
     if (role.isOwner || role.isProtected) return;
 
-    if (
-      !window.confirm(
-        `حذف صفة "${role.name}"؟ لا يمكن حذفها إذا كانت مستخدمة عند موظف.`
-      )
-    ) {
+    if (!window.confirm(`حذف صفة "${role.name}"؟ لا يمكن حذفها إذا كانت مستخدمة عند موظف.`)) {
       return;
     }
 
@@ -377,9 +385,7 @@ export function OwnerClient({
         <div>
           <span className="eyebrow">إدارة المالك</span>
           <h2>الفريق والصلاحيات</h2>
-          <p className="muted">
-            كل موظف يأخذ صفة وصلاحيات محددة بدون إعطائه وصولًا أوسع من حاجته.
-          </p>
+          <p className="muted">كل موظف يأخذ صفة وصلاحيات محددة بدون إعطائه وصولًا أوسع من حاجته.</p>
         </div>
 
         <div className="rowActions">
@@ -400,10 +406,7 @@ export function OwnerClient({
       </div>
 
       {notice ? (
-        <div
-          className={notice.kind === "error" ? "toastError" : styles.success}
-          role="status"
-        >
+        <div className={notice.kind === "error" ? "toastError" : styles.success} role="status">
           {notice.text}
         </div>
       ) : null}
@@ -472,19 +475,14 @@ export function OwnerClient({
                       </td>
                       <td>
                         {member.isOwner ? (
-                          <span className="chip green">
-                            {currentRole?.name ?? "المالك"}
-                          </span>
+                          <span className="chip green">{currentRole?.name ?? "المالك"}</span>
                         ) : (
                           <select
                             className={styles.roleSelect}
                             value={member.roleId}
                             disabled={memberBusy}
                             onChange={(event) =>
-                              void changeMemberRole(
-                                member.userId,
-                                event.target.value
-                              )
+                              void changeMemberRole(member.userId, event.target.value)
                             }
                           >
                             {assignableRoles.map((role) => (
@@ -538,15 +536,11 @@ export function OwnerClient({
                     <div>
                       <strong>{role.name}</strong>
                       <span>
-                        {role.isOwner
-                          ? "صفة المالك الأساسية"
-                          : role.description || "بدون وصف"}
+                        {role.isOwner ? "صفة المالك الأساسية" : role.description || "بدون وصف"}
                       </span>
                     </div>
 
-                    <span className="chip blue">
-                      {role.permissionCodes.length} صلاحية
-                    </span>
+                    <span className="chip blue">{role.permissionCodes.length} صلاحية</span>
                   </div>
 
                   {!role.isOwner && !role.isProtected ? (
@@ -598,7 +592,33 @@ export function OwnerClient({
             </div>
 
             <form onSubmit={inviteEmployee}>
+              <div className="rowActions" style={{ marginBottom: 12 }}>
+                <button
+                  type="button"
+                  className={inviteMode === "password" ? "primaryButton" : "softButton"}
+                  onClick={() => setInviteMode("password")}
+                >
+                  أنا بحط كلمة السر
+                </button>
+                <button
+                  type="button"
+                  className={inviteMode === "email" ? "primaryButton" : "softButton"}
+                  onClick={() => setInviteMode("email")}
+                >
+                  دعوة عالإيميل
+                </button>
+              </div>
+
               <div className="formGrid">
+                <label className="field">
+                  <span>اسم الموظف</span>
+                  <input
+                    value={inviteName}
+                    onChange={(event) => setInviteName(event.target.value)}
+                    placeholder="مثلًا: سامر"
+                  />
+                </label>
+
                 <label className="field">
                   <span>البريد الإلكتروني</span>
                   <input
@@ -627,18 +647,26 @@ export function OwnerClient({
                   </select>
                 </label>
 
+                {inviteMode === "password" ? (
+                  <label className="field">
+                    <span>كلمة السر</span>
+                    <input
+                      dir="ltr"
+                      value={invitePassword}
+                      onChange={(event) => setInvitePassword(event.target.value)}
+                    />
+                  </label>
+                ) : null}
+
                 <div className={`${styles.inviteHint} field full`}>
-                  إذا البريد غير مسجل بالنظام، ستُرسل له دعوة. إذا الحساب موجود
-                  أصلًا، سيتم ربطه بهذه الشركة مباشرة.
+                  {inviteMode === "password"
+                    ? "بينعمل الحساب فورًا، وبعدها بتبعت للموظف الإيميل وكلمة السر عالواتساب. إذا الحساب موجود أصلًا بينربط بالشركة وكلمة سرو ما بتتغير."
+                    : "بيوصلو إيميل فيه رابط ليحط كلمة سرو (الإيميلات ممكن تتأخر أو تروح عالـ spam)."}
                 </div>
               </div>
 
               <div className="modalActions">
-                <button
-                  className="softButton"
-                  type="button"
-                  onClick={() => setInviteOpen(false)}
-                >
+                <button className="softButton" type="button" onClick={() => setInviteOpen(false)}>
                   إلغاء
                 </button>
                 <button className="primaryButton" disabled={inviting}>
@@ -650,13 +678,58 @@ export function OwnerClient({
         </div>
       ) : null}
 
+      {createdLogin
+        ? (() => {
+            const origin = typeof window === "undefined" ? "" : window.location.origin;
+            const text = `رابط الدخول: ${origin}/login\nالإيميل: ${createdLogin.email}\nكلمة السر: ${createdLogin.password}`;
+            return (
+              <div className="modalOverlay">
+                <section className="modal" role="dialog" aria-modal="true">
+                  <div className="modalHeader">
+                    <div>
+                      <span className="eyebrow">معلومات الدخول</span>
+                      <h2>ابعتها للموظف</h2>
+                    </div>
+                    <button
+                      className="closeButton"
+                      type="button"
+                      onClick={() => setCreatedLogin(null)}
+                      aria-label="إغلاق"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>{text}</pre>
+                  <p className="muted">بعد ما يفوت، فيه يغيّر كلمة السر من «الإعدادات».</p>
+                  <div className="modalActions">
+                    <button
+                      className="softButton"
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(text);
+                        showNotice("success", "انسخت معلومات الدخول.");
+                      }}
+                    >
+                      نسخ
+                    </button>
+                    <a
+                      className="primaryButton"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+                    >
+                      إرسال عالواتساب
+                    </a>
+                  </div>
+                </section>
+              </div>
+            );
+          })()
+        : null}
+
       {roleOpen ? (
         <div className="modalOverlay">
-          <section
-            className={`modal ${styles.roleModal}`}
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className={`modal ${styles.roleModal}`} role="dialog" aria-modal="true">
             <div className="modalHeader">
               <div>
                 <span className="eyebrow">الصفة والصلاحيات</span>
@@ -707,7 +780,7 @@ export function OwnerClient({
                     type="button"
                     onClick={() =>
                       setSelectedPermissions(
-                        new Set(permissions.map((permission) => permission.code))
+                        new Set(permissions.map((permission) => permission.code)),
                       )
                     }
                   >
@@ -726,11 +799,10 @@ export function OwnerClient({
               <div className={styles.permissionGroups}>
                 {groupedPermissions.map(([module, modulePermissions]) => {
                   const selectedCount = modulePermissions.filter((permission) =>
-                    selectedPermissions.has(permission.code)
+                    selectedPermissions.has(permission.code),
                   ).length;
                   const allSelected =
-                    modulePermissions.length > 0 &&
-                    selectedCount === modulePermissions.length;
+                    modulePermissions.length > 0 && selectedCount === modulePermissions.length;
 
                   return (
                     <section className={styles.permissionModule} key={module}>
@@ -744,9 +816,7 @@ export function OwnerClient({
                         <button
                           type="button"
                           className="softButton"
-                          onClick={() =>
-                            setModulePermissions(modulePermissions, !allSelected)
-                          }
+                          onClick={() => setModulePermissions(modulePermissions, !allSelected)}
                         >
                           {allSelected ? "إلغاء القسم" : "تحديد القسم"}
                         </button>
@@ -754,10 +824,7 @@ export function OwnerClient({
 
                       <div className={styles.permissionList}>
                         {modulePermissions.map((permission) => (
-                          <label
-                            className={styles.permissionItem}
-                            key={permission.code}
-                          >
+                          <label className={styles.permissionItem} key={permission.code}>
                             <input
                               type="checkbox"
                               checked={selectedPermissions.has(permission.code)}
@@ -765,9 +832,7 @@ export function OwnerClient({
                             />
                             <span>
                               <strong>{permission.label}</strong>
-                              <small>
-                                {permission.description || permission.code}
-                              </small>
+                              <small>{permission.description || permission.code}</small>
                             </span>
                           </label>
                         ))}
@@ -778,11 +843,7 @@ export function OwnerClient({
               </div>
 
               <div className="modalActions">
-                <button
-                  className="softButton"
-                  type="button"
-                  onClick={() => setRoleOpen(false)}
-                >
+                <button className="softButton" type="button" onClick={() => setRoleOpen(false)}>
                   إلغاء
                 </button>
                 <button className="primaryButton" disabled={savingRole}>
