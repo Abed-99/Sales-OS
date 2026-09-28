@@ -157,14 +157,16 @@ export default async function QuotesPage({
         .select("id,name,area,status")
         .eq("company_id", context.companyId)
         .neq("status", "inactive")
-        .order("name"),
+        .order("name")
+        .limit(300),
 
       supabase
         .from("products")
         .select("id,name,sku,sale_price,unit,active")
         .eq("company_id", context.companyId)
         .eq("active", true)
-        .order("name"),
+        .order("name")
+        .limit(300),
     ]);
 
     if (tradersResult.error) {

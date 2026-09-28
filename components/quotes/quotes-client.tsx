@@ -6,6 +6,8 @@ import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { SearchPicker } from "@/components/search-picker";
+import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
 export type QuoteStatus = "draft" | "sent" | "accepted" | "rejected" | "cancelled" | "converted";
@@ -302,6 +304,20 @@ export function QuotesClient({
 }) {
   const [supabase] = useState(() => createClient());
 
+  const traderOptions = useMemo(
+    () => traders.map((row) => ({ id: row.id, label: row.name, hint: row.area })),
+    [traders],
+  );
+  const productOptions = useMemo(() => products.map((row) => productOption(row)), [products]);
+  const findTraders = useMemo(
+    () => (term: string) => searchTraders(supabase, companyId, term),
+    [supabase, companyId],
+  );
+  const findProducts = useMemo(
+    () => (term: string) => searchProducts(supabase, companyId, term),
+    [supabase, companyId],
+  );
+
   const router = useRouter();
 
   const searchParams = useSearchParams();
@@ -424,8 +440,8 @@ export function QuotesClient({
     setCreateOpen(true);
   }
 
-  function chooseProduct(index: number, productId: string) {
-    const product = products.find((row) => row.id === productId);
+  function chooseProduct(index: number, productId: string, picked?: ProductPick) {
+    const product = products.find((row) => row.id === productId) ?? picked;
 
     setItems((current) =>
       current.map((item, itemIndex) =>
@@ -1043,16 +1059,13 @@ export function QuotesClient({
                 <label className="field">
                   <span>العميل</span>
 
-                  <select value={trader} onChange={(event) => setTrader(event.target.value)}>
-                    <option value="">اختر العميل</option>
-
-                    {traders.map((traderRow) => (
-                      <option key={traderRow.id} value={traderRow.id}>
-                        {traderRow.name}
-                        {traderRow.area ? ` - ${traderRow.area}` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchPicker
+                    value={trader}
+                    placeholder="اكتب اسم العميل أو رقمو..."
+                    options={traderOptions}
+                    onSearch={findTraders}
+                    onChange={(id) => setTrader(id)}
+                  />
                 </label>
 
                 <label className="field">
@@ -1110,19 +1123,15 @@ export function QuotesClient({
                         return (
                           <tr key={item.key}>
                             <td>
-                              <select
+                              <SearchPicker
                                 value={item.product_id}
-                                onChange={(event) => chooseProduct(index, event.target.value)}
-                              >
-                                <option value="">اختر الصنف</option>
-
-                                {products.map((product) => (
-                                  <option key={product.id} value={product.id}>
-                                    {product.name}
-                                    {product.sku ? ` - ${product.sku}` : ""}
-                                  </option>
-                                ))}
-                              </select>
+                                placeholder="اسم الصنف أو كودو..."
+                                options={productOptions}
+                                onSearch={findProducts}
+                                onChange={(id, option) =>
+                                  chooseProduct(index, id, option?.data as ProductPick | undefined)
+                                }
+                              />
                             </td>
 
                             <td>

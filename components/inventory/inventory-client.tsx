@@ -5,6 +5,8 @@ import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { SearchPicker } from "@/components/search-picker";
+import { productOption, searchProducts } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
 export type InventoryWarehouse = {
@@ -332,6 +334,18 @@ export function InventoryClient({
   canViewCost: boolean;
 }) {
   const [supabase] = useState(() => createClient());
+
+  const productOptions = useMemo(
+    () =>
+      products.map((row) =>
+        productOption({ id: row.id, name: row.name, sku: row.sku, unit: row.unit, sale_price: null }),
+      ),
+    [products],
+  );
+  const findProducts = useMemo(
+    () => (term: string) => searchProducts(supabase, companyId, term),
+    [supabase, companyId],
+  );
 
   const router = useRouter();
 
@@ -863,11 +877,43 @@ export function InventoryClient({
     setLoadingCount(true);
 
     try {
-      const { data, error } = await supabase
-        .from("inventory_summary")
-        .select("product_id,on_hand,average_cost")
-        .eq("company_id", companyId)
-        .eq("warehouse_id", warehouseId);
+      // القاعدة بترجّع 1000 سطر بالمرة، فمنجيب على دفعات لحتى الجرد يشمل كل الأصناف.
+      const PAGE = 1000;
+      const data: { product_id: string; on_hand: number; average_cost: number | null }[] = [];
+      const allProducts: InventoryProduct[] = [];
+      let error: unknown = null;
+
+      for (let from = 0; ; from += PAGE) {
+        const result = await supabase
+          .from("inventory_summary")
+          .select("product_id,on_hand,average_cost")
+          .eq("company_id", companyId)
+          .eq("warehouse_id", warehouseId)
+          .order("product_id")
+          .range(from, from + PAGE - 1);
+        if (result.error) {
+          error = result.error;
+          break;
+        }
+        data.push(...(result.data ?? []));
+        if ((result.data ?? []).length < PAGE) break;
+      }
+
+      for (let from = 0; !error; from += PAGE) {
+        const result = await supabase
+          .from("products")
+          .select("id,name,sku,unit,active")
+          .eq("company_id", companyId)
+          .eq("active", true)
+          .order("name")
+          .range(from, from + PAGE - 1);
+        if (result.error) {
+          error = result.error;
+          break;
+        }
+        allProducts.push(...((result.data ?? []) as InventoryProduct[]));
+        if ((result.data ?? []).length < PAGE) break;
+      }
 
       if (error) {
         setCountMessage("تعذر تحميل رصيد المستودع للجرد.");
@@ -891,7 +937,7 @@ export function InventoryClient({
       }
 
       setCountLines(
-        products.map((product) => {
+        allProducts.map((product) => {
           const balance = current.get(product.id);
 
           return {
@@ -1962,29 +2008,24 @@ export function InventoryClient({
               >
                 {transferLines.map((line, index) => (
                   <div className="quickItem" key={line.key}>
-                    <select
+                    <SearchPicker
                       value={line.productId}
-                      onChange={(event) =>
+                      placeholder="اسم الصنف أو كودو..."
+                      options={productOptions}
+                      onSearch={findProducts}
+                      onChange={(id) =>
                         setTransferLines((current) =>
                           current.map((row, rowIndex) =>
                             rowIndex === index
                               ? {
                                   ...row,
-                                  productId: event.target.value,
+                                  productId: id,
                                 }
                               : row,
                           ),
                         )
                       }
-                    >
-                      <option value="">اختر الصنف</option>
-
-                      {products.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
 
                     <input
                       type="number"

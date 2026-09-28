@@ -1,19 +1,12 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-} from "react";
-import {
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { SearchPicker } from "@/components/search-picker";
+import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
 export type PurchaseNeed = {
@@ -76,10 +69,7 @@ export type PurchaseInvoiceRow = {
   balance_due: number;
   cancellation_reason: string | null;
   created_at: string;
-  suppliers:
-    | InvoiceSupplier
-    | InvoiceSupplier[]
-    | null;
+  suppliers: InvoiceSupplier | InvoiceSupplier[] | null;
 };
 
 type PaymentSupplier = {
@@ -111,14 +101,8 @@ export type SupplierPaymentRow = {
   notes: string | null;
   reversal_reason: string | null;
   created_at: string;
-  suppliers:
-    | PaymentSupplier
-    | PaymentSupplier[]
-    | null;
-  cashboxes:
-    | PaymentCashbox
-    | PaymentCashbox[]
-    | null;
+  suppliers: PaymentSupplier | PaymentSupplier[] | null;
+  cashboxes: PaymentCashbox | PaymentCashbox[] | null;
 };
 
 type PurchaseStats = {
@@ -129,22 +113,11 @@ type PurchaseStats = {
   supplierCreditTotal: number;
 };
 
-type InvoiceStatusFilter =
-  | "all"
-  | "posted"
-  | "cancelled";
+type InvoiceStatusFilter = "all" | "posted" | "cancelled";
 
-type PaymentStatusFilter =
-  | "all"
-  | "posted"
-  | "reversed";
+type PaymentStatusFilter = "all" | "posted" | "reversed";
 
-type PaymentMethod =
-  | "cash"
-  | "bank"
-  | "card"
-  | "check"
-  | "other";
+type PaymentMethod = "cash" | "bank" | "card" | "check" | "other";
 
 type DraftLine = {
   key: string;
@@ -157,6 +130,7 @@ type DraftLine = {
   salesOrderItemId: string | null;
   maxQuantity: number | null;
   traderName: string | null;
+  productName?: string | null;
 };
 
 type InvoiceDetailLine = {
@@ -168,7 +142,10 @@ type InvoiceDetailLine = {
   line_total: number;
   notes: string | null;
   received: number | null;
-  products: { name: string; sku: string | null; unit: string } | { name: string; sku: string | null; unit: string }[] | null;
+  products:
+    | { name: string; sku: string | null; unit: string }
+    | { name: string; sku: string | null; unit: string }[]
+    | null;
 };
 
 type Notice = {
@@ -176,10 +153,7 @@ type Notice = {
   text: string;
 };
 
-const paymentMethodLabels: Record<
-  PaymentMethod,
-  string
-> = {
+const paymentMethodLabels: Record<PaymentMethod, string> = {
   cash: "نقدي",
   bank: "تحويل بنكي",
   card: "بطاقة",
@@ -187,12 +161,8 @@ const paymentMethodLabels: Record<
   other: "أخرى",
 };
 
-function oneRelation<T>(
-  value: T | T[] | null
-) {
-  return Array.isArray(value)
-    ? value[0] ?? null
-    : value;
+function oneRelation<T>(value: T | T[] | null) {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function newKey() {
@@ -200,191 +170,97 @@ function newKey() {
 }
 
 function businessDateInput() {
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone: "Asia/Damascus",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }
-    ).formatToParts(
-      new Date()
-    );
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  const get = (
-    type: string
-  ) =>
-    parts.find(
-      (part) =>
-        part.type === type
-    )?.value ?? "";
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function money(
-  value: number,
-  currency: string
-) {
-  return `${new Intl.NumberFormat(
-    "en-US",
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  ).format(
-    Number(value || 0)
-  )} ${currency}`;
+function money(value: number, currency: string) {
+  return `${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0))} ${currency}`;
 }
 
 function friendlyError(
-  error:
-    | {
-        code?: string;
-        message?: string;
-      }
-    | null,
-  action:
-    | "invoice"
-    | "payment"
-    | "cancel"
-    | "reverse"
-    | "quote"
+  error: {
+    code?: string;
+    message?: string;
+  } | null,
+  action: "invoice" | "payment" | "cancel" | "reverse" | "quote",
 ) {
-  const raw =
-    error?.message ?? "";
+  const raw = error?.message ?? "";
 
-  const message =
-    raw.toLowerCase();
+  const message = raw.toLowerCase();
 
   if (
-    error?.code ===
-      "42501" ||
-    message.includes(
-      "not allowed"
-    ) ||
-    message.includes(
-      "permission"
-    )
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
   ) {
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (
-    message.includes(
-      "archived supplier"
-    ) ||
-    message.includes(
-      "invalid supplier"
-    )
-  ) {
+  if (message.includes("archived supplier") || message.includes("invalid supplier")) {
     return "المورد غير صالح أو مؤرشف.";
   }
 
-  if (
-    message.includes(
-      "archived product"
-    ) ||
-    message.includes(
-      "invalid product"
-    )
-  ) {
+  if (message.includes("archived product") || message.includes("invalid product")) {
     return "أحد الأصناف غير صالح أو مؤرشف.";
   }
 
-  if (
-    message.includes(
-      "due date"
-    )
-  ) {
+  if (message.includes("due date")) {
     return "تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ الفاتورة.";
   }
 
-  if (
-    message.includes(
-      "discount exceeds"
-    )
-  ) {
+  if (message.includes("discount exceeds")) {
     return "الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر.";
   }
 
-  if (
-    message.includes(
-      "allocation exceeds"
-    )
-  ) {
+  if (message.includes("allocation exceeds")) {
     return "أحد المبالغ الموزعة أكبر من الرصيد المسموح.";
   }
 
-  if (
-    message.includes(
-      "reverse goods receipts"
-    )
-  ) {
+  if (message.includes("reverse goods receipts")) {
     return "لا يمكن إلغاء الفاتورة قبل عكس استلام البضاعة المرتبط بها.";
   }
 
-  if (
-    message.includes(
-      "reverse allocated supplier payments"
-    )
-  ) {
+  if (message.includes("reverse allocated supplier payments")) {
     return "لا يمكن إلغاء الفاتورة قبل عكس دفعات المورد الموزعة عليها.";
   }
 
-  if (
-    message.includes(
-      "cancellation reason"
-    )
-  ) {
+  if (message.includes("cancellation reason")) {
     return "سبب إلغاء الفاتورة مطلوب.";
   }
 
-  if (
-    message.includes(
-      "reversal reason"
-    )
-  ) {
+  if (message.includes("reversal reason")) {
     return "سبب عكس الدفعة مطلوب.";
   }
 
-  if (
-    message.includes(
-      "currency"
-    ) ||
-    message.includes(
-      "exchange"
-    ) ||
-    message.includes(
-      "rate"
-    )
-  ) {
+  if (message.includes("currency") || message.includes("exchange") || message.includes("rate")) {
     return "تعذر احتساب سعر الصرف لهذه العملية.";
   }
 
-  if (
-    action === "invoice"
-  ) {
+  if (action === "invoice") {
     return "تعذر إنشاء فاتورة الشراء. راجع البيانات وحاول مرة ثانية.";
   }
 
-  if (
-    action === "payment"
-  ) {
+  if (action === "payment") {
     return "تعذر تسجيل دفعة المورد. راجع البيانات وحاول مرة ثانية.";
   }
 
-  if (
-    action === "cancel"
-  ) {
+  if (action === "cancel") {
     return "تعذر إلغاء فاتورة الشراء.";
   }
 
-  if (
-    action === "reverse"
-  ) {
+  if (action === "reverse") {
     return "تعذر عكس دفعة المورد.";
   }
 
@@ -400,8 +276,7 @@ function emptyManualLine(): DraftLine {
     discountAmount: "0",
     taxAmount: "0",
     notes: "",
-    salesOrderItemId:
-      null,
+    salesOrderItemId: null,
     maxQuantity: null,
     traderName: null,
   };
@@ -460,120 +335,78 @@ export function PurchasesClient({
   canViewPayments: boolean;
   canReversePayment: boolean;
 }) {
-  const [supabase] =
-    useState(
-      () =>
-        createClient()
-    );
+  const [supabase] = useState(() => createClient());
 
-  const router =
-    useRouter();
+  const supplierOptions = useMemo(
+    () => suppliers.map((row) => ({ id: row.id, label: row.name })),
+    [suppliers],
+  );
+  const productOptions = useMemo(
+    () =>
+      products.map((row) =>
+        productOption({
+          id: row.id,
+          name: row.name,
+          sku: (row as { sku?: string | null }).sku ?? null,
+          unit: (row as { unit?: string | null }).unit ?? null,
+          sale_price: null,
+        }),
+      ),
+    [products],
+  );
+  const findSuppliers = useMemo(
+    () => (term: string) => searchSuppliers(supabase, companyId, term),
+    [supabase, companyId],
+  );
+  const findProducts = useMemo(
+    () => (term: string) => searchProducts(supabase, companyId, term),
+    [supabase, companyId],
+  );
 
-  const searchParams =
-    useSearchParams();
+  const router = useRouter();
 
-  const [
-    invoices,
-    setInvoices,
-  ] =
-    useState(
-      initialInvoices
-    );
+  const searchParams = useSearchParams();
 
-  const [
-    payments,
-    setPayments,
-  ] =
-    useState(
-      initialPayments
-    );
+  const [invoices, setInvoices] = useState(initialInvoices);
 
-  const [
-    notice,
-    setNotice,
-  ] =
-    useState<Notice | null>(
-      initialError
-        ? {
-            type: "error",
-            text: initialError,
-          }
-        : null
-    );
+  const [payments, setPayments] = useState(initialPayments);
 
-  const [
-    invoiceSearch,
-    setInvoiceSearch,
-  ] =
-    useState(
-      invoiceSearchQuery
-    );
+  const [notice, setNotice] = useState<Notice | null>(
+    initialError
+      ? {
+          type: "error",
+          text: initialError,
+        }
+      : null,
+  );
 
-  const [
-    invoiceFilter,
-    setInvoiceFilter,
-  ] =
-    useState<InvoiceStatusFilter>(
-      invoiceStatusFilter
-    );
+  const [invoiceSearch, setInvoiceSearch] = useState(invoiceSearchQuery);
 
-  const [
-    paymentSearch,
-    setPaymentSearch,
-  ] =
-    useState(
-      paymentSearchQuery
-    );
+  const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatusFilter>(invoiceStatusFilter);
 
-  const [
-    paymentFilter,
-    setPaymentFilter,
-  ] =
-    useState<PaymentStatusFilter>(
-      paymentStatusFilter
-    );
+  const [paymentSearch, setPaymentSearch] = useState(paymentSearchQuery);
+
+  const [paymentFilter, setPaymentFilter] = useState<PaymentStatusFilter>(paymentStatusFilter);
 
   useEffect(() => {
-    setInvoices(
-      initialInvoices
-    );
-  }, [
-    initialInvoices,
-  ]);
+    setInvoices(initialInvoices);
+  }, [initialInvoices]);
 
   useEffect(() => {
-    setPayments(
-      initialPayments
-    );
-  }, [
-    initialPayments,
-  ]);
+    setPayments(initialPayments);
+  }, [initialPayments]);
 
   useEffect(() => {
-    setInvoiceSearch(
-      invoiceSearchQuery
-    );
+    setInvoiceSearch(invoiceSearchQuery);
 
-    setInvoiceFilter(
-      invoiceStatusFilter
-    );
-  }, [
-    invoiceSearchQuery,
-    invoiceStatusFilter,
-  ]);
+    setInvoiceFilter(invoiceStatusFilter);
+  }, [invoiceSearchQuery, invoiceStatusFilter]);
 
   useEffect(() => {
-    setPaymentSearch(
-      paymentSearchQuery
-    );
+    setPaymentSearch(paymentSearchQuery);
 
-    setPaymentFilter(
-      paymentStatusFilter
-    );
-  }, [
-    paymentSearchQuery,
-    paymentStatusFilter,
-  ]);
+    setPaymentFilter(paymentStatusFilter);
+  }, [paymentSearchQuery, paymentStatusFilter]);
 
   useEffect(() => {
     if (initialError) {
@@ -588,360 +421,143 @@ export function PurchasesClient({
   // INVOICE FORM
   // ==========================================================
 
-  const [
-    invoiceOpen,
-    setInvoiceOpen,
-  ] =
-    useState(false);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
 
-  const [
-    supplierId,
-    setSupplierId,
-  ] =
-    useState("");
+  const [supplierId, setSupplierId] = useState("");
 
-  const [
-    supplierInvoiceNumber,
-    setSupplierInvoiceNumber,
-  ] =
-    useState("");
+  const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
 
-  const [
-    invoiceDate,
-    setInvoiceDate,
-  ] =
-    useState(
-      businessDateInput()
-    );
+  const [invoiceDate, setInvoiceDate] = useState(businessDateInput());
 
-  const [
-    dueDate,
-    setDueDate,
-  ] =
-    useState("");
+  const [dueDate, setDueDate] = useState("");
 
-  const [
-    invoiceNotes,
-    setInvoiceNotes,
-  ] =
-    useState("");
+  const [invoiceNotes, setInvoiceNotes] = useState("");
 
-  const [
-    lines,
-    setLines,
-  ] =
-    useState<
-      DraftLine[]
-    >([]);
+  const [lines, setLines] = useState<DraftLine[]>([]);
 
-  const [
-    invoiceMessage,
-    setInvoiceMessage,
-  ] =
-    useState("");
+  const [invoiceMessage, setInvoiceMessage] = useState("");
 
-  const [
-    savingInvoice,
-    setSavingInvoice,
-  ] =
-    useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
 
   // ==========================================================
   // PAYMENT FORM
   // ==========================================================
 
-  const [
-    paymentOpen,
-    setPaymentOpen,
-  ] =
-    useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
-  const [
-    paymentSupplierId,
-    setPaymentSupplierId,
-  ] =
-    useState("");
+  const [paymentSupplierId, setPaymentSupplierId] = useState("");
 
-  const [
-    paymentCashboxId,
-    setPaymentCashboxId,
-  ] =
-    useState("");
+  const [paymentCashboxId, setPaymentCashboxId] = useState("");
 
-  const [
-    paymentAmount,
-    setPaymentAmount,
-  ] =
-    useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
 
-  const [
-    paymentDate,
-    setPaymentDate,
-  ] =
-    useState(
-      businessDateInput()
-    );
+  const [paymentDate, setPaymentDate] = useState(businessDateInput());
 
-  const [
-    paymentMethod,
-    setPaymentMethod,
-  ] =
-    useState<PaymentMethod>(
-      "cash"
-    );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
-  const [
-    paymentReference,
-    setPaymentReference,
-  ] =
-    useState("");
+  const [paymentReference, setPaymentReference] = useState("");
 
-  const [
-    paymentNotes,
-    setPaymentNotes,
-  ] =
-    useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
 
-  const [
-    paymentAllocations,
-    setPaymentAllocations,
-  ] =
-    useState<
-      Record<
-        string,
-        string
-      >
-    >({});
+  const [paymentAllocations, setPaymentAllocations] = useState<Record<string, string>>({});
 
-  const [
-    paymentCashAmount,
-    setPaymentCashAmount,
-  ] =
-    useState("");
+  const [paymentCashAmount, setPaymentCashAmount] = useState("");
 
-  const [
-    paymentCashCurrency,
-    setPaymentCashCurrency,
-  ] =
-    useState(
-      currency
-    );
+  const [paymentCashCurrency, setPaymentCashCurrency] = useState(currency);
 
-  const [
-    paymentInvoiceCurrency,
-    setPaymentInvoiceCurrency,
-  ] =
-    useState(
-      currency
-    );
+  const [paymentInvoiceCurrency, setPaymentInvoiceCurrency] = useState(currency);
 
-  const [
-    paymentQuoteError,
-    setPaymentQuoteError,
-  ] =
-    useState("");
+  const [paymentQuoteError, setPaymentQuoteError] = useState("");
 
-  const [
-    quoteLoading,
-    setQuoteLoading,
-  ] =
-    useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
 
-  const [
-    paymentMessage,
-    setPaymentMessage,
-  ] =
-    useState("");
+  const [paymentMessage, setPaymentMessage] = useState("");
 
-  const [
-    savingPayment,
-    setSavingPayment,
-  ] =
-    useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
 
   // ==========================================================
   // CANCEL / REVERSE MODALS
   // ==========================================================
 
-  const [
-    cancelTarget,
-    setCancelTarget,
-  ] =
-    useState<
-      PurchaseInvoiceRow | null
-    >(null);
+  const [cancelTarget, setCancelTarget] = useState<PurchaseInvoiceRow | null>(null);
 
-  const [
-    cancelReason,
-    setCancelReason,
-  ] =
-    useState("");
+  const [cancelReason, setCancelReason] = useState("");
 
-  const [
-    cancelMessage,
-    setCancelMessage,
-  ] =
-    useState("");
+  const [cancelMessage, setCancelMessage] = useState("");
 
-  const [
-    cancelling,
-    setCancelling,
-  ] =
-    useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
-  const [
-    reverseTarget,
-    setReverseTarget,
-  ] =
-    useState<
-      SupplierPaymentRow | null
-    >(null);
+  const [reverseTarget, setReverseTarget] = useState<SupplierPaymentRow | null>(null);
 
-  const [
-    reverseReason,
-    setReverseReason,
-  ] =
-    useState("");
+  const [reverseReason, setReverseReason] = useState("");
 
-  const [
-    reverseMessage,
-    setReverseMessage,
-  ] =
-    useState("");
+  const [reverseMessage, setReverseMessage] = useState("");
 
-  const [
-    reversing,
-    setReversing,
-  ] =
-    useState(false);
+  const [reversing, setReversing] = useState(false);
 
   // ==========================================================
   // MAPS / CALCULATIONS
   // ==========================================================
 
-  const priceMap =
-    useMemo(() => {
-      const map =
-        new Map<
-          string,
-          number
-        >();
+  const priceMap = useMemo(() => {
+    const map = new Map<string, number>();
 
-      for (
-        const row of
-        supplierPrices
-      ) {
-        if (
-          !row.available
-        ) {
-          continue;
-        }
-
-        map.set(
-          `${row.supplier_id}:${row.product_id}`,
-          Number(
-            row.purchase_price
-          )
-        );
+    for (const row of supplierPrices) {
+      if (!row.available) {
+        continue;
       }
 
-      return map;
-    }, [
-      supplierPrices,
-    ]);
+      map.set(`${row.supplier_id}:${row.product_id}`, Number(row.purchase_price));
+    }
 
-  const selectedNeedIds =
-    useMemo(
-      () =>
-        new Set(
-          lines
-            .map(
-              (line) =>
-                line.salesOrderItemId
-            )
-            .filter(
-              (
-                value
-              ): value is string =>
-                Boolean(
-                  value
-                )
-            )
-        ),
-      [lines]
+    return map;
+  }, [supplierPrices]);
+
+  const selectedNeedIds = useMemo(
+    () =>
+      new Set(
+        lines
+          .map((line) => line.salesOrderItemId)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    [lines],
+  );
+
+  const invoiceTotals = useMemo(() => {
+    return lines.reduce(
+      (result, line) => {
+        const quantity = Number(line.quantity || 0);
+
+        const cost = Number(line.unitCost || 0);
+
+        const discount = Number(line.discountAmount || 0);
+
+        const tax = Number(line.taxAmount || 0);
+
+        const subtotal = quantity * cost;
+
+        return {
+          subtotal: result.subtotal + subtotal,
+
+          discount: result.discount + discount,
+
+          tax: result.tax + tax,
+
+          total: result.total + Math.max(subtotal - discount + tax, 0),
+        };
+      },
+      {
+        subtotal: 0,
+        discount: 0,
+        tax: 0,
+        total: 0,
+      },
     );
-
-  const invoiceTotals =
-    useMemo(() => {
-      return lines.reduce(
-        (
-          result,
-          line
-        ) => {
-          const quantity =
-            Number(
-              line.quantity ||
-                0
-            );
-
-          const cost =
-            Number(
-              line.unitCost ||
-                0
-            );
-
-          const discount =
-            Number(
-              line.discountAmount ||
-                0
-            );
-
-          const tax =
-            Number(
-              line.taxAmount ||
-                0
-            );
-
-          const subtotal =
-            quantity *
-            cost;
-
-          return {
-            subtotal:
-              result.subtotal +
-              subtotal,
-
-            discount:
-              result.discount +
-              discount,
-
-            tax:
-              result.tax +
-              tax,
-
-            total:
-              result.total +
-              Math.max(
-                subtotal -
-                  discount +
-                  tax,
-                0
-              ),
-          };
-        },
-        {
-          subtotal: 0,
-          discount: 0,
-          tax: 0,
-          total: 0,
-        }
-      );
-    }, [lines]);
+  }, [lines]);
 
   // كل فواتير المورد المفتوحة من القاعدة، مش بس اللي ظاهرين بالصفحة الحالية
   // (القائمة بتعرض آخر 50 فاتورة، فالفواتير القديمة ما كانت تطلع للدفع).
-  const [paymentInvoices, setPaymentInvoices] =
-    useState<PurchaseInvoiceRow[]>([]);
+  const [paymentInvoices, setPaymentInvoices] = useState<PurchaseInvoiceRow[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -954,7 +570,7 @@ export function PurchasesClient({
     void supabase
       .from("purchase_invoices")
       .select(
-        "id,invoice_number,supplier_invoice_number,status,payment_status,currency,invoice_date,due_date,total,paid_total,balance_due,cancellation_reason,created_at,suppliers(id,name)"
+        "id,invoice_number,supplier_invoice_number,status,payment_status,currency,invoice_date,due_date,total,paid_total,balance_due,cancellation_reason,created_at,suppliers(id,name)",
       )
       .eq("company_id", companyId)
       .eq("supplier_id", paymentSupplierId)
@@ -968,9 +584,7 @@ export function PurchasesClient({
           setPaymentInvoices([]);
           return;
         }
-        setPaymentInvoices(
-          (data ?? []) as PurchaseInvoiceRow[]
-        );
+        setPaymentInvoices((data ?? []) as PurchaseInvoiceRow[]);
       });
 
     return () => {
@@ -978,169 +592,68 @@ export function PurchasesClient({
     };
   }, [paymentSupplierId, companyId, supabase]);
 
-  const paymentAllocated =
-    useMemo(() => {
-      return Object.values(
-        paymentAllocations
-      ).reduce(
-        (
-          sum,
-          value
-        ) =>
-          sum +
-          Number(
-            value || 0
-          ),
-        0
-      );
-    }, [
-      paymentAllocations,
-    ]);
+  const paymentAllocated = useMemo(() => {
+    return Object.values(paymentAllocations).reduce((sum, value) => sum + Number(value || 0), 0);
+  }, [paymentAllocations]);
 
-  const invoicePageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        invoiceTotalCount /
-          pageSize
-      )
-    );
+  const invoicePageCount = Math.max(1, Math.ceil(invoiceTotalCount / pageSize));
 
-  const paymentPageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        paymentTotalCount /
-          pageSize
-      )
-    );
+  const paymentPageCount = Math.max(1, Math.ceil(paymentTotalCount / pageSize));
 
   // ==========================================================
   // URL NAVIGATION
   // ==========================================================
 
-  function navigateInvoices(
-    nextSearch: string,
-    nextFilter: InvoiceStatusFilter,
-    nextPage = 1
-  ) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+  function navigateInvoices(nextSearch: string, nextFilter: InvoiceStatusFilter, nextPage = 1) {
+    const params = new URLSearchParams(searchParams.toString());
 
-    const clean =
-      nextSearch.trim();
+    const clean = nextSearch.trim();
 
     if (clean) {
-      params.set(
-        "iq",
-        clean
-      );
+      params.set("iq", clean);
     } else {
-      params.delete(
-        "iq"
-      );
+      params.delete("iq");
     }
 
-    if (
-      nextFilter !==
-      "all"
-    ) {
-      params.set(
-        "istatus",
-        nextFilter
-      );
+    if (nextFilter !== "all") {
+      params.set("istatus", nextFilter);
     } else {
-      params.delete(
-        "istatus"
-      );
+      params.delete("istatus");
     }
 
-    if (
-      nextPage > 1
-    ) {
-      params.set(
-        "ipage",
-        String(
-          nextPage
-        )
-      );
+    if (nextPage > 1) {
+      params.set("ipage", String(nextPage));
     } else {
-      params.delete(
-        "ipage"
-      );
+      params.delete("ipage");
     }
 
-    router.push(
-      `/purchases${
-        params.toString()
-          ? `?${params.toString()}`
-          : ""
-      }`
-    );
+    router.push(`/purchases${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
-  function navigatePayments(
-    nextSearch: string,
-    nextFilter: PaymentStatusFilter,
-    nextPage = 1
-  ) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+  function navigatePayments(nextSearch: string, nextFilter: PaymentStatusFilter, nextPage = 1) {
+    const params = new URLSearchParams(searchParams.toString());
 
-    const clean =
-      nextSearch.trim();
+    const clean = nextSearch.trim();
 
     if (clean) {
-      params.set(
-        "pq",
-        clean
-      );
+      params.set("pq", clean);
     } else {
-      params.delete(
-        "pq"
-      );
+      params.delete("pq");
     }
 
-    if (
-      nextFilter !==
-      "all"
-    ) {
-      params.set(
-        "pstatus",
-        nextFilter
-      );
+    if (nextFilter !== "all") {
+      params.set("pstatus", nextFilter);
     } else {
-      params.delete(
-        "pstatus"
-      );
+      params.delete("pstatus");
     }
 
-    if (
-      nextPage > 1
-    ) {
-      params.set(
-        "ppage",
-        String(
-          nextPage
-        )
-      );
+    if (nextPage > 1) {
+      params.set("ppage", String(nextPage));
     } else {
-      params.delete(
-        "ppage"
-      );
+      params.delete("ppage");
     }
 
-    router.push(
-      `/purchases${
-        params.toString()
-          ? `?${params.toString()}`
-          : ""
-      }`
-    );
+    router.push(`/purchases${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
   // ==========================================================
@@ -1149,12 +662,8 @@ export function PurchasesClient({
 
   function resetInvoiceForm() {
     setSupplierId("");
-    setSupplierInvoiceNumber(
-      ""
-    );
-    setInvoiceDate(
-      businessDateInput()
-    );
+    setSupplierInvoiceNumber("");
+    setInvoiceDate(businessDateInput());
     setDueDate("");
     setInvoiceNotes("");
     setLines([]);
@@ -1162,444 +671,223 @@ export function PurchasesClient({
   }
 
   function startInvoice() {
-    if (
-      !canCreateInvoice
-    ) {
+    if (!canCreateInvoice) {
       return;
     }
 
     resetInvoiceForm();
-    setInvoiceOpen(
-      true
-    );
+    setInvoiceOpen(true);
   }
 
-  function changeSupplier(
-    value: string
-  ) {
-    setSupplierId(
-      value
-    );
+  function changeSupplier(value: string) {
+    setSupplierId(value);
 
     setLines([]);
-    setInvoiceMessage(
-      ""
-    );
+    setInvoiceMessage("");
   }
 
-  function priceForProduct(
-    productId: string
-  ) {
-    if (
-      !supplierId ||
-      !productId
-    ) {
+  function priceForProduct(productId: string) {
+    if (!supplierId || !productId) {
       return null;
     }
 
-    return (
-      priceMap.get(
-        `${supplierId}:${productId}`
-      ) ?? null
-    );
+    return priceMap.get(`${supplierId}:${productId}`) ?? null;
   }
 
-  function addNeed(
-    need: PurchaseNeed
-  ) {
-    if (
-      !supplierId
-    ) {
-      setInvoiceMessage(
-        "اختر المورد أولاً."
-      );
+  function addNeed(need: PurchaseNeed) {
+    if (!supplierId) {
+      setInvoiceMessage("اختر المورد أولاً.");
       return;
     }
 
-    if (
-      selectedNeedIds.has(
-        need.sales_order_item_id
-      )
-    ) {
+    if (selectedNeedIds.has(need.sales_order_item_id)) {
       return;
     }
 
-    const currentPrice =
-      priceForProduct(
-        need.product_id
-      );
+    const currentPrice = priceForProduct(need.product_id);
 
-    setLines(
-      (current) => [
-        ...current,
-        {
-          key: newKey(),
-          productId:
-            need.product_id,
-          quantity:
-            String(
-              Number(
-                need.remaining_quantity
-              )
-            ),
-          unitCost:
-            currentPrice !=
-            null
-              ? String(
-                  currentPrice
-                )
-              : "",
-          discountAmount:
-            "0",
-          taxAmount: "0",
-          notes: "",
-          salesOrderItemId:
-            need.sales_order_item_id,
-          maxQuantity:
-            Number(
-              need.remaining_quantity
-            ),
-          traderName:
-            need.trader_name ||
-            null,
-        },
-      ]
-    );
+    setLines((current) => [
+      ...current,
+      {
+        key: newKey(),
+        productId: need.product_id,
+        quantity: String(Number(need.remaining_quantity)),
+        unitCost: currentPrice != null ? String(currentPrice) : "",
+        discountAmount: "0",
+        taxAmount: "0",
+        notes: "",
+        salesOrderItemId: need.sales_order_item_id,
+        maxQuantity: Number(need.remaining_quantity),
+        traderName: need.trader_name || null,
+        productName: need.product_name,
+      },
+    ]);
 
-    setInvoiceMessage(
-      ""
-    );
+    setInvoiceMessage("");
   }
 
   function addManualLine() {
-    if (
-      !supplierId
-    ) {
-      setInvoiceMessage(
-        "اختر المورد أولاً."
-      );
+    if (!supplierId) {
+      setInvoiceMessage("اختر المورد أولاً.");
       return;
     }
 
-    setLines(
-      (current) => [
-        ...current,
-        emptyManualLine(),
-      ]
+    setLines((current) => [...current, emptyManualLine()]);
+  }
+
+  function updateLine(key: string, patch: Partial<DraftLine>) {
+    setLines((current) =>
+      current.map((line) =>
+        line.key === key
+          ? {
+              ...line,
+              ...patch,
+            }
+          : line,
+      ),
     );
   }
 
-  function updateLine(
-    key: string,
-    patch: Partial<DraftLine>
-  ) {
-    setLines(
-      (current) =>
-        current.map(
-          (line) =>
-            line.key === key
-              ? {
-                  ...line,
-                  ...patch,
-                }
-              : line
-        )
-    );
+  function chooseProduct(line: DraftLine, productId: string, productName?: string) {
+    const price = supplierId ? priceMap.get(`${supplierId}:${productId}`) : null;
+
+    updateLine(line.key, {
+      productId,
+      productName: productName ?? null,
+      unitCost: price != null ? String(price) : "",
+    });
   }
 
-  function chooseProduct(
-    line: DraftLine,
-    productId: string
-  ) {
-    const price =
-      supplierId
-        ? priceMap.get(
-            `${supplierId}:${productId}`
-          )
-        : null;
-
-    updateLine(
-      line.key,
-      {
-        productId,
-        unitCost:
-          price != null
-            ? String(
-                price
-              )
-            : "",
-      }
-    );
-  }
-
-  async function saveInvoice(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  async function saveInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setInvoiceMessage(
-      ""
-    );
+    setInvoiceMessage("");
 
-    if (
-      !canCreateInvoice
-    ) {
-      setInvoiceMessage(
-        "ما عندك صلاحية إنشاء فاتورة شراء."
-      );
+    if (!canCreateInvoice) {
+      setInvoiceMessage("ما عندك صلاحية إنشاء فاتورة شراء.");
       return;
     }
 
-    if (
-      !supplierId
-    ) {
-      setInvoiceMessage(
-        "اختر المورد."
-      );
+    if (!supplierId) {
+      setInvoiceMessage("اختر المورد.");
       return;
     }
 
-    if (
-      !invoiceDate
-    ) {
-      setInvoiceMessage(
-        "تاريخ الفاتورة مطلوب."
-      );
+    if (!invoiceDate) {
+      setInvoiceMessage("تاريخ الفاتورة مطلوب.");
       return;
     }
 
-    if (
-      dueDate &&
-      dueDate <
-        invoiceDate
-    ) {
-      setInvoiceMessage(
-        "تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ الفاتورة."
-      );
+    if (dueDate && dueDate < invoiceDate) {
+      setInvoiceMessage("تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ الفاتورة.");
       return;
     }
 
-    if (
-      !lines.length
-    ) {
-      setInvoiceMessage(
-        "أضف بنداً واحداً على الأقل."
-      );
+    if (!lines.length) {
+      setInvoiceMessage("أضف بنداً واحداً على الأقل.");
       return;
     }
 
-    for (
-      const line of
-      lines
-    ) {
-      const quantity =
-        Number(
-          line.quantity
-        );
+    for (const line of lines) {
+      const quantity = Number(line.quantity);
 
-      const cost =
-        Number(
-          line.unitCost
-        );
+      const cost = Number(line.unitCost);
 
-      const discount =
-        Number(
-          line.discountAmount ||
-            0
-        );
+      const discount = Number(line.discountAmount || 0);
 
-      const tax =
-        Number(
-          line.taxAmount ||
-            0
-        );
+      const tax = Number(line.taxAmount || 0);
 
-      if (
-        !line.productId
-      ) {
-        setInvoiceMessage(
-          "يوجد بند بدون صنف."
-        );
+      if (!line.productId) {
+        setInvoiceMessage("يوجد بند بدون صنف.");
         return;
       }
 
-      if (
-        !Number.isFinite(
-          quantity
-        ) ||
-        quantity <= 0
-      ) {
-        setInvoiceMessage(
-          "راجع كميات الفاتورة."
-        );
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        setInvoiceMessage("راجع كميات الفاتورة.");
         return;
       }
 
-      if (
-        line.maxQuantity !=
-          null &&
-        quantity >
-          line.maxQuantity
-      ) {
-        setInvoiceMessage(
-          "إحدى الكميات أكبر من احتياج الشراء المتبقي."
-        );
+      if (line.maxQuantity != null && quantity > line.maxQuantity) {
+        setInvoiceMessage("إحدى الكميات أكبر من احتياج الشراء المتبقي.");
         return;
       }
 
-      if (
-        !Number.isFinite(
-          cost
-        ) ||
-        cost < 0
-      ) {
-        setInvoiceMessage(
-          "راجع أسعار الشراء."
-        );
+      if (!Number.isFinite(cost) || cost < 0) {
+        setInvoiceMessage("راجع أسعار الشراء.");
         return;
       }
 
-      if (
-        !Number.isFinite(
-          discount
-        ) ||
-        discount < 0 ||
-        !Number.isFinite(
-          tax
-        ) ||
-        tax < 0
-      ) {
-        setInvoiceMessage(
-          "راجع الخصم والضريبة."
-        );
+      if (!Number.isFinite(discount) || discount < 0 || !Number.isFinite(tax) || tax < 0) {
+        setInvoiceMessage("راجع الخصم والضريبة.");
         return;
       }
 
-      if (
-        discount >
-        quantity * cost +
-          0.001
-      ) {
-        setInvoiceMessage(
-          "الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر."
-        );
+      if (discount > quantity * cost + 0.001) {
+        setInvoiceMessage("الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر.");
         return;
       }
     }
 
-    const payload =
-      lines.map(
-        (line) => ({
-          product_id:
-            line.productId,
+    const payload = lines.map((line) => ({
+      product_id: line.productId,
 
-          quantity:
-            Number(
-              line.quantity
-            ),
+      quantity: Number(line.quantity),
 
-          unit_cost:
-            Number(
-              line.unitCost
-            ),
+      unit_cost: Number(line.unitCost),
 
-          discount_amount:
-            Number(
-              line.discountAmount ||
-                0
-            ),
+      discount_amount: Number(line.discountAmount || 0),
 
-          tax_amount:
-            Number(
-              line.taxAmount ||
-                0
-            ),
+      tax_amount: Number(line.taxAmount || 0),
 
-          notes:
-            line.notes.trim() ||
-            null,
+      notes: line.notes.trim() || null,
 
-          allocations:
-            line.salesOrderItemId
-              ? [
-                  {
-                    sales_order_item_id:
-                      line.salesOrderItemId,
+      allocations: line.salesOrderItemId
+        ? [
+            {
+              sales_order_item_id: line.salesOrderItemId,
 
-                    quantity:
-                      Number(
-                        line.quantity
-                      ),
-                  },
-                ]
-              : [],
-        })
-      );
+              quantity: Number(line.quantity),
+            },
+          ]
+        : [],
+    }));
 
-    setSavingInvoice(
-      true
-    );
+    setSavingInvoice(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "create_purchase_invoice",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("create_purchase_invoice", {
+        target_company: companyId,
 
-            target_supplier:
-              supplierId,
+        target_supplier: supplierId,
 
-            target_supplier_invoice_number:
-              supplierInvoiceNumber.trim() ||
-              null,
+        target_supplier_invoice_number: supplierInvoiceNumber.trim() || null,
 
-            target_invoice_date:
-              invoiceDate,
+        target_invoice_date: invoiceDate,
 
-            target_due_date:
-              dueDate ||
-              null,
+        target_due_date: dueDate || null,
 
-            target_notes:
-              invoiceNotes.trim() ||
-              null,
+        target_notes: invoiceNotes.trim() || null,
 
-            items_payload:
-              payload,
-          }
-        );
+        items_payload: payload,
+      });
 
       if (error) {
-        setInvoiceMessage(
-          friendlyError(
-            error,
-            "invoice"
-          )
-        );
+        setInvoiceMessage(friendlyError(error, "invoice"));
         return;
       }
 
-      setInvoiceOpen(
-        false
-      );
+      setInvoiceOpen(false);
 
       resetInvoiceForm();
 
       setNotice({
         type: "success",
-        text:
-          "تم إنشاء فاتورة الشراء بنجاح.",
+        text: "تم إنشاء فاتورة الشراء بنجاح.",
       });
 
       router.refresh();
     } finally {
-      setSavingInvoice(
-        false
-      );
+      setSavingInvoice(false);
     }
   }
 
@@ -1608,409 +896,191 @@ export function PurchasesClient({
   // ==========================================================
 
   function resetPaymentForm() {
-    setPaymentSupplierId(
-      ""
-    );
+    setPaymentSupplierId("");
 
-    const preferred =
-      cashboxes.find(
-        (row) =>
-          row.currency ===
-          currency
-      ) ??
-      cashboxes[0];
+    const preferred = cashboxes.find((row) => row.currency === currency) ?? cashboxes[0];
 
-    setPaymentCashboxId(
-      preferred?.id ??
-        ""
-    );
+    setPaymentCashboxId(preferred?.id ?? "");
 
-    setPaymentAmount(
-      ""
-    );
+    setPaymentAmount("");
 
-    setPaymentDate(
-      businessDateInput()
-    );
+    setPaymentDate(businessDateInput());
 
-    setPaymentMethod(
-      "cash"
-    );
+    setPaymentMethod("cash");
 
-    setPaymentReference(
-      ""
-    );
+    setPaymentReference("");
 
-    setPaymentNotes(
-      ""
-    );
+    setPaymentNotes("");
 
-    setPaymentAllocations(
-      {}
-    );
+    setPaymentAllocations({});
 
-    setPaymentCashAmount(
-      ""
-    );
+    setPaymentCashAmount("");
 
-    setPaymentCashCurrency(
-      preferred?.currency ??
-        currency
-    );
+    setPaymentCashCurrency(preferred?.currency ?? currency);
 
-    setPaymentInvoiceCurrency(
-      currency
-    );
+    setPaymentInvoiceCurrency(currency);
 
-    setPaymentQuoteError(
-      ""
-    );
+    setPaymentQuoteError("");
 
-    setPaymentMessage(
-      ""
-    );
+    setPaymentMessage("");
   }
 
-  function startPayment(
-    invoice?: PurchaseInvoiceRow
-  ) {
-    if (
-      !canPaySupplier
-    ) {
+  function startPayment(invoice?: PurchaseInvoiceRow) {
+    if (!canPaySupplier) {
       return;
     }
 
     resetPaymentForm();
 
     if (invoice) {
-      const supplier =
-        oneRelation(
-          invoice.suppliers
-        );
+      const supplier = oneRelation(invoice.suppliers);
 
-      const balance =
-        Number(
-          invoice.balance_due ||
-            0
-        );
+      const balance = Number(invoice.balance_due || 0);
 
-      const matchingCashbox =
-        cashboxes.find(
-          (row) =>
-            row.currency ===
-            invoice.currency
-        );
+      const matchingCashbox = cashboxes.find((row) => row.currency === invoice.currency);
 
-      setPaymentSupplierId(
-        supplier?.id ??
-          ""
-      );
+      setPaymentSupplierId(supplier?.id ?? "");
 
-      setPaymentAmount(
-        balance > 0
-          ? balance.toFixed(
-              2
-            )
-          : ""
-      );
+      setPaymentAmount(balance > 0 ? balance.toFixed(2) : "");
 
       setPaymentAllocations(
         balance > 0
           ? {
-              [invoice.id]:
-                balance.toFixed(
-                  2
-                ),
+              [invoice.id]: balance.toFixed(2),
             }
-          : {}
+          : {},
       );
 
-      if (
-        matchingCashbox
-      ) {
-        setPaymentCashboxId(
-          matchingCashbox.id
-        );
+      if (matchingCashbox) {
+        setPaymentCashboxId(matchingCashbox.id);
       }
     }
 
-    setPaymentOpen(
-      true
-    );
+    setPaymentOpen(true);
   }
 
-  function changePaymentSupplier(
-    value: string
-  ) {
-    setPaymentSupplierId(
-      value
-    );
+  function changePaymentSupplier(value: string) {
+    setPaymentSupplierId(value);
 
-    setPaymentAllocations(
-      {}
-    );
+    setPaymentAllocations({});
 
-    setPaymentMessage(
-      ""
-    );
+    setPaymentMessage("");
   }
 
-  function setAllocation(
-    invoiceId: string,
-    value: string
-  ) {
-    setPaymentAllocations(
-      (current) => ({
-        ...current,
-        [invoiceId]:
-          value,
-      })
-    );
+  function setAllocation(invoiceId: string, value: string) {
+    setPaymentAllocations((current) => ({
+      ...current,
+      [invoiceId]: value,
+    }));
   }
 
-  function allocateInvoice(
-    invoice: PurchaseInvoiceRow
-  ) {
-    const balance =
-      Number(
-        invoice.balance_due ||
-          0
-      );
+  function allocateInvoice(invoice: PurchaseInvoiceRow) {
+    const balance = Number(invoice.balance_due || 0);
 
-    const other =
-      Object.entries(
-        paymentAllocations
-      ).reduce(
-        (
-          sum,
-          [
-            id,
-            value,
-          ]
-        ) =>
-          id ===
-          invoice.id
-            ? sum
-            : sum +
-              Number(
-                value ||
-                  0
-              ),
-        0
-      );
+    const other = Object.entries(paymentAllocations).reduce(
+      (sum, [id, value]) => (id === invoice.id ? sum : sum + Number(value || 0)),
+      0,
+    );
 
-    const available =
-      Math.max(
-        Number(
-          paymentAmount ||
-            0
-        ) -
-          other,
-        0
-      );
+    const available = Math.max(Number(paymentAmount || 0) - other, 0);
 
     setAllocation(
       invoice.id,
-      Math.min(
-        available,
-        balance
-      ) > 0
-        ? Math.min(
-            available,
-            balance
-          ).toFixed(2)
-        : ""
+      Math.min(available, balance) > 0 ? Math.min(available, balance).toFixed(2) : "",
     );
   }
 
   useEffect(() => {
-    let cancelled =
-      false;
+    let cancelled = false;
 
     async function quote() {
-      if (
-        !paymentOpen
-      ) {
+      if (!paymentOpen) {
         return;
       }
 
-      const cashbox =
-        cashboxes.find(
-          (row) =>
-            row.id ===
-            paymentCashboxId
-        );
+      const cashbox = cashboxes.find((row) => row.id === paymentCashboxId);
 
-      const amount =
-        Number(
-          paymentAmount ||
-            0
-        );
+      const amount = Number(paymentAmount || 0);
 
-      if (
-        !cashbox ||
-        !paymentDate ||
-        !Number.isFinite(
-          amount
-        ) ||
-        amount <= 0
-      ) {
-        setPaymentCashAmount(
-          ""
-        );
+      if (!cashbox || !paymentDate || !Number.isFinite(amount) || amount <= 0) {
+        setPaymentCashAmount("");
 
-        setPaymentQuoteError(
-          ""
-        );
+        setPaymentQuoteError("");
 
-        setQuoteLoading(
-          false
-        );
+        setQuoteLoading(false);
 
         return;
       }
 
-      const invoiceCurrency =
-        paymentInvoices[0]
-          ?.currency ??
-        currency;
+      const invoiceCurrency = paymentInvoices[0]?.currency ?? currency;
 
-      if (
-        paymentInvoices.some(
-          (invoice) =>
-            invoice.currency !==
-            invoiceCurrency
-        )
-      ) {
-        setPaymentQuoteError(
-          "لا يمكن توزيع دفعة واحدة على فواتير بعملات مختلفة."
-        );
+      if (paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)) {
+        setPaymentQuoteError("لا يمكن توزيع دفعة واحدة على فواتير بعملات مختلفة.");
 
-        setPaymentCashAmount(
-          ""
-        );
+        setPaymentCashAmount("");
 
         return;
       }
 
-      setPaymentCashCurrency(
-        cashbox.currency
-      );
+      setPaymentCashCurrency(cashbox.currency);
 
-      setPaymentInvoiceCurrency(
-        invoiceCurrency
-      );
+      setPaymentInvoiceCurrency(invoiceCurrency);
 
-      if (
-        cashbox.currency ===
-        invoiceCurrency
-      ) {
-        setPaymentCashAmount(
-          amount.toFixed(2)
-        );
+      if (cashbox.currency === invoiceCurrency) {
+        setPaymentCashAmount(amount.toFixed(2));
 
-        setPaymentQuoteError(
-          ""
-        );
+        setPaymentQuoteError("");
 
-        setQuoteLoading(
-          false
-        );
+        setQuoteLoading(false);
 
         return;
       }
 
-      setQuoteLoading(
-        true
-      );
+      setQuoteLoading(true);
 
-      setPaymentCashAmount(
-        ""
-      );
+      setPaymentCashAmount("");
 
-      const {
-        data,
-        error,
-      } =
-        await supabase.rpc(
-          "payment_currency_quote",
-          {
-            target_company:
-              companyId,
+      const { data, error } = await supabase.rpc("payment_currency_quote", {
+        target_company: companyId,
 
-            target_invoice_currency:
-              invoiceCurrency,
+        target_invoice_currency: invoiceCurrency,
 
-            target_payment_currency:
-              cashbox.currency,
+        target_payment_currency: cashbox.currency,
 
-            target_invoice_amount:
-              amount,
+        target_invoice_amount: amount,
 
-            target_payment_date:
-              paymentDate,
-          }
-        );
+        target_payment_date: paymentDate,
+      });
 
       if (cancelled) {
         return;
       }
 
-      setQuoteLoading(
-        false
-      );
+      setQuoteLoading(false);
 
       if (error) {
-        setPaymentQuoteError(
-          friendlyError(
-            error,
-            "quote"
-          )
-        );
+        setPaymentQuoteError(friendlyError(error, "quote"));
         return;
       }
 
-      const result =
-        Array.isArray(
-          data
-        )
-          ? data[0]
-          : data;
+      const result = Array.isArray(data) ? data[0] : data;
 
-      const cashAmount =
-        Number(
-          result?.payment_amount ??
-            0
-        );
+      const cashAmount = Number(result?.payment_amount ?? 0);
 
-      if (
-        !Number.isFinite(
-          cashAmount
-        ) ||
-        cashAmount <= 0
-      ) {
-        setPaymentQuoteError(
-          "تعذر احتساب مبلغ الصندوق."
-        );
+      if (!Number.isFinite(cashAmount) || cashAmount <= 0) {
+        setPaymentQuoteError("تعذر احتساب مبلغ الصندوق.");
         return;
       }
 
-      setPaymentCashAmount(
-        cashAmount.toFixed(
-          2
-        )
-      );
+      setPaymentCashAmount(cashAmount.toFixed(2));
 
-      setPaymentQuoteError(
-        ""
-      );
+      setPaymentQuoteError("");
     }
 
     void quote();
 
     return () => {
-      cancelled =
-        true;
+      cancelled = true;
     };
   }, [
     paymentOpen,
@@ -2024,293 +1094,145 @@ export function PurchasesClient({
     supabase,
   ]);
 
-  async function savePayment(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  async function savePayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setPaymentMessage(
-      ""
-    );
+    setPaymentMessage("");
 
-    if (
-      !canPaySupplier
-    ) {
-      setPaymentMessage(
-        "ما عندك صلاحية تسجيل دفعة مورد."
-      );
+    if (!canPaySupplier) {
+      setPaymentMessage("ما عندك صلاحية تسجيل دفعة مورد.");
       return;
     }
 
-    if (
-      !paymentSupplierId
-    ) {
-      setPaymentMessage(
-        "اختر المورد."
-      );
+    if (!paymentSupplierId) {
+      setPaymentMessage("اختر المورد.");
       return;
     }
 
-    const amount =
-      Number(
-        paymentAmount
-      );
+    const amount = Number(paymentAmount);
 
-    if (
-      !Number.isFinite(
-        amount
-      ) ||
-      amount <= 0
-    ) {
-      setPaymentMessage(
-        "اكتب مبلغ دفعة صحيح."
-      );
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPaymentMessage("اكتب مبلغ دفعة صحيح.");
       return;
     }
 
-    const cashbox =
-      cashboxes.find(
-        (row) =>
-          row.id ===
-          paymentCashboxId
-      );
+    const cashbox = cashboxes.find((row) => row.id === paymentCashboxId);
 
     if (!cashbox) {
-      setPaymentMessage(
-        "اختر صندوقاً مالياً صالحاً."
-      );
+      setPaymentMessage("اختر صندوقاً مالياً صالحاً.");
       return;
     }
 
-    if (
-      paymentAllocated >
-      amount + 0.01
-    ) {
-      setPaymentMessage(
-        "مجموع التوزيع أكبر من مبلغ الدفعة."
-      );
+    if (paymentAllocated > amount + 0.01) {
+      setPaymentMessage("مجموع التوزيع أكبر من مبلغ الدفعة.");
       return;
     }
 
-    const invoiceCurrency =
-      paymentInvoices[0]
-        ?.currency ??
-      currency;
+    const invoiceCurrency = paymentInvoices[0]?.currency ?? currency;
 
-    if (
-      paymentInvoices.some(
-        (invoice) =>
-          invoice.currency !==
-          invoiceCurrency
-      )
-    ) {
-      setPaymentMessage(
-        "لا يمكن دفع فواتير بعملات مختلفة في نفس العملية."
-      );
+    if (paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)) {
+      setPaymentMessage("لا يمكن دفع فواتير بعملات مختلفة في نفس العملية.");
       return;
     }
 
-    const allocations:
-      Array<{
-        purchase_invoice_id: string;
-        amount: number;
-      }> = [];
+    const allocations: Array<{
+      purchase_invoice_id: string;
+      amount: number;
+    }> = [];
 
-    for (
-      const invoice of
-      paymentInvoices
-    ) {
-      const value =
-        Number(
-          paymentAllocations[
-            invoice.id
-          ] ||
-            0
-        );
+    for (const invoice of paymentInvoices) {
+      const value = Number(paymentAllocations[invoice.id] || 0);
 
-      if (
-        !Number.isFinite(
-          value
-        ) ||
-        value < 0
-      ) {
-        setPaymentMessage(
-          "راجع توزيع الدفعة."
-        );
+      if (!Number.isFinite(value) || value < 0) {
+        setPaymentMessage("راجع توزيع الدفعة.");
         return;
       }
 
-      if (
-        value <= 0
-      ) {
+      if (value <= 0) {
         continue;
       }
 
-      if (
-        value >
-        Number(
-          invoice.balance_due
-        ) +
-          0.01
-      ) {
-        setPaymentMessage(
-          `المبلغ الموزع على ${invoice.invoice_number} أكبر من رصيد الفاتورة.`
-        );
+      if (value > Number(invoice.balance_due) + 0.01) {
+        setPaymentMessage(`المبلغ الموزع على ${invoice.invoice_number} أكبر من رصيد الفاتورة.`);
         return;
       }
 
       allocations.push({
-        purchase_invoice_id:
-          invoice.id,
-        amount:
-          Number(
-            value.toFixed(
-              2
-            )
-          ),
+        purchase_invoice_id: invoice.id,
+        amount: Number(value.toFixed(2)),
       });
     }
 
-    setSavingPayment(
-      true
-    );
+    setSavingPayment(true);
 
     try {
-      let cashAmount =
-        amount;
+      let cashAmount = amount;
 
-      if (
-        cashbox.currency !==
-        invoiceCurrency
-      ) {
-        const {
-          data,
-          error,
-        } =
-          await supabase.rpc(
-            "payment_currency_quote",
-            {
-              target_company:
-                companyId,
+      if (cashbox.currency !== invoiceCurrency) {
+        const { data, error } = await supabase.rpc("payment_currency_quote", {
+          target_company: companyId,
 
-              target_invoice_currency:
-                invoiceCurrency,
+          target_invoice_currency: invoiceCurrency,
 
-              target_payment_currency:
-                cashbox.currency,
+          target_payment_currency: cashbox.currency,
 
-              target_invoice_amount:
-                amount,
+          target_invoice_amount: amount,
 
-              target_payment_date:
-                paymentDate,
-            }
-          );
+          target_payment_date: paymentDate,
+        });
 
         if (error) {
-          setPaymentMessage(
-            friendlyError(
-              error,
-              "quote"
-            )
-          );
+          setPaymentMessage(friendlyError(error, "quote"));
           return;
         }
 
-        const result =
-          Array.isArray(
-            data
-          )
-            ? data[0]
-            : data;
+        const result = Array.isArray(data) ? data[0] : data;
 
-        cashAmount =
-          Number(
-            result?.payment_amount ??
-              0
-          );
+        cashAmount = Number(result?.payment_amount ?? 0);
 
-        if (
-          !Number.isFinite(
-            cashAmount
-          ) ||
-          cashAmount <= 0
-        ) {
-          setPaymentMessage(
-            "تعذر تثبيت مبلغ الدفعة بعملة الصندوق."
-          );
+        if (!Number.isFinite(cashAmount) || cashAmount <= 0) {
+          setPaymentMessage("تعذر تثبيت مبلغ الدفعة بعملة الصندوق.");
           return;
         }
       }
 
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "record_supplier_payment",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("record_supplier_payment", {
+        target_company: companyId,
 
-            target_supplier:
-              paymentSupplierId,
+        target_supplier: paymentSupplierId,
 
-            target_cashbox:
-              paymentCashboxId,
+        target_cashbox: paymentCashboxId,
 
-            target_amount:
-              Number(
-                cashAmount.toFixed(
-                  2
-                )
-              ),
+        target_amount: Number(cashAmount.toFixed(2)),
 
-            target_payment_date:
-              paymentDate,
+        target_payment_date: paymentDate,
 
-            target_method:
-              paymentMethod,
+        target_method: paymentMethod,
 
-            target_reference:
-              paymentReference.trim() ||
-              null,
+        target_reference: paymentReference.trim() || null,
 
-            target_notes:
-              paymentNotes.trim() ||
-              null,
+        target_notes: paymentNotes.trim() || null,
 
-            allocations_payload:
-              allocations,
-          }
-        );
+        allocations_payload: allocations,
+      });
 
       if (error) {
-        setPaymentMessage(
-          friendlyError(
-            error,
-            "payment"
-          )
-        );
+        setPaymentMessage(friendlyError(error, "payment"));
         return;
       }
 
-      setPaymentOpen(
-        false
-      );
+      setPaymentOpen(false);
 
       resetPaymentForm();
 
       setNotice({
         type: "success",
-        text:
-          "تم تسجيل دفعة المورد بنجاح.",
+        text: "تم تسجيل دفعة المورد بنجاح.",
       });
 
       router.refresh();
     } finally {
-      setSavingPayment(
-        false
-      );
+      setSavingPayment(false);
     }
   }
 
@@ -2318,12 +1240,9 @@ export function PurchasesClient({
   // INVOICE DETAILS
   // ==========================================================
 
-  const [detailInvoice, setDetailInvoice] =
-    useState<PurchaseInvoiceRow | null>(null);
-  const [detailLines, setDetailLines] =
-    useState<InvoiceDetailLine[]>([]);
-  const [detailMessage, setDetailMessage] =
-    useState("");
+  const [detailInvoice, setDetailInvoice] = useState<PurchaseInvoiceRow | null>(null);
+  const [detailLines, setDetailLines] = useState<InvoiceDetailLine[]>([]);
+  const [detailMessage, setDetailMessage] = useState("");
 
   async function openDetails(invoice: PurchaseInvoiceRow) {
     setDetailInvoice(invoice);
@@ -2333,7 +1252,7 @@ export function PurchasesClient({
     const { data, error } = await supabase
       .from("purchase_invoice_items")
       .select(
-        "id,quantity,unit_cost,discount_amount,tax_amount,line_total,notes,products(name,sku,unit)"
+        "id,quantity,unit_cost,discount_amount,tax_amount,line_total,notes,products(name,sku,unit)",
       )
       .eq("company_id", companyId)
       .eq("invoice_id", invoice.id)
@@ -2354,7 +1273,10 @@ export function PurchasesClient({
       const result = await supabase
         .from("goods_receipt_items")
         .select("purchase_invoice_item_id,quantity,goods_receipts!inner(status)")
-        .in("purchase_invoice_item_id", rows.map((row) => row.id))
+        .in(
+          "purchase_invoice_item_id",
+          rows.map((row) => row.id),
+        )
         .eq("goods_receipts.status", "posted");
 
       if (result.error) {
@@ -2370,8 +1292,8 @@ export function PurchasesClient({
     setDetailLines(
       rows.map((row) => ({
         ...row,
-        received: canSeeReceipts ? received.get(row.id) ?? 0 : null,
-      }))
+        received: canSeeReceipts ? (received.get(row.id) ?? 0) : null,
+      })),
     );
     setDetailMessage("");
   }
@@ -2380,114 +1302,70 @@ export function PurchasesClient({
   // CANCEL INVOICE
   // ==========================================================
 
-  function openCancel(
-    invoice: PurchaseInvoiceRow
-  ) {
-    if (
-      !canCancelInvoice
-    ) {
+  function openCancel(invoice: PurchaseInvoiceRow) {
+    if (!canCancelInvoice) {
       return;
     }
 
-    setCancelTarget(
-      invoice
-    );
+    setCancelTarget(invoice);
 
-    setCancelReason(
-      ""
-    );
+    setCancelReason("");
 
-    setCancelMessage(
-      ""
-    );
+    setCancelMessage("");
   }
 
-  async function saveCancel(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  async function saveCancel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !cancelTarget ||
-      !canCancelInvoice
-    ) {
+    if (!cancelTarget || !canCancelInvoice) {
       return;
     }
 
-    const reason =
-      cancelReason.trim();
+    const reason = cancelReason.trim();
 
     if (!reason) {
-      setCancelMessage(
-        "اكتب سبب إلغاء الفاتورة."
-      );
+      setCancelMessage("اكتب سبب إلغاء الفاتورة.");
       return;
     }
 
-    setCancelling(
-      true
-    );
+    setCancelling(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "cancel_purchase_invoice",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("cancel_purchase_invoice", {
+        target_company: companyId,
 
-            target_invoice:
-              cancelTarget.id,
+        target_invoice: cancelTarget.id,
 
-            target_reason:
-              reason,
-          }
-        );
+        target_reason: reason,
+      });
 
       if (error) {
-        setCancelMessage(
-          friendlyError(
-            error,
-            "cancel"
-          )
-        );
+        setCancelMessage(friendlyError(error, "cancel"));
         return;
       }
 
-      setInvoices(
-        (current) =>
-          current.map(
-            (row) =>
-              row.id ===
-              cancelTarget.id
-                ? {
-                    ...row,
-                    status:
-                      "cancelled",
-                    cancellation_reason:
-                      reason,
-                  }
-                : row
-          )
+      setInvoices((current) =>
+        current.map((row) =>
+          row.id === cancelTarget.id
+            ? {
+                ...row,
+                status: "cancelled",
+                cancellation_reason: reason,
+              }
+            : row,
+        ),
       );
 
-      setCancelTarget(
-        null
-      );
+      setCancelTarget(null);
 
       setNotice({
         type: "success",
-        text:
-          "تم إلغاء فاتورة الشراء.",
+        text: "تم إلغاء فاتورة الشراء.",
       });
 
       router.refresh();
     } finally {
-      setCancelling(
-        false
-      );
+      setCancelling(false);
     }
   }
 
@@ -2495,114 +1373,70 @@ export function PurchasesClient({
   // REVERSE PAYMENT
   // ==========================================================
 
-  function openReverse(
-    payment: SupplierPaymentRow
-  ) {
-    if (
-      !canReversePayment
-    ) {
+  function openReverse(payment: SupplierPaymentRow) {
+    if (!canReversePayment) {
       return;
     }
 
-    setReverseTarget(
-      payment
-    );
+    setReverseTarget(payment);
 
-    setReverseReason(
-      ""
-    );
+    setReverseReason("");
 
-    setReverseMessage(
-      ""
-    );
+    setReverseMessage("");
   }
 
-  async function saveReverse(
-    event: FormEvent<HTMLFormElement>
-  ) {
+  async function saveReverse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !reverseTarget ||
-      !canReversePayment
-    ) {
+    if (!reverseTarget || !canReversePayment) {
       return;
     }
 
-    const reason =
-      reverseReason.trim();
+    const reason = reverseReason.trim();
 
     if (!reason) {
-      setReverseMessage(
-        "اكتب سبب عكس الدفعة."
-      );
+      setReverseMessage("اكتب سبب عكس الدفعة.");
       return;
     }
 
-    setReversing(
-      true
-    );
+    setReversing(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "reverse_supplier_payment",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("reverse_supplier_payment", {
+        target_company: companyId,
 
-            target_payment:
-              reverseTarget.id,
+        target_payment: reverseTarget.id,
 
-            target_reason:
-              reason,
-          }
-        );
+        target_reason: reason,
+      });
 
       if (error) {
-        setReverseMessage(
-          friendlyError(
-            error,
-            "reverse"
-          )
-        );
+        setReverseMessage(friendlyError(error, "reverse"));
         return;
       }
 
-      setPayments(
-        (current) =>
-          current.map(
-            (row) =>
-              row.id ===
-              reverseTarget.id
-                ? {
-                    ...row,
-                    status:
-                      "reversed",
-                    reversal_reason:
-                      reason,
-                  }
-                : row
-          )
+      setPayments((current) =>
+        current.map((row) =>
+          row.id === reverseTarget.id
+            ? {
+                ...row,
+                status: "reversed",
+                reversal_reason: reason,
+              }
+            : row,
+        ),
       );
 
-      setReverseTarget(
-        null
-      );
+      setReverseTarget(null);
 
       setNotice({
         type: "success",
-        text:
-          "تم عكس دفعة المورد وإرجاع أثرها المالي.",
+        text: "تم عكس دفعة المورد وإرجاع أثرها المالي.",
       });
 
       router.refresh();
     } finally {
-      setReversing(
-        false
-      );
+      setReversing(false);
     }
   }
 
@@ -2610,41 +1444,23 @@ export function PurchasesClient({
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            دورة الشراء
-          </span>
+          <span className="eyebrow">دورة الشراء</span>
 
-          <h2>
-            المشتريات والموردون
-          </h2>
+          <h2>المشتريات والموردون</h2>
 
-          <p className="muted">
-            احتياجات الشراء، فواتير الموردين، الدفعات والرصيد المستحق.
-          </p>
+          <p className="muted">احتياجات الشراء، فواتير الموردين، الدفعات والرصيد المستحق.</p>
         </div>
 
         <div className="rowActions">
           {canPaySupplier ? (
-            <button
-              type="button"
-              className="softButton"
-              onClick={() =>
-                startPayment()
-              }
-            >
+            <button type="button" className="softButton" onClick={() => startPayment()}>
               <Icons.money size={15} />
               دفع لمورد
             </button>
           ) : null}
 
           {canCreateInvoice ? (
-            <button
-              type="button"
-              className="primaryButton"
-              onClick={
-                startInvoice
-              }
-            >
+            <button type="button" className="primaryButton" onClick={startInvoice}>
               <Icons.plus size={15} />
               فاتورة شراء جديدة
             </button>
@@ -2654,18 +1470,8 @@ export function PurchasesClient({
 
       {notice ? (
         <div
-          className={
-            notice.type ===
-            "error"
-              ? "toastError"
-              : "panel panelPad"
-          }
-          role={
-            notice.type ===
-            "error"
-              ? "alert"
-              : "status"
-          }
+          className={notice.type === "error" ? "toastError" : "panel panelPad"}
+          role={notice.type === "error" ? "alert" : "status"}
           style={{
             marginBottom: 14,
           }}
@@ -2675,35 +1481,13 @@ export function PurchasesClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini
-          title="بنود مطلوبة"
-          value={String(
-            initialStats.needCount
-          )}
-        />
+        <Mini title="بنود مطلوبة" value={String(initialStats.needCount)} />
 
-        <Mini
-          title="كميات متبقية"
-          value={initialStats.remainingUnits.toFixed(
-            3
-          )}
-        />
+        <Mini title="كميات متبقية" value={initialStats.remainingUnits.toFixed(3)} />
 
-        <Mini
-          title="مستحق للموردين"
-          value={money(
-            initialStats.outstandingTotal,
-            currency
-          )}
-        />
+        <Mini title="مستحق للموردين" value={money(initialStats.outstandingTotal, currency)} />
 
-        <Mini
-          title="دفعات مقدمة"
-          value={money(
-            initialStats.supplierCreditTotal,
-            currency
-          )}
-        />
+        <Mini title="دفعات مقدمة" value={money(initialStats.supplierCreditTotal, currency)} />
       </section>
 
       <section
@@ -2714,13 +1498,9 @@ export function PurchasesClient({
       >
         <div className="panelHeader">
           <div>
-            <h2>
-              احتياجات الشراء المفتوحة
-            </h2>
+            <h2>احتياجات الشراء المفتوحة</h2>
 
-            <p>
-              المطلوب والمتبقي من طلبيات العملاء.
-            </p>
+            <p>المطلوب والمتبقي من طلبيات العملاء.</p>
           </div>
         </div>
 
@@ -2728,9 +1508,7 @@ export function PurchasesClient({
           <div className="empty">
             <Icons.check size={30} />
 
-            <h3>
-              لا توجد احتياجات شراء
-            </h3>
+            <h3>لا توجد احتياجات شراء</h3>
           </div>
         ) : (
           <div className="tableWrap">
@@ -2746,54 +1524,25 @@ export function PurchasesClient({
               </thead>
 
               <tbody>
-                {needs.map(
-                  (need) => (
-                    <tr
-                      key={
-                        need.sales_order_item_id
-                      }
-                    >
-                      <td>
-                        <strong>
-                          {
-                            need.product_name
-                          }
-                        </strong>
+                {needs.map((need) => (
+                  <tr key={need.sales_order_item_id}>
+                    <td>
+                      <strong>{need.product_name}</strong>
 
-                        <div className="muted">
-                          {need.sku ||
-                            "—"}
-                        </div>
-                      </td>
+                      <div className="muted">{need.sku || "—"}</div>
+                    </td>
 
-                      <td>
-                        {
-                          need.trader_name
-                        }
-                      </td>
+                    <td>{need.trader_name}</td>
 
-                      <td>
-                        {
-                          need.required_quantity
-                        }
-                      </td>
+                    <td>{need.required_quantity}</td>
 
-                      <td>
-                        {
-                          need.allocated_quantity
-                        }
-                      </td>
+                    <td>{need.allocated_quantity}</td>
 
-                      <td>
-                        <strong>
-                          {
-                            need.remaining_quantity
-                          }
-                        </strong>
-                      </td>
-                    </tr>
-                  )
-                )}
+                    <td>
+                      <strong>{need.remaining_quantity}</strong>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2809,90 +1558,51 @@ export function PurchasesClient({
         <div className="panelPad">
           <div className="panelHeader">
             <div>
-              <h2>
-                فواتير الشراء
-              </h2>
+              <h2>فواتير الشراء</h2>
 
-              <p>
-                إجمالي الفواتير المثبتة: {initialStats.invoiceCount}
-              </p>
+              <p>إجمالي الفواتير المثبتة: {initialStats.invoiceCount}</p>
             </div>
           </div>
 
           <form
             className="filters"
-            onSubmit={(
-              event
-            ) => {
+            onSubmit={(event) => {
               event.preventDefault();
 
-              navigateInvoices(
-                invoiceSearch,
-                invoiceFilter,
-                1
-              );
+              navigateInvoices(invoiceSearch, invoiceFilter, 1);
             }}
           >
             <div className="searchBox">
               <Icons.search size={16} />
 
               <input
-                value={
-                  invoiceSearch
-                }
-                onChange={(
-                  event
-                ) =>
-                  setInvoiceSearch(
-                    event.target.value
-                  )
-                }
+                value={invoiceSearch}
+                onChange={(event) => setInvoiceSearch(event.target.value)}
                 placeholder="رقم الفاتورة، المورد، الصنف أو المبلغ..."
                 aria-label="بحث في فواتير الشراء"
               />
 
-              <button
-                className="softButton"
-                type="submit"
-              >
+              <button className="softButton" type="submit">
                 بحث
               </button>
             </div>
 
             <select
-              value={
-                invoiceFilter
-              }
+              value={invoiceFilter}
               aria-label="حالة فاتورة الشراء"
-              onChange={(
-                event
-              ) => {
-                const value =
-                  event.target
-                    .value as InvoiceStatusFilter;
+              onChange={(event) => {
+                const value = event.target.value as InvoiceStatusFilter;
 
-                setInvoiceFilter(
-                  value
-                );
+                setInvoiceFilter(value);
 
-                navigateInvoices(
-                  invoiceSearch,
-                  value,
-                  1
-                );
+                navigateInvoices(invoiceSearch, value, 1);
               }}
             >
-              <option value="all">
-                كل الحالات
-              </option>
+              <option value="all">كل الحالات</option>
 
-              <option value="posted">
-                مثبتة
-              </option>
+              <option value="posted">مثبتة</option>
 
-              <option value="cancelled">
-                ملغاة
-              </option>
+              <option value="cancelled">ملغاة</option>
             </select>
           </form>
         </div>
@@ -2900,9 +1610,7 @@ export function PurchasesClient({
         {!invoices.length ? (
           <div className="empty">
             <Icons.store size={28} />
-            <h3>
-              لا توجد فواتير شراء
-            </h3>
+            <h3>لا توجد فواتير شراء</h3>
           </div>
         ) : (
           <div className="tableWrap">
@@ -2922,207 +1630,126 @@ export function PurchasesClient({
               </thead>
 
               <tbody>
-                {invoices.map(
-                  (invoice) => {
-                    const supplier =
-                      oneRelation(
-                        invoice.suppliers
-                      );
+                {invoices.map((invoice) => {
+                  const supplier = oneRelation(invoice.suppliers);
 
-                    return (
-                      <tr
-                        key={
-                          invoice.id
-                        }
-                      >
-                        <td>
-                          <button
-                            type="button"
-                            className="linkButton"
-                            onClick={() => void openDetails(invoice)}
-                            title="تفاصيل الفاتورة"
+                  return (
+                    <tr key={invoice.id}>
+                      <td>
+                        <button
+                          type="button"
+                          className="linkButton"
+                          onClick={() => void openDetails(invoice)}
+                          title="تفاصيل الفاتورة"
+                        >
+                          <strong>{invoice.invoice_number}</strong>
+                        </button>
+                      </td>
+
+                      <td>{supplier?.name || "—"}</td>
+
+                      <td>{invoice.supplier_invoice_number || "—"}</td>
+
+                      <td>{invoice.invoice_date}</td>
+
+                      <td>{money(invoice.total, invoice.currency)}</td>
+
+                      <td>{money(invoice.paid_total, invoice.currency)}</td>
+
+                      <td>
+                        <strong>{money(invoice.balance_due, invoice.currency)}</strong>
+                      </td>
+
+                      <td>
+                        {invoice.status === "cancelled" ? (
+                          <>
+                            <span className="chip gray">ملغاة</span>
+
+                            {invoice.cancellation_reason ? (
+                              <div className="muted">{invoice.cancellation_reason}</div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span
+                            className={`chip ${
+                              invoice.payment_status === "paid"
+                                ? "green"
+                                : invoice.payment_status === "partial"
+                                  ? "orange"
+                                  : "gray"
+                            }`}
                           >
-                            <strong>
-                              {
-                                invoice.invoice_number
-                              }
-                            </strong>
-                          </button>
-                        </td>
+                            {invoice.payment_status === "paid"
+                              ? "مدفوعة"
+                              : invoice.payment_status === "partial"
+                                ? "جزئية"
+                                : "غير مدفوعة"}
+                          </span>
+                        )}
+                      </td>
 
-                        <td>
-                          {supplier?.name ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {invoice.supplier_invoice_number ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {
-                            invoice.invoice_date
-                          }
-                        </td>
-
-                        <td>
-                          {money(
-                            invoice.total,
-                            invoice.currency
-                          )}
-                        </td>
-
-                        <td>
-                          {money(
-                            invoice.paid_total,
-                            invoice.currency
-                          )}
-                        </td>
-
-                        <td>
-                          <strong>
-                            {money(
-                              invoice.balance_due,
-                              invoice.currency
-                            )}
-                          </strong>
-                        </td>
-
-                        <td>
-                          {invoice.status ===
-                          "cancelled" ? (
-                            <>
-                              <span className="chip gray">
-                                ملغاة
-                              </span>
-
-                              {invoice.cancellation_reason ? (
-                                <div className="muted">
-                                  {
-                                    invoice.cancellation_reason
-                                  }
-                                </div>
-                              ) : null}
-                            </>
-                          ) : (
-                            <span
-                              className={`chip ${
-                                invoice.payment_status ===
-                                "paid"
-                                  ? "green"
-                                  : invoice.payment_status ===
-                                      "partial"
-                                    ? "orange"
-                                    : "gray"
-                              }`}
+                      <td>
+                        <div className="rowActions">
+                          {canPaySupplier &&
+                          invoice.status === "posted" &&
+                          Number(invoice.balance_due) > 0 ? (
+                            <button
+                              type="button"
+                              className="primaryButton"
+                              onClick={() => startPayment(invoice)}
                             >
-                              {invoice.payment_status ===
-                              "paid"
-                                ? "مدفوعة"
-                                : invoice.payment_status ===
-                                    "partial"
-                                  ? "جزئية"
-                                  : "غير مدفوعة"}
-                            </span>
-                          )}
-                        </td>
+                              دفع
+                            </button>
+                          ) : null}
 
-                        <td>
-                          <div className="rowActions">
-                            {canPaySupplier &&
-                            invoice.status ===
-                              "posted" &&
-                            Number(
-                              invoice.balance_due
-                            ) > 0 ? (
-                              <button
-                                type="button"
-                                className="primaryButton"
-                                onClick={() =>
-                                  startPayment(
-                                    invoice
-                                  )
-                                }
-                              >
-                                دفع
-                              </button>
-                            ) : null}
-
-                            {canCancelInvoice &&
-                            invoice.status ===
-                              "posted" ? (
-                              <button
-                                type="button"
-                                className="dangerButton"
-                                onClick={() =>
-                                  openCancel(
-                                    invoice
-                                  )
-                                }
-                              >
-                                إلغاء
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
+                          {canCancelInvoice && invoice.status === "posted" ? (
+                            <button
+                              type="button"
+                              className="dangerButton"
+                              onClick={() => openCancel(invoice)}
+                            >
+                              إلغاء
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
 
-        {invoicePageCount >
-        1 ? (
+        {invoicePageCount > 1 ? (
           <div
             className="rowActions"
             style={{
-              justifyContent:
-                "center",
+              justifyContent: "center",
               padding: 16,
             }}
           >
             <button
               type="button"
               className="softButton"
-              disabled={
-                invoicePage <=
-                1
-              }
+              disabled={invoicePage <= 1}
               onClick={() =>
-                navigateInvoices(
-                  invoiceSearchQuery,
-                  invoiceStatusFilter,
-                  invoicePage -
-                    1
-                )
+                navigateInvoices(invoiceSearchQuery, invoiceStatusFilter, invoicePage - 1)
               }
             >
               السابق
             </button>
 
             <span className="muted">
-              صفحة {invoicePage} من{" "}
-              {invoicePageCount}
+              صفحة {invoicePage} من {invoicePageCount}
             </span>
 
             <button
               type="button"
               className="softButton"
-              disabled={
-                invoicePage >=
-                invoicePageCount
-              }
+              disabled={invoicePage >= invoicePageCount}
               onClick={() =>
-                navigateInvoices(
-                  invoiceSearchQuery,
-                  invoiceStatusFilter,
-                  invoicePage +
-                    1
-                )
+                navigateInvoices(invoiceSearchQuery, invoiceStatusFilter, invoicePage + 1)
               }
             >
               التالي
@@ -3141,90 +1768,51 @@ export function PurchasesClient({
           <div className="panelPad">
             <div className="panelHeader">
               <div>
-                <h2>
-                  دفعات الموردين
-                </h2>
+                <h2>دفعات الموردين</h2>
 
-                <p>
-                  الدفعات المثبتة والمعكوسة.
-                </p>
+                <p>الدفعات المثبتة والمعكوسة.</p>
               </div>
             </div>
 
             <form
               className="filters"
-              onSubmit={(
-                event
-              ) => {
+              onSubmit={(event) => {
                 event.preventDefault();
 
-                navigatePayments(
-                  paymentSearch,
-                  paymentFilter,
-                  1
-                );
+                navigatePayments(paymentSearch, paymentFilter, 1);
               }}
             >
               <div className="searchBox">
                 <Icons.search size={16} />
 
                 <input
-                  value={
-                    paymentSearch
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setPaymentSearch(
-                      event.target.value
-                    )
-                  }
+                  value={paymentSearch}
+                  onChange={(event) => setPaymentSearch(event.target.value)}
                   placeholder="رقم الدفعة، المورد، المرجع أو المبلغ..."
                   aria-label="بحث في دفعات الموردين"
                 />
 
-                <button
-                  className="softButton"
-                  type="submit"
-                >
+                <button className="softButton" type="submit">
                   بحث
                 </button>
               </div>
 
               <select
-                value={
-                  paymentFilter
-                }
+                value={paymentFilter}
                 aria-label="حالة دفعة المورد"
-                onChange={(
-                  event
-                ) => {
-                  const value =
-                    event.target
-                      .value as PaymentStatusFilter;
+                onChange={(event) => {
+                  const value = event.target.value as PaymentStatusFilter;
 
-                  setPaymentFilter(
-                    value
-                  );
+                  setPaymentFilter(value);
 
-                  navigatePayments(
-                    paymentSearch,
-                    value,
-                    1
-                  );
+                  navigatePayments(paymentSearch, value, 1);
                 }}
               >
-                <option value="all">
-                  كل الحالات
-                </option>
+                <option value="all">كل الحالات</option>
 
-                <option value="posted">
-                  مثبتة
-                </option>
+                <option value="posted">مثبتة</option>
 
-                <option value="reversed">
-                  معكوسة
-                </option>
+                <option value="reversed">معكوسة</option>
               </select>
             </form>
           </div>
@@ -3233,9 +1821,7 @@ export function PurchasesClient({
             <div className="empty">
               <Icons.money size={28} />
 
-              <h3>
-                لا توجد دفعات موردين
-              </h3>
+              <h3>لا توجد دفعات موردين</h3>
             </div>
           ) : (
             <div className="tableWrap">
@@ -3255,192 +1841,100 @@ export function PurchasesClient({
                 </thead>
 
                 <tbody>
-                  {payments.map(
-                    (payment) => {
-                      const supplier =
-                        oneRelation(
-                          payment.suppliers
-                        );
+                  {payments.map((payment) => {
+                    const supplier = oneRelation(payment.suppliers);
 
-                      const cashbox =
-                        oneRelation(
-                          payment.cashboxes
-                        );
+                    const cashbox = oneRelation(payment.cashboxes);
 
-                      const paymentCurrency =
-                        payment.payment_currency ||
-                        cashbox?.currency ||
-                        currency;
+                    const paymentCurrency =
+                      payment.payment_currency || cashbox?.currency || currency;
 
-                      return (
-                        <tr
-                          key={
-                            payment.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                payment.payment_number
-                              }
-                            </strong>
+                    return (
+                      <tr key={payment.id}>
+                        <td>
+                          <strong>{payment.payment_number}</strong>
 
-                            <div className="muted">
-                              {payment.reference_number ||
-                                ""}
-                            </div>
-                          </td>
+                          <div className="muted">{payment.reference_number || ""}</div>
+                        </td>
 
-                          <td>
-                            {supplier?.name ||
-                              "—"}
-                          </td>
+                        <td>{supplier?.name || "—"}</td>
 
-                          <td>
-                            {money(
-                              payment.amount,
-                              paymentCurrency
-                            )}
+                        <td>
+                          {money(payment.amount, paymentCurrency)}
 
-                            {payment.base_amount !=
-                              null &&
-                            paymentCurrency !==
-                              currency ? (
-                              <div className="muted">
-                                ≈{" "}
-                                {money(
-                                  payment.base_amount,
-                                  currency
-                                )}
-                              </div>
-                            ) : null}
-                          </td>
+                          {payment.base_amount != null && paymentCurrency !== currency ? (
+                            <div className="muted">≈ {money(payment.base_amount, currency)}</div>
+                          ) : null}
+                        </td>
 
-                          <td>
-                            {money(
-                              payment.allocated_total,
-                              paymentCurrency
-                            )}
-                          </td>
+                        <td>{money(payment.allocated_total, paymentCurrency)}</td>
 
-                          <td>
-                            {money(
-                              payment.unallocated_total,
-                              paymentCurrency
-                            )}
-                          </td>
+                        <td>{money(payment.unallocated_total, paymentCurrency)}</td>
 
-                          <td>
-                            {cashbox?.name ||
-                              "—"}
-                          </td>
+                        <td>{cashbox?.name || "—"}</td>
 
-                          <td>
-                            {
-                              payment.payment_date
-                            }
-                          </td>
+                        <td>{payment.payment_date}</td>
 
-                          <td>
-                            <span
-                              className={`chip ${
-                                payment.status ===
-                                "posted"
-                                  ? "green"
-                                  : "gray"
-                              }`}
+                        <td>
+                          <span
+                            className={`chip ${payment.status === "posted" ? "green" : "gray"}`}
+                          >
+                            {payment.status === "posted" ? "مثبتة" : "معكوسة"}
+                          </span>
+
+                          {payment.status === "reversed" && payment.reversal_reason ? (
+                            <div className="muted">{payment.reversal_reason}</div>
+                          ) : null}
+                        </td>
+
+                        <td>
+                          {canReversePayment && payment.status === "posted" ? (
+                            <button
+                              type="button"
+                              className="dangerButton"
+                              onClick={() => openReverse(payment)}
                             >
-                              {payment.status ===
-                              "posted"
-                                ? "مثبتة"
-                                : "معكوسة"}
-                            </span>
-
-                            {payment.status ===
-                              "reversed" &&
-                            payment.reversal_reason ? (
-                              <div className="muted">
-                                {
-                                  payment.reversal_reason
-                                }
-                              </div>
-                            ) : null}
-                          </td>
-
-                          <td>
-                            {canReversePayment &&
-                            payment.status ===
-                              "posted" ? (
-                              <button
-                                type="button"
-                                className="dangerButton"
-                                onClick={() =>
-                                  openReverse(
-                                    payment
-                                  )
-                                }
-                              >
-                                عكس
-                              </button>
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    }
-                  )}
+                              عكس
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
 
-          {paymentPageCount >
-          1 ? (
+          {paymentPageCount > 1 ? (
             <div
               className="rowActions"
               style={{
-                justifyContent:
-                  "center",
+                justifyContent: "center",
                 padding: 16,
               }}
             >
               <button
                 type="button"
                 className="softButton"
-                disabled={
-                  paymentPage <=
-                  1
-                }
+                disabled={paymentPage <= 1}
                 onClick={() =>
-                  navigatePayments(
-                    paymentSearchQuery,
-                    paymentStatusFilter,
-                    paymentPage -
-                      1
-                  )
+                  navigatePayments(paymentSearchQuery, paymentStatusFilter, paymentPage - 1)
                 }
               >
                 السابق
               </button>
 
               <span className="muted">
-                صفحة {paymentPage} من{" "}
-                {paymentPageCount}
+                صفحة {paymentPage} من {paymentPageCount}
               </span>
 
               <button
                 type="button"
                 className="softButton"
-                disabled={
-                  paymentPage >=
-                  paymentPageCount
-                }
+                disabled={paymentPage >= paymentPageCount}
                 onClick={() =>
-                  navigatePayments(
-                    paymentSearchQuery,
-                    paymentStatusFilter,
-                    paymentPage +
-                      1
-                  )
+                  navigatePayments(paymentSearchQuery, paymentStatusFilter, paymentPage + 1)
                 }
               >
                 التالي
@@ -3462,146 +1956,71 @@ export function PurchasesClient({
             }}
           >
             <div className="modalHeader">
-              <h2>
-                فاتورة شراء جديدة
-              </h2>
+              <h2>فاتورة شراء جديدة</h2>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={
-                  savingInvoice
-                }
-                onClick={() =>
-                  setInvoiceOpen(
-                    false
-                  )
-                }
+                disabled={savingInvoice}
+                onClick={() => setInvoiceOpen(false)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={
-                saveInvoice
-              }
-            >
+            <form onSubmit={saveInvoice}>
               <div className="formGrid">
                 <label className="field">
-                  <span>
-                    المورد *
-                  </span>
+                  <span>المورد *</span>
 
-                  <select
-                    value={
-                      supplierId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      changeSupplier(
-                        event.target.value
-                      )
-                    }
-                  >
-                    <option value="">
-                      اختر المورد
-                    </option>
-
-                    {suppliers.map(
-                      (supplier) => (
-                        <option
-                          key={
-                            supplier.id
-                          }
-                          value={
-                            supplier.id
-                          }
-                        >
-                          {
-                            supplier.name
-                          }
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>
-                    رقم فاتورة المورد
-                  </span>
-
-                  <input
-                    value={
-                      supplierInvoiceNumber
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setSupplierInvoiceNumber(
-                        event.target.value
-                      )
-                    }
+                  <SearchPicker
+                    value={supplierId}
+                    placeholder="اكتب اسم المورد..."
+                    options={supplierOptions}
+                    onSearch={findSuppliers}
+                    onChange={(id) => changeSupplier(id)}
                   />
                 </label>
 
                 <label className="field">
-                  <span>
-                    تاريخ الفاتورة *
-                  </span>
+                  <span>رقم فاتورة المورد</span>
 
                   <input
-                    type="date"
-                    value={
-                      invoiceDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setInvoiceDate(
-                        event.target.value
-                      )
-                    }
+                    value={supplierInvoiceNumber}
+                    onChange={(event) => setSupplierInvoiceNumber(event.target.value)}
                   />
                 </label>
 
                 <label className="field">
-                  <span>
-                    تاريخ الاستحقاق
-                  </span>
+                  <span>تاريخ الفاتورة *</span>
 
                   <input
                     type="date"
-                    min={
-                      invoiceDate
-                    }
-                    value={
-                      dueDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setDueDate(
-                        event.target.value
-                      )
-                    }
+                    value={invoiceDate}
+                    onChange={(event) => setInvoiceDate(event.target.value)}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>تاريخ الاستحقاق</span>
+
+                  <input
+                    type="date"
+                    min={invoiceDate}
+                    value={dueDate}
+                    onChange={(event) => setDueDate(event.target.value)}
                   />
                 </label>
               </div>
 
-              {supplierId &&
-              needs.length ? (
+              {supplierId && needs.length ? (
                 <div
                   className="panel panelPad"
                   style={{
                     marginTop: 15,
                   }}
                 >
-                  <h3>
-                    احتياجات الشراء
-                  </h3>
+                  <h3>احتياجات الشراء</h3>
 
                   <div className="tableWrap">
                     <table className="dataTable">
@@ -3615,54 +2034,26 @@ export function PurchasesClient({
                       </thead>
 
                       <tbody>
-                        {needs.map(
-                          (need) => (
-                            <tr
-                              key={
-                                need.sales_order_item_id
-                              }
-                            >
-                              <td>
-                                {
-                                  need.product_name
-                                }
-                              </td>
+                        {needs.map((need) => (
+                          <tr key={need.sales_order_item_id}>
+                            <td>{need.product_name}</td>
 
-                              <td>
-                                {
-                                  need.trader_name
-                                }
-                              </td>
+                            <td>{need.trader_name}</td>
 
-                              <td>
-                                {
-                                  need.remaining_quantity
-                                }
-                              </td>
+                            <td>{need.remaining_quantity}</td>
 
-                              <td>
-                                <button
-                                  type="button"
-                                  className="softButton"
-                                  disabled={selectedNeedIds.has(
-                                    need.sales_order_item_id
-                                  )}
-                                  onClick={() =>
-                                    addNeed(
-                                      need
-                                    )
-                                  }
-                                >
-                                  {selectedNeedIds.has(
-                                    need.sales_order_item_id
-                                  )
-                                    ? "مضاف"
-                                    : "إضافة"}
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        )}
+                            <td>
+                              <button
+                                type="button"
+                                className="softButton"
+                                disabled={selectedNeedIds.has(need.sales_order_item_id)}
+                                onClick={() => addNeed(need)}
+                              >
+                                {selectedNeedIds.has(need.sales_order_item_id) ? "مضاف" : "إضافة"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -3676,26 +2067,16 @@ export function PurchasesClient({
                 }}
               >
                 <div className="panelHeader">
-                  <h3>
-                    بنود الفاتورة
-                  </h3>
+                  <h3>بنود الفاتورة</h3>
 
-                  <button
-                    type="button"
-                    className="softButton"
-                    onClick={
-                      addManualLine
-                    }
-                  >
+                  <button type="button" className="softButton" onClick={addManualLine}>
                     <Icons.plus size={14} />
                     بند يدوي
                   </button>
                 </div>
 
                 {!lines.length ? (
-                  <p className="muted">
-                    لا توجد بنود مضافة.
-                  </p>
+                  <p className="muted">لا توجد بنود مضافة.</p>
                 ) : (
                   <div className="tableWrap">
                     <table className="dataTable">
@@ -3712,218 +2093,116 @@ export function PurchasesClient({
                       </thead>
 
                       <tbody>
-                        {lines.map(
-                          (line) => {
-                            const quantity =
-                              Number(
-                                line.quantity ||
-                                  0
-                              );
+                        {lines.map((line) => {
+                          const quantity = Number(line.quantity || 0);
 
-                            const cost =
-                              Number(
-                                line.unitCost ||
-                                  0
-                              );
+                          const cost = Number(line.unitCost || 0);
 
-                            const discount =
-                              Number(
-                                line.discountAmount ||
-                                  0
-                              );
+                          const discount = Number(line.discountAmount || 0);
 
-                            const tax =
-                              Number(
-                                line.taxAmount ||
-                                  0
-                              );
+                          const tax = Number(line.taxAmount || 0);
 
-                            return (
-                              <tr
-                                key={
-                                  line.key
-                                }
-                              >
-                                <td>
-                                  {line.salesOrderItemId ? (
-                                    <>
-                                      <strong>
-                                        {
-                                          products.find(
-                                            (product) =>
-                                              product.id ===
-                                              line.productId
-                                          )?.name
-                                        }
-                                      </strong>
+                          return (
+                            <tr key={line.key}>
+                              <td>
+                                {line.salesOrderItemId ? (
+                                  <>
+                                    <strong>
+                                      {products.find((product) => product.id === line.productId)
+                                        ?.name ?? line.productName}
+                                    </strong>
 
-                                      <div className="muted">
-                                        {line.traderName
-                                          ? `للعميل: ${line.traderName}`
-                                          : ""}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <select
-                                      value={
-                                        line.productId
-                                      }
-                                      onChange={(
-                                        event
-                                      ) =>
-                                        chooseProduct(
-                                          line,
-                                          event.target.value
-                                        )
-                                      }
-                                    >
-                                      <option value="">
-                                        اختر الصنف
-                                      </option>
-
-                                      {products.map(
-                                        (product) => (
-                                          <option
-                                            key={
-                                              product.id
-                                            }
-                                            value={
-                                              product.id
-                                            }
-                                          >
-                                            {
-                                              product.name
-                                            }
-                                          </option>
-                                        )
-                                      )}
-                                    </select>
-                                  )}
-                                </td>
-
-                                <td>
-                                  <input
-                                    type="number"
-                                    min="0.001"
-                                    step="0.001"
-                                    value={
-                                      line.quantity
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      updateLine(
-                                        line.key,
-                                        {
-                                          quantity:
-                                            event.target.value,
-                                        }
-                                      )
-                                    }
+                                    <div className="muted">
+                                      {line.traderName ? `للعميل: ${line.traderName}` : ""}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <SearchPicker
+                                    value={line.productId}
+                                    placeholder="اسم الصنف أو كودو..."
+                                    options={productOptions}
+                                    onSearch={findProducts}
+                                    onChange={(id, option) => chooseProduct(line, id, option?.label)}
                                   />
-                                </td>
+                                )}
+                              </td>
 
-                                <td>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={
-                                      line.unitCost
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      updateLine(
-                                        line.key,
-                                        {
-                                          unitCost:
-                                            event.target.value,
-                                        }
-                                      )
-                                    }
-                                  />
-                                </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0.001"
+                                  step="0.001"
+                                  value={line.quantity}
+                                  onChange={(event) =>
+                                    updateLine(line.key, {
+                                      quantity: event.target.value,
+                                    })
+                                  }
+                                />
+                              </td>
 
-                                <td>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={
-                                      line.discountAmount
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      updateLine(
-                                        line.key,
-                                        {
-                                          discountAmount:
-                                            event.target.value,
-                                        }
-                                      )
-                                    }
-                                  />
-                                </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={line.unitCost}
+                                  onChange={(event) =>
+                                    updateLine(line.key, {
+                                      unitCost: event.target.value,
+                                    })
+                                  }
+                                />
+                              </td>
 
-                                <td>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={
-                                      line.taxAmount
-                                    }
-                                    onChange={(
-                                      event
-                                    ) =>
-                                      updateLine(
-                                        line.key,
-                                        {
-                                          taxAmount:
-                                            event.target.value,
-                                        }
-                                      )
-                                    }
-                                  />
-                                </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={line.discountAmount}
+                                  onChange={(event) =>
+                                    updateLine(line.key, {
+                                      discountAmount: event.target.value,
+                                    })
+                                  }
+                                />
+                              </td>
 
-                                <td>
-                                  {money(
-                                    Math.max(
-                                      quantity *
-                                        cost -
-                                        discount +
-                                        tax,
-                                      0
-                                    ),
-                                    currency
-                                  )}
-                                </td>
+                              <td>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={line.taxAmount}
+                                  onChange={(event) =>
+                                    updateLine(line.key, {
+                                      taxAmount: event.target.value,
+                                    })
+                                  }
+                                />
+                              </td>
 
-                                <td>
-                                  <button
-                                    type="button"
-                                    className="dangerButton"
-                                    onClick={() =>
-                                      setLines(
-                                        (current) =>
-                                          current.filter(
-                                            (row) =>
-                                              row.key !==
-                                              line.key
-                                          )
-                                      )
-                                    }
-                                  >
-                                    ×
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          }
-                        )}
+                              <td>
+                                {money(Math.max(quantity * cost - discount + tax, 0), currency)}
+                              </td>
+
+                              <td>
+                                <button
+                                  type="button"
+                                  className="dangerButton"
+                                  onClick={() =>
+                                    setLines((current) =>
+                                      current.filter((row) => row.key !== line.key),
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -3934,13 +2213,7 @@ export function PurchasesClient({
                     marginTop: 14,
                   }}
                 >
-                  <strong>
-                    الإجمالي:{" "}
-                    {money(
-                      invoiceTotals.total,
-                      currency
-                    )}
-                  </strong>
+                  <strong>الإجمالي: {money(invoiceTotals.total, currency)}</strong>
                 </div>
               </div>
 
@@ -3950,32 +2223,17 @@ export function PurchasesClient({
                   marginTop: 15,
                 }}
               >
-                <span>
-                  ملاحظات
-                </span>
+                <span>ملاحظات</span>
 
                 <textarea
-                  value={
-                    invoiceNotes
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setInvoiceNotes(
-                      event.target.value
-                    )
-                  }
+                  value={invoiceNotes}
+                  onChange={(event) => setInvoiceNotes(event.target.value)}
                 />
               </label>
 
               {invoiceMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    invoiceMessage
-                  }
+                <div className="toastError" role="alert">
+                  {invoiceMessage}
                 </div>
               ) : null}
 
@@ -3983,27 +2241,14 @@ export function PurchasesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    savingInvoice
-                  }
-                  onClick={() =>
-                    setInvoiceOpen(
-                      false
-                    )
-                  }
+                  disabled={savingInvoice}
+                  onClick={() => setInvoiceOpen(false)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={
-                    savingInvoice
-                  }
-                >
-                  {savingInvoice
-                    ? "جارٍ الحفظ..."
-                    : "حفظ الفاتورة"}
+                <button className="primaryButton" disabled={savingInvoice}>
+                  {savingInvoice ? "جارٍ الحفظ..." : "حفظ الفاتورة"}
                 </button>
               </div>
             </form>
@@ -4023,237 +2268,105 @@ export function PurchasesClient({
             }}
           >
             <div className="modalHeader">
-              <h2>
-                دفع لمورد
-              </h2>
+              <h2>دفع لمورد</h2>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={
-                  savingPayment
-                }
-                onClick={() =>
-                  setPaymentOpen(
-                    false
-                  )
-                }
+                disabled={savingPayment}
+                onClick={() => setPaymentOpen(false)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={
-                savePayment
-              }
-            >
+            <form onSubmit={savePayment}>
               <div className="formGrid">
                 <label className="field">
-                  <span>
-                    المورد *
-                  </span>
+                  <span>المورد *</span>
 
-                  <select
-                    value={
-                      paymentSupplierId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      changePaymentSupplier(
-                        event.target.value
-                      )
-                    }
-                  >
-                    <option value="">
-                      اختر المورد
-                    </option>
-
-                    {suppliers.map(
-                      (supplier) => (
-                        <option
-                          key={
-                            supplier.id
-                          }
-                          value={
-                            supplier.id
-                          }
-                        >
-                          {
-                            supplier.name
-                          }
-                        </option>
-                      )
-                    )}
-                  </select>
+                  <SearchPicker
+                    value={paymentSupplierId}
+                    placeholder="اكتب اسم المورد..."
+                    options={supplierOptions}
+                    onSearch={findSuppliers}
+                    onChange={(id) => changePaymentSupplier(id)}
+                  />
                 </label>
 
                 <label className="field">
-                  <span>
-                    المبلغ ({paymentInvoiceCurrency})
-                  </span>
+                  <span>المبلغ ({paymentInvoiceCurrency})</span>
 
                   <input
                     type="number"
                     min="0.01"
                     step="0.01"
-                    value={
-                      paymentAmount
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentAmount(
-                        event.target.value
-                      )
-                    }
+                    value={paymentAmount}
+                    onChange={(event) => setPaymentAmount(event.target.value)}
                   />
                 </label>
 
                 <label className="field">
-                  <span>
-                    الصندوق *
-                  </span>
+                  <span>الصندوق *</span>
 
                   <select
-                    value={
-                      paymentCashboxId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentCashboxId(
-                        event.target.value
-                      )
-                    }
+                    value={paymentCashboxId}
+                    onChange={(event) => setPaymentCashboxId(event.target.value)}
                   >
-                    <option value="">
-                      اختر الصندوق
-                    </option>
+                    <option value="">اختر الصندوق</option>
 
-                    {cashboxes.map(
-                      (cashbox) => (
-                        <option
-                          key={
-                            cashbox.id
-                          }
-                          value={
-                            cashbox.id
-                          }
-                        >
-                          {
-                            cashbox.name
-                          }{" "}
-                          -{" "}
-                          {
-                            cashbox.currency
-                          }
-                        </option>
-                      )
-                    )}
+                    {cashboxes.map((cashbox) => (
+                      <option key={cashbox.id} value={cashbox.id}>
+                        {cashbox.name} - {cashbox.currency}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <label className="field">
-                  <span>
-                    التاريخ
-                  </span>
+                  <span>التاريخ</span>
 
                   <input
                     type="date"
-                    value={
-                      paymentDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentDate(
-                        event.target.value
-                      )
-                    }
+                    value={paymentDate}
+                    onChange={(event) => setPaymentDate(event.target.value)}
                   />
                 </label>
 
                 <label className="field">
-                  <span>
-                    طريقة الدفع
-                  </span>
+                  <span>طريقة الدفع</span>
 
                   <select
-                    value={
-                      paymentMethod
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentMethod(
-                        event.target.value as PaymentMethod
-                      )
-                    }
+                    value={paymentMethod}
+                    onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
                   >
-                    {Object.entries(
-                      paymentMethodLabels
-                    ).map(
-                      ([
-                        value,
-                        label,
-                      ]) => (
-                        <option
-                          key={
-                            value
-                          }
-                          value={
-                            value
-                          }
-                        >
-                          {
-                            label
-                          }
-                        </option>
-                      )
-                    )}
+                    {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <label className="field">
-                  <span>
-                    المرجع
-                  </span>
+                  <span>المرجع</span>
 
                   <input
-                    value={
-                      paymentReference
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPaymentReference(
-                        event.target.value
-                      )
-                    }
+                    value={paymentReference}
+                    onChange={(event) => setPaymentReference(event.target.value)}
                   />
                 </label>
               </div>
 
               {quoteLoading ? (
-                <p className="muted">
-                  جارٍ احتساب سعر الصرف...
-                </p>
+                <p className="muted">جارٍ احتساب سعر الصرف...</p>
               ) : paymentQuoteError ? (
-                <div className="toastError">
-                  {
-                    paymentQuoteError
-                  }
-                </div>
+                <div className="toastError">{paymentQuoteError}</div>
               ) : paymentCashAmount ? (
                 <p>
                   سيخرج من الصندوق:{" "}
                   <strong>
-                    {paymentCashAmount}{" "}
-                    {
-                      paymentCashCurrency
-                    }
+                    {paymentCashAmount} {paymentCashCurrency}
                   </strong>
                 </p>
               ) : null}
@@ -4265,9 +2378,7 @@ export function PurchasesClient({
                     marginTop: 15,
                   }}
                 >
-                  <h3>
-                    توزيع الدفعة
-                  </h3>
+                  <h3>توزيع الدفعة</h3>
 
                   <div className="tableWrap">
                     <table className="dataTable">
@@ -4281,75 +2392,38 @@ export function PurchasesClient({
                       </thead>
 
                       <tbody>
-                        {paymentInvoices.map(
-                          (invoice) => (
-                            <tr
-                              key={
-                                invoice.id
-                              }
-                            >
-                              <td>
-                                {
-                                  invoice.invoice_number
-                                }
-                              </td>
+                        {paymentInvoices.map((invoice) => (
+                          <tr key={invoice.id}>
+                            <td>{invoice.invoice_number}</td>
 
-                              <td>
-                                {money(
-                                  invoice.balance_due,
-                                  invoice.currency
-                                )}
-                              </td>
+                            <td>{money(invoice.balance_due, invoice.currency)}</td>
 
-                              <td>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={
-                                    paymentAllocations[
-                                      invoice.id
-                                    ] ||
-                                    ""
-                                  }
-                                  onChange={(
-                                    event
-                                  ) =>
-                                    setAllocation(
-                                      invoice.id,
-                                      event.target.value
-                                    )
-                                  }
-                                />
-                              </td>
+                            <td>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={paymentAllocations[invoice.id] || ""}
+                                onChange={(event) => setAllocation(invoice.id, event.target.value)}
+                              />
+                            </td>
 
-                              <td>
-                                <button
-                                  type="button"
-                                  className="softButton"
-                                  onClick={() =>
-                                    allocateInvoice(
-                                      invoice
-                                    )
-                                  }
-                                >
-                                  توزيع
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        )}
+                            <td>
+                              <button
+                                type="button"
+                                className="softButton"
+                                onClick={() => allocateInvoice(invoice)}
+                              >
+                                توزيع
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
 
-                  <p className="muted">
-                    موزع:{" "}
-                    {money(
-                      paymentAllocated,
-                      paymentInvoiceCurrency
-                    )}
-                  </p>
+                  <p className="muted">موزع: {money(paymentAllocated, paymentInvoiceCurrency)}</p>
                 </div>
               ) : null}
 
@@ -4359,32 +2433,17 @@ export function PurchasesClient({
                   marginTop: 15,
                 }}
               >
-                <span>
-                  ملاحظات
-                </span>
+                <span>ملاحظات</span>
 
                 <textarea
-                  value={
-                    paymentNotes
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setPaymentNotes(
-                      event.target.value
-                    )
-                  }
+                  value={paymentNotes}
+                  onChange={(event) => setPaymentNotes(event.target.value)}
                 />
               </label>
 
               {paymentMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    paymentMessage
-                  }
+                <div className="toastError" role="alert">
+                  {paymentMessage}
                 </div>
               ) : null}
 
@@ -4392,31 +2451,17 @@ export function PurchasesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    savingPayment
-                  }
-                  onClick={() =>
-                    setPaymentOpen(
-                      false
-                    )
-                  }
+                  disabled={savingPayment}
+                  onClick={() => setPaymentOpen(false)}
                 >
                   إلغاء
                 </button>
 
                 <button
                   className="primaryButton"
-                  disabled={
-                    savingPayment ||
-                    quoteLoading ||
-                    Boolean(
-                      paymentQuoteError
-                    )
-                  }
+                  disabled={savingPayment || quoteLoading || Boolean(paymentQuoteError)}
                 >
-                  {savingPayment
-                    ? "جارٍ التسجيل..."
-                    : "تسجيل الدفعة"}
+                  {savingPayment ? "جارٍ التسجيل..." : "تسجيل الدفعة"}
                 </button>
               </div>
             </form>
@@ -4431,12 +2476,19 @@ export function PurchasesClient({
             if (event.target === event.currentTarget) setDetailInvoice(null);
           }}
         >
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="purchase-detail-title">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="purchase-detail-title"
+          >
             <div className="modalHeader">
               <div>
                 <span className="eyebrow">
                   {oneRelation(detailInvoice.suppliers)?.name || "مورد"}
-                  {detailInvoice.supplier_invoice_number ? ` • فاتورة المورد ${detailInvoice.supplier_invoice_number}` : ""}
+                  {detailInvoice.supplier_invoice_number
+                    ? ` • فاتورة المورد ${detailInvoice.supplier_invoice_number}`
+                    : ""}
                 </span>
                 <h2 id="purchase-detail-title">{detailInvoice.invoice_number}</h2>
                 <p className="muted">
@@ -4444,7 +2496,12 @@ export function PurchasesClient({
                   {detailInvoice.due_date ? ` • الاستحقاق ${detailInvoice.due_date}` : ""}
                 </p>
               </div>
-              <button type="button" className="closeButton" aria-label="إغلاق" onClick={() => setDetailInvoice(null)}>
+              <button
+                type="button"
+                className="closeButton"
+                aria-label="إغلاق"
+                onClick={() => setDetailInvoice(null)}
+              >
                 ×
               </button>
             </div>
@@ -4478,7 +2535,11 @@ export function PurchasesClient({
                             {quantity} {product?.unit || ""}
                           </td>
                           <td>{money(line.unit_cost, detailInvoice.currency)}</td>
-                          <td>{Number(line.discount_amount) > 0 ? money(line.discount_amount, detailInvoice.currency) : "—"}</td>
+                          <td>
+                            {Number(line.discount_amount) > 0
+                              ? money(line.discount_amount, detailInvoice.currency)
+                              : "—"}
+                          </td>
                           <td>
                             <strong>{money(line.line_total, detailInvoice.currency)}</strong>
                           </td>
@@ -4486,8 +2547,12 @@ export function PurchasesClient({
                             {line.received == null ? (
                               "—"
                             ) : (
-                              <span className={`chip ${line.received >= quantity ? "green" : line.received > 0 ? "orange" : "gray"}`}>
-                                {line.received >= quantity ? "استلمنا الكل" : `${line.received} من ${quantity}`}
+                              <span
+                                className={`chip ${line.received >= quantity ? "green" : line.received > 0 ? "orange" : "gray"}`}
+                              >
+                                {line.received >= quantity
+                                  ? "استلمنا الكل"
+                                  : `${line.received} من ${quantity}`}
                               </span>
                             )}
                           </td>
@@ -4515,83 +2580,39 @@ export function PurchasesClient({
 
       {cancelTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
-              <h2>
-                إلغاء فاتورة شراء
-              </h2>
+              <h2>إلغاء فاتورة شراء</h2>
             </div>
 
-            <form
-              onSubmit={
-                saveCancel
-              }
-            >
+            <form onSubmit={saveCancel}>
               <p>
-                الفاتورة:{" "}
-                <strong>
-                  {
-                    cancelTarget.invoice_number
-                  }
-                </strong>
+                الفاتورة: <strong>{cancelTarget.invoice_number}</strong>
               </p>
 
               <label className="field">
-                <span>
-                  سبب الإلغاء *
-                </span>
+                <span>سبب الإلغاء *</span>
 
                 <textarea
-                  value={
-                    cancelReason
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setCancelReason(
-                      event.target.value
-                    )
-                  }
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
                 />
               </label>
 
-              {cancelMessage ? (
-                <div className="toastError">
-                  {
-                    cancelMessage
-                  }
-                </div>
-              ) : null}
+              {cancelMessage ? <div className="toastError">{cancelMessage}</div> : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    cancelling
-                  }
-                  onClick={() =>
-                    setCancelTarget(
-                      null
-                    )
-                  }
+                  disabled={cancelling}
+                  onClick={() => setCancelTarget(null)}
                 >
                   رجوع
                 </button>
 
-                <button
-                  className="dangerButton"
-                  disabled={
-                    cancelling
-                  }
-                >
-                  {cancelling
-                    ? "جارٍ الإلغاء..."
-                    : "تأكيد الإلغاء"}
+                <button className="dangerButton" disabled={cancelling}>
+                  {cancelling ? "جارٍ الإلغاء..." : "تأكيد الإلغاء"}
                 </button>
               </div>
             </form>
@@ -4601,83 +2622,39 @@ export function PurchasesClient({
 
       {reverseTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
-              <h2>
-                عكس دفعة مورد
-              </h2>
+              <h2>عكس دفعة مورد</h2>
             </div>
 
-            <form
-              onSubmit={
-                saveReverse
-              }
-            >
+            <form onSubmit={saveReverse}>
               <p>
-                الدفعة:{" "}
-                <strong>
-                  {
-                    reverseTarget.payment_number
-                  }
-                </strong>
+                الدفعة: <strong>{reverseTarget.payment_number}</strong>
               </p>
 
               <label className="field">
-                <span>
-                  سبب العكس *
-                </span>
+                <span>سبب العكس *</span>
 
                 <textarea
-                  value={
-                    reverseReason
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setReverseReason(
-                      event.target.value
-                    )
-                  }
+                  value={reverseReason}
+                  onChange={(event) => setReverseReason(event.target.value)}
                 />
               </label>
 
-              {reverseMessage ? (
-                <div className="toastError">
-                  {
-                    reverseMessage
-                  }
-                </div>
-              ) : null}
+              {reverseMessage ? <div className="toastError">{reverseMessage}</div> : null}
 
               <div className="modalActions">
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    reversing
-                  }
-                  onClick={() =>
-                    setReverseTarget(
-                      null
-                    )
-                  }
+                  disabled={reversing}
+                  onClick={() => setReverseTarget(null)}
                 >
                   رجوع
                 </button>
 
-                <button
-                  className="dangerButton"
-                  disabled={
-                    reversing
-                  }
-                >
-                  {reversing
-                    ? "جارٍ العكس..."
-                    : "تأكيد العكس"}
+                <button className="dangerButton" disabled={reversing}>
+                  {reversing ? "جارٍ العكس..." : "تأكيد العكس"}
                 </button>
               </div>
             </form>
@@ -4688,22 +2665,12 @@ export function PurchasesClient({
   );
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
+function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {title}
-      </div>
+      <div className="statLabel">{title}</div>
 
-      <div className="statValue">
-        {value}
-      </div>
+      <div className="statValue">{value}</div>
     </div>
   );
 }

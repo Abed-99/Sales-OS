@@ -1563,3 +1563,16 @@ body{
 /* اختيار موقع المحل بفورم الزبون */
 .locationPicker { display: grid; gap: 8px; }
 .locationPickerMap { height: 240px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+
+/* SearchPicker: خانة اختيار بالبحث */
+.picker { position: relative; width: 100%; min-width: 180px; }
+.picker input { width: 100%; border: 1px solid var(--line); background: #06110e; color: white; border-radius: 11px; padding: 10px 12px; outline: none; }
+.picker input:focus { border-color: rgba(47,202,158,.55); box-shadow: 0 0 0 4px rgba(47,202,158,.055); }
+.pickerMenu { position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 1200; max-height: 280px; overflow: auto; background: #0a1a16; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; box-shadow: 0 18px 40px rgba(0,0,0,.45); padding: 4px; }
+.pickerOption { display: grid; gap: 2px; width: 100%; text-align: right; background: transparent; border: 0; color: #dbe8e4; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.pickerOption strong { font-size: 12px; }
+.pickerOption span { font-size: 10px; color: #6f8980; }
+.pickerOption.active, .pickerOption:hover { background: #12372e; }
+.pickerOption[aria-selected="true"] strong { color: #43d4aa; }
+.pickerEmpty { padding: 10px; font-size: 11px; color: #6f8980; text-align: center; }
+.dataTable .picker input { padding: 8px 10px; border-radius: 9px; }
