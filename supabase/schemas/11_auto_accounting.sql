@@ -10,6 +10,41 @@ set check_function_bodies = off;
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- اسم نوع الحركة بالعربي لبيان القيود (الشاشة بتعرض البيان متل ما هو).
+create or replace function public.movement_label_ar(target_type text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  select coalesce(
+    case target_type
+      when 'opening' then 'رصيد افتتاحي'
+      when 'purchase_receipt' then 'استلام مشتريات'
+      when 'sales_delivery' then 'تسليم مبيعات'
+      when 'sales_return' then 'مرتجع مبيعات'
+      when 'purchase_return' then 'مرتجع مشتريات'
+      when 'adjustment_in' then 'تسوية زيادة'
+      when 'adjustment_out' then 'تسوية نقص'
+      when 'transfer_in' then 'تحويل وارد'
+      when 'transfer_out' then 'تحويل صادر'
+      when 'sale_receipt' then 'قبض من زبون'
+      when 'supplier_payment' then 'دفع لمورد'
+      when 'expense' then 'مصروف'
+      when 'partner_deposit' then 'إيداع شريك'
+      when 'partner_withdrawal' then 'سحب شريك'
+      when 'customer_payment_reversal' then 'عكس قبض زبون'
+      when 'supplier_payment_reversal' then 'عكس دفع مورد'
+      when 'payroll_payment' then 'دفع راتب'
+      when 'employee_advance' then 'سلفة موظف'
+      when 'employee_loan' then 'قرض موظف'
+      when 'partner_distribution' then 'توزيع أرباح'
+      when 'asset_purchase' then 'شراء أصل'
+    end,
+    target_type
+  );
+$function$;
+
 create or replace function public.gl_cash_movement_trigger()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -139,7 +174,7 @@ begin
   perform public.post_system_journal(
     new.company_id,
     (new.occurred_at at time zone 'Asia/Damascus')::date,
-    'حركة صندوق - ' || new.type,
+    'حركة صندوق - ' || public.movement_label_ar(new.type),
     v_currency,
     null,
     'cash_transaction',
@@ -716,7 +751,7 @@ begin
       new.company_id,
       (new.occurred_at at time zone 'Asia/Damascus')::date,
       'حركة مخزون - ' ||
-      new.movement_type,
+      public.movement_label_ar(new.movement_type),
       v_currency,
       1,
       'inventory_movement',
