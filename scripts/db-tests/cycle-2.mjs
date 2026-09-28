@@ -217,16 +217,20 @@ const { data: loanRow } = await admin.from("employee_loans").select("status").eq
 log(`   حالة السلفة بعد الإنشاء: ${loanRow?.status}`);
 must("صرف السلفة", await u.rpc("disburse_employee_loan", { target_company: company, target_loan: loanId, target_cashbox: usdBox, target_date: today }));
 check("سلف الموظفين", await byKey("employee_advances"), 100);
+const loan2 = must("سلفة تانية 80$ ما انصرفت", await u.rpc("create_employee_loan", { target_company: company, target_employee: empId, target_type: "advance", target_amount: 80, target_installment: 40, target_start_date: today, target_notes: null }));
+const loan2Id = typeof loan2 === "string" ? loan2 : loan2?.loan_id ?? loan2?.id;
 const start = `${Y}-${String(M).padStart(2, "0")}-01`;
 const run = must("مسير الشهر", await u.rpc("create_payroll_run", { target_company: company, target_period_start: start, target_period_end: today, target_pay_date: today, target_currency: "USD", target_notes: null }));
 const runId = typeof run === "string" ? run : run?.run_id ?? run?.id;
 must("ترحيل المسير", await u.rpc("post_payroll_run", { target_company: company, target_run: runId }));
 const { data: item } = await admin.from("payroll_items").select("id, net_pay, loan_deduction").eq("payroll_run_id", runId).single();
-check("خصم السلفة من الراتب", item.loan_deduction, 50);
+check("خصم السلفة من الراتب (بس المصروفة، مش اللي ما انصرفت)", item.loan_deduction, 50);
 check("صافي الراتب", item.net_pay, 250);
 must("دفع الراتب", await u.rpc("record_payroll_payment", { target_company: company, target_payroll_item: item.id, target_cashbox: usdBox, target_amount: item.net_pay, target_payment_date: today, target_method: "cash", target_reference: null, target_notes: null }));
 check("مصروف الرواتب", await byKey("salary_expense"), 300);
 check("سلف الموظفين بعد القسط", await byKey("employee_advances"), 50);
+must("إلغاء السلفة اللي ما انصرفت", await u.rpc("cancel_employee_loan", { target_company: company, target_loan: loan2Id }));
+mustFail("إلغاء سلفة مصروفة", await u.rpc("cancel_employee_loan", { target_company: company, target_loan: loanId }));
 check("رواتب مستحقة", -(await byKey("payroll_payable")), 0);
 
 // ---------------------------------------------------------------- H. assets

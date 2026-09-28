@@ -272,6 +272,9 @@ begin
         and el.balance_due >
             0
 
+        -- السلفة اللي لسا ما انصرفت للموظف ما بتنخصم من راتبو.
+        and exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = el.id)
+
       order by
         el.start_date,
         el.created_at
@@ -499,6 +502,37 @@ begin
   into v_id;
 
   return v_id;
+end;
+$function$;
+
+-- إلغاء سلفة انعملت بالغلط، بس إذا لسا ما انصرفت (بعد الصرف الطريق هو خصمها أو تسديدها).
+create or replace function public.cancel_employee_loan(target_company uuid, target_loan uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.has_permission(target_company, 'payroll.manage_employees') then
+    raise exception 'Not allowed';
+  end if;
+
+  if exists (
+    select 1 from public.employee_loan_disbursements
+    where employee_loan_id = target_loan
+  ) then
+    raise exception 'Loan already disbursed';
+  end if;
+
+  update public.employee_loans
+  set status = 'cancelled'
+  where id = target_loan
+    and company_id = target_company
+    and status = 'active';
+
+  if not found then
+    raise exception 'Employee loan not found';
+  end if;
 end;
 $function$;
 
@@ -735,6 +769,7 @@ begin
       and el.balance_due > 0
       and el.installment_amount > 0
       and el.start_date <= target_period_end
+      and exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = el.id)
     group by el.employee_id
   ) x
   where pi.payroll_run_id = v_run
@@ -2237,7 +2272,8 @@ create view public.payroll_employee_summary with (security_invoker=true) as
    from public.employees e
      left join lateral ( select coalesce(sum(employee_loans.balance_due), 0::numeric) as active_loan_balance
            from public.employee_loans
-          where employee_loans.employee_id = e.id and employee_loans.status = 'active'::text) loans on true
+          where employee_loans.employee_id = e.id and employee_loans.status = 'active'::text
+            and exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = employee_loans.id)) loans on true
      left join lateral ( select coalesce(sum(pi.net_pay), 0::numeric) as total_net,
             coalesce(sum(pi.paid_total), 0::numeric) as total_paid,
             coalesce(sum(pi.balance_due), 0::numeric) as total_due

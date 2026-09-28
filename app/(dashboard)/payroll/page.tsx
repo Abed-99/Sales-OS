@@ -8,10 +8,7 @@ import {
 } from "@/components/payroll/payroll-client";
 
 import { getCurrentContext } from "@/lib/current-context";
-import {
-  hasAnyPermission,
-  hasPermission,
-} from "@/lib/permissions";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function PayrollPage() {
@@ -27,55 +24,36 @@ export default async function PayrollPage() {
       "payroll.pay",
       "payroll.reports",
     ],
-    context.isOwner
+    context.isOwner,
   );
 
   const canManageEmployees = hasPermission(
     context.permissions,
     "payroll.manage_employees",
-    context.isOwner
+    context.isOwner,
   );
 
-  const canProcess = hasPermission(
-    context.permissions,
-    "payroll.process",
-    context.isOwner
-  );
+  const canProcess = hasPermission(context.permissions, "payroll.process", context.isOwner);
 
-  const canPay = hasPermission(
-    context.permissions,
-    "payroll.pay",
-    context.isOwner
-  );
+  const canPay = hasPermission(context.permissions, "payroll.pay", context.isOwner);
 
   if (!canView) {
     return (
       <>
-        <Topbar
-          title="الرواتب"
-          subtitle="الموظفين والرواتب"
-          companyName={context.companyName}
-        />
+        <Topbar title="الرواتب" subtitle="الموظفين والرواتب" companyName={context.companyName} />
 
         <div className="page">
-          <section className="panel panelPad">
-            ما عندك صلاحية لعرض الرواتب.
-          </section>
+          <section className="panel panelPad">ما عندك صلاحية لعرض الرواتب.</section>
         </div>
       </>
     );
   }
 
-  const [
-    employeesResult,
-    loansResult,
-    runsResult,
-    cashboxesResult,
-  ] = await Promise.all([
+  const [employeesResult, loansResult, runsResult, cashboxesResult] = await Promise.all([
     supabase
       .from("employees")
       .select(
-        "id,employee_number,full_name,phone,job_title,department,hire_date,termination_date,status,salary_currency,base_salary,fixed_allowances,overtime_hour_rate,social_security_employee_rate,social_security_employer_rate,income_tax_rate,default_cashbox_id,notes,created_at"
+        "id,employee_number,full_name,phone,job_title,department,hire_date,termination_date,status,salary_currency,base_salary,fixed_allowances,overtime_hour_rate,social_security_employee_rate,social_security_employer_rate,income_tax_rate,default_cashbox_id,notes,created_at",
       )
       .eq("company_id", context.companyId)
       .order("full_name"),
@@ -83,14 +61,15 @@ export default async function PayrollPage() {
     supabase
       .from("employee_loans")
       .select(
-        "id,employee_id,loan_type,original_amount,balance_due,installment_amount,start_date,status,notes,created_at"
+        "id,employee_id,loan_type,original_amount,balance_due,installment_amount,start_date,status,notes,created_at,employee_loan_disbursements(id,disbursement_date,cashbox_id)",
       )
       .eq("company_id", context.companyId)
       .order("created_at", { ascending: false }),
 
     supabase
       .from("payroll_runs")
-      .select(`
+      .select(
+        `
         id,
         period_start,
         period_end,
@@ -134,7 +113,8 @@ export default async function PayrollPage() {
             default_cashbox_id
           )
         )
-      `)
+      `,
+      )
       .eq("company_id", context.companyId)
       .order("period_end", { ascending: false })
       .limit(36),
@@ -147,18 +127,9 @@ export default async function PayrollPage() {
       .order("created_at"),
   ]);
 
-  const results = [
-    employeesResult,
-    loansResult,
-    runsResult,
-    cashboxesResult,
-  ];
+  const results = [employeesResult, loansResult, runsResult, cashboxesResult];
 
-  const pageError =
-    results.some(
-      (result) =>
-        Boolean(result.error)
-    );
+  const pageError = results.some((result) => Boolean(result.error));
 
   return (
     <>
@@ -170,10 +141,7 @@ export default async function PayrollPage() {
 
       {pageError && (
         <div className="page">
-          <div
-            className="toastError"
-            role="alert"
-          >
+          <div className="toastError" role="alert">
             تعذر تحميل بعض بيانات الرواتب. حاول تحديث الصفحة.
           </div>
         </div>
@@ -182,18 +150,10 @@ export default async function PayrollPage() {
       <PayrollClient
         companyId={context.companyId}
         baseCurrency={context.currency}
-        employees={
-          (employeesResult.data ?? []) as unknown as PayrollEmployee[]
-        }
-        loans={
-          (loansResult.data ?? []) as unknown as PayrollLoan[]
-        }
-        runs={
-          (runsResult.data ?? []) as unknown as PayrollRun[]
-        }
-        cashboxes={
-          (cashboxesResult.data ?? []) as unknown as PayrollCashbox[]
-        }
+        employees={(employeesResult.data ?? []) as unknown as PayrollEmployee[]}
+        loans={(loansResult.data ?? []) as unknown as PayrollLoan[]}
+        runs={(runsResult.data ?? []) as unknown as PayrollRun[]}
+        cashboxes={(cashboxesResult.data ?? []) as unknown as PayrollCashbox[]}
         canManageEmployees={canManageEmployees}
         canProcess={canProcess}
         canPay={canPay}
