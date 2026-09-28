@@ -23217,6 +23217,7 @@ create table public.partner_transactions (
   transaction_date date default ((now() at time zone 'Asia/Damascus'::text))::date not null,
   notes text,
   journal_entry_id uuid references public.journal_entries(id) on delete restrict,
+  base_amount numeric(20,4),
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
   constraint partner_transactions_amount_check check ((amount > (0)::numeric)),
@@ -24153,7 +24154,15 @@ begin
 
   update public.partner_transactions
   set journal_entry_id =
-      v_entry
+      v_entry,
+      -- القيمة بالعملة الأساسية بنفس سعر القيد، لحتى ملخص الشركاء يطابق الحسابات.
+      base_amount = round(
+        amount * coalesce(
+          (select je.exchange_rate_to_base from public.journal_entries je where je.id = v_entry),
+          1
+        ),
+        4
+      )
   where id = v_id;
 
   insert into public.cash_transactions(
@@ -24340,6 +24349,17 @@ begin
 
   end if;
 
+  -- مجموع حصص الشركاء الشغّالين ما بيزيد عن 100%.
+  if (select coalesce(sum(ownership_percent), 0) from public.partners
+      where company_id = target_company and active) > 100.0001 then
+    raise exception 'Total ownership exceeds 100';
+  end if;
+
+  if (select coalesce(sum(profit_share_percent), 0) from public.partners
+      where company_id = target_company and active) > 100.0001 then
+    raise exception 'Total profit share exceeds 100';
+  end if;
+
   return v_id;
 end;
 $function$;
@@ -24390,23 +24410,23 @@ create view public.partner_summary with (security_invoker=true) as
     p.updated_at,
     coalesce(sum(
         case
-            when pt.transaction_type = 'capital_contribution'::text then pt.amount * public.finance_rate_to_base(p.company_id, pt.currency, pt.transaction_date)
+            when pt.transaction_type = 'capital_contribution'::text then coalesce(pt.base_amount, pt.amount)
             else 0::numeric
         end), 0::numeric)::numeric(18,2) as capital_contributions,
     coalesce(sum(
         case
-            when pt.transaction_type = 'drawing'::text then pt.amount * public.finance_rate_to_base(p.company_id, pt.currency, pt.transaction_date)
+            when pt.transaction_type = 'drawing'::text then coalesce(pt.base_amount, pt.amount)
             else 0::numeric
         end), 0::numeric)::numeric(18,2) as drawings,
     coalesce(sum(
         case
-            when pt.transaction_type = 'partner_loan_in'::text then pt.amount * public.finance_rate_to_base(p.company_id, pt.currency, pt.transaction_date)
-            when pt.transaction_type = 'partner_loan_repayment'::text then - (pt.amount * public.finance_rate_to_base(p.company_id, pt.currency, pt.transaction_date))
+            when pt.transaction_type = 'partner_loan_in'::text then coalesce(pt.base_amount, pt.amount)
+            when pt.transaction_type = 'partner_loan_repayment'::text then - (coalesce(pt.base_amount, pt.amount))
             else 0::numeric
         end), 0::numeric)::numeric(18,2) as partner_loan_balance,
     coalesce(sum(
         case
-            when pt.transaction_type = 'profit_distribution'::text then pt.amount * public.finance_rate_to_base(p.company_id, pt.currency, pt.transaction_date)
+            when pt.transaction_type = 'profit_distribution'::text then coalesce(pt.base_amount, pt.amount)
             else 0::numeric
         end), 0::numeric)::numeric(18,2) as profit_distributions
    from public.partners p

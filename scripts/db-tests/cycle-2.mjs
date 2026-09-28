@@ -65,6 +65,13 @@ must("سحب شريك 100$", await u.rpc("record_partner_transaction", { target_
 check("رأس المال (3100)", -(await byKey("capital")), 2200);
 check("مسحوبات الشركاء", await byKey("partner_drawings"), 100);
 check("الصندوق دولار", await byCode("1110"), 1900);
+mustFail("شريك تالت بيخلّي الملكية فوق 100%", await u.rpc("save_partner", { target_company: company, target_partner: null, target_number: null, target_name: "زيادة", target_phone: null, target_ownership_percent: 10, target_profit_share_percent: 0, target_notes: null, target_active: true }));
+const ps = await u.from("partner_summary").select("capital_contributions, drawings").eq("company_id", company);
+if (ps.error) { failures++; log("   ❌ ملخص الشركاء: " + ps.error.message); }
+else {
+  check("ملخص الشركاء: رأس المال = الحسابات", ps.data.reduce((t, r) => t + Number(r.capital_contributions), 0), -(await byKey("capital")) + ps.data.reduce((t, r) => t + 0, 0));
+  check("ملخص الشركاء: المسحوبات = الحسابات", ps.data.reduce((t, r) => t + Number(r.drawings), 0), await byKey("partner_drawings"));
+}
 
 // ---------------------------------------------------------------- B. purchases
 log("\nB️⃣  مشتريات + مرتجع للمورد + دفع بالليرة");

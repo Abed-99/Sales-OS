@@ -14,23 +14,11 @@ export default async function PartnersPage() {
   const context = await getCurrentContext();
   const supabase = await createClient();
 
-  const canView = hasPermission(
-    context.permissions,
-    "partners.view",
-    context.isOwner
-  );
+  const canView = hasPermission(context.permissions, "partners.view", context.isOwner);
 
-  const canManage = hasPermission(
-    context.permissions,
-    "partners.manage",
-    context.isOwner
-  );
+  const canManage = hasPermission(context.permissions, "partners.manage", context.isOwner);
 
-  const canTransact = hasPermission(
-    context.permissions,
-    "partners.transactions",
-    context.isOwner
-  );
+  const canTransact = hasPermission(context.permissions, "partners.transactions", context.isOwner);
 
   if (!canView) {
     return (
@@ -42,23 +30,17 @@ export default async function PartnersPage() {
         />
 
         <div className="page">
-          <section className="panel panelPad">
-            ما عندك صلاحية لعرض الشركاء.
-          </section>
+          <section className="panel panelPad">ما عندك صلاحية لعرض الشركاء.</section>
         </div>
       </>
     );
   }
 
-  const [
-    partnersResult,
-    transactionsResult,
-    cashboxesResult,
-  ] = await Promise.all([
+  const [partnersResult, transactionsResult, cashboxesResult] = await Promise.all([
     supabase
       .from("partner_summary")
       .select(
-        "id,partner_number,name,phone,ownership_percent,profit_share_percent,active,notes,capital_contributions,drawings,partner_loan_balance,profit_distributions"
+        "id,partner_number,name,phone,ownership_percent,profit_share_percent,active,notes,capital_contributions,drawings,partner_loan_balance,profit_distributions",
       )
       .eq("company_id", context.companyId)
       .order("name"),
@@ -66,7 +48,7 @@ export default async function PartnersPage() {
     supabase
       .from("partner_transactions")
       .select(
-        "id,partner_id,transaction_type,amount,currency,cashbox_id,transaction_date,notes,created_at"
+        "id,partner_id,transaction_type,amount,currency,cashbox_id,transaction_date,notes,created_at",
       )
       .eq("company_id", context.companyId)
       .order("transaction_date", { ascending: false })
@@ -81,17 +63,9 @@ export default async function PartnersPage() {
       .order("created_at"),
   ]);
 
-  const results = [
-    partnersResult,
-    transactionsResult,
-    cashboxesResult,
-  ];
+  const results = [partnersResult, transactionsResult, cashboxesResult];
 
-  const pageError =
-    results.some(
-      (result) =>
-        Boolean(result.error)
-    );
+  const pageError = results.some((result) => Boolean(result.error));
 
   return (
     <>
@@ -103,10 +77,7 @@ export default async function PartnersPage() {
 
       {pageError && (
         <div className="page">
-          <div
-            className="toastError"
-            role="alert"
-          >
+          <div className="toastError" role="alert">
             تعذر تحميل بعض بيانات الشركاء. حاول تحديث الصفحة.
           </div>
         </div>
@@ -115,15 +86,9 @@ export default async function PartnersPage() {
       <PartnersClient
         companyId={context.companyId}
         baseCurrency={context.currency}
-        partners={
-          (partnersResult.data ?? []) as unknown as PartnerSummary[]
-        }
-        transactions={
-          (transactionsResult.data ?? []) as unknown as PartnerTransaction[]
-        }
-        cashboxes={
-          (cashboxesResult.data ?? []) as unknown as PartnerCashbox[]
-        }
+        partners={(partnersResult.data ?? []) as unknown as PartnerSummary[]}
+        transactions={(transactionsResult.data ?? []) as unknown as PartnerTransaction[]}
+        cashboxes={(cashboxesResult.data ?? []) as unknown as PartnerCashbox[]}
         canManage={canManage}
         canTransact={canTransact}
       />

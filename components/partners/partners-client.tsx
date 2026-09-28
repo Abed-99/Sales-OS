@@ -12,24 +12,14 @@ function num(value: unknown) {
 }
 
 function today() {
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone: "Asia/Damascus",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }
-    ).formatToParts(
-      new Date()
-    );
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  const get = (type: string) =>
-    parts.find(
-      (part) =>
-        part.type === type
-    )?.value ?? "";
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
@@ -97,8 +87,7 @@ export function PartnersClient({
   const [partnerOpen, setPartnerOpen] = useState(false);
   const [movementOpen, setMovementOpen] = useState(false);
 
-  const [editing, setEditing] =
-    useState<PartnerSummary | null>(null);
+  const [editing, setEditing] = useState<PartnerSummary | null>(null);
 
   const [number, setNumber] = useState("");
   const [name, setName] = useState("");
@@ -110,12 +99,9 @@ export function PartnersClient({
 
   const [movementPartner, setMovementPartner] = useState("");
   const [movementType, setMovementType] =
-    useState<PartnerTransaction["transaction_type"]>(
-      "capital_contribution"
-    );
+    useState<PartnerTransaction["transaction_type"]>("capital_contribution");
   const [movementAmount, setMovementAmount] = useState("");
-  const [movementCurrency, setMovementCurrency] =
-    useState(baseCurrency);
+  const [movementCurrency, setMovementCurrency] = useState(baseCurrency);
   const [movementCashbox, setMovementCashbox] = useState("");
   const [movementDate, setMovementDate] = useState(today());
   const [movementNotes, setMovementNotes] = useState("");
@@ -131,66 +117,35 @@ export function PartnersClient({
     }
 
     return partners.filter((partner) =>
-      [
-        partner.name,
-        partner.phone,
-        partner.partner_number,
-      ].some((value) =>
-        value?.toLowerCase().includes(q)
-      )
+      [partner.name, partner.phone, partner.partner_number].some((value) =>
+        value?.toLowerCase().includes(q),
+      ),
     );
   }, [partners, search]);
 
-  const activePartners = partners.filter(
-    (partner) => partner.active
-  );
+  const activePartners = partners.filter((partner) => partner.active);
 
-  const transactionCurrencies =
-    [
-      ...new Set(
-        transactions.map(
-          (transaction) =>
-            transaction.currency
-              .trim()
-              .toUpperCase()
-        )
-      ),
-    ];
+  const transactionCurrencies = [
+    ...new Set(transactions.map((transaction) => transaction.currency.trim().toUpperCase())),
+  ];
 
-  const completeTransactionHistory =
-    transactions.length < 150;
+  const completeTransactionHistory = transactions.length < 150;
 
-  const safeSingleCurrencyTotals =
-    completeTransactionHistory &&
-    transactionCurrencies.length <= 1;
+  const safeSingleCurrencyTotals = completeTransactionHistory && transactionCurrencies.length <= 1;
 
-  const partnerDisplayCurrency =
-    transactionCurrencies[0] ??
-    baseCurrency;
+  const partnerDisplayCurrency = transactionCurrencies[0] ?? baseCurrency;
 
   const totalCapital = partners.reduce(
-    (sum, partner) =>
-      sum + num(partner.capital_contributions),
-    0
+    (sum, partner) => sum + num(partner.capital_contributions),
+    0,
   );
 
-  const totalDrawings = partners.reduce(
-    (sum, partner) =>
-      sum + num(partner.drawings),
-    0
-  );
+  const totalDrawings = partners.reduce((sum, partner) => sum + num(partner.drawings), 0);
 
-  const totalLoans = partners.reduce(
-    (sum, partner) =>
-      sum + num(partner.partner_loan_balance),
-    0
-  );
+  const totalLoans = partners.reduce((sum, partner) => sum + num(partner.partner_loan_balance), 0);
 
   function partnerName(id: string) {
-    return (
-      partners.find((partner) => partner.id === id)?.name ||
-      "شريك"
-    );
+    return partners.find((partner) => partner.id === id)?.name || "شريك";
   }
 
   function openNewPartner() {
@@ -219,9 +174,7 @@ export function PartnersClient({
     setPartnerOpen(true);
   }
 
-  async function savePartner(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
+  async function savePartner(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!name.trim()) {
@@ -229,10 +182,7 @@ export function PartnersClient({
       return;
     }
 
-    if (
-      num(ownership) > 100 ||
-      num(profitShare) > 100
-    ) {
+    if (num(ownership) > 100 || num(profitShare) > 100) {
       setMessage("النسبة لا يمكن أن تتجاوز 100%.");
       return;
     }
@@ -240,25 +190,22 @@ export function PartnersClient({
     setSaving(true);
     setMessage("");
 
-    const { error } = await supabase.rpc(
-      "save_partner",
-      {
-        target_company: companyId,
-        target_partner: editing?.id || null,
-        target_number: number.trim() || null,
-        target_name: name.trim(),
-        target_phone: phone.trim() || null,
-        target_ownership_percent: num(ownership),
-        target_profit_share_percent: num(profitShare),
-        target_notes: notes.trim() || null,
-        target_active: active,
-      }
-    );
+    const { error } = await supabase.rpc("save_partner", {
+      target_company: companyId,
+      target_partner: editing?.id || null,
+      target_number: number.trim() || null,
+      target_name: name.trim(),
+      target_phone: phone.trim() || null,
+      target_ownership_percent: num(ownership),
+      target_profit_share_percent: num(profitShare),
+      target_notes: notes.trim() || null,
+      target_active: active,
+    });
 
     setSaving(false);
 
     if (error) {
-      setMessage("تعذر تنفيذ عملية الشريك. تحقق من البيانات والصندوق والصلاحيات وحاول مرة ثانية.");
+      setMessage(partnerError(error));
       return;
     }
 
@@ -267,23 +214,15 @@ export function PartnersClient({
   }
 
   function openMovement(partnerId?: string) {
-    const selected =
-      partnerId ||
-      activePartners[0]?.id ||
-      "";
+    const selected = partnerId || activePartners[0]?.id || "";
 
     const firstCashbox =
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.currency === baseCurrency
-      ) ?? cashboxes[0];
+      cashboxes.find((cashbox) => cashbox.currency === baseCurrency) ?? cashboxes[0];
 
     setMovementPartner(selected);
     setMovementType("capital_contribution");
     setMovementAmount("");
-    setMovementCurrency(
-      firstCashbox?.currency || baseCurrency
-    );
+    setMovementCurrency(firstCashbox?.currency || baseCurrency);
     setMovementCashbox(firstCashbox?.id || "");
     setMovementDate(today());
     setMovementNotes("");
@@ -296,52 +235,37 @@ export function PartnersClient({
 
     setMovementCurrency(currency);
 
-    const matching =
-      cashboxes.find(
-        (cashbox) =>
-          cashbox.currency === currency
-      );
+    const matching = cashboxes.find((cashbox) => cashbox.currency === currency);
 
     setMovementCashbox(matching?.id || "");
   }
 
-  async function saveMovement(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
+  async function saveMovement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !movementPartner ||
-      !movementCashbox ||
-      num(movementAmount) <= 0
-    ) {
-      setMessage(
-        "اختار الشريك والصندوق واكتب مبلغ صحيح."
-      );
+    if (!movementPartner || !movementCashbox || num(movementAmount) <= 0) {
+      setMessage("اختار الشريك والصندوق واكتب مبلغ صحيح.");
       return;
     }
 
     setSaving(true);
     setMessage("");
 
-    const { error } = await supabase.rpc(
-      "record_partner_transaction",
-      {
-        target_company: companyId,
-        target_partner: movementPartner,
-        target_type: movementType,
-        target_amount: num(movementAmount),
-        target_currency: movementCurrency,
-        target_cashbox: movementCashbox,
-        target_date: movementDate,
-        target_notes: movementNotes.trim() || null,
-      }
-    );
+    const { error } = await supabase.rpc("record_partner_transaction", {
+      target_company: companyId,
+      target_partner: movementPartner,
+      target_type: movementType,
+      target_amount: num(movementAmount),
+      target_currency: movementCurrency,
+      target_cashbox: movementCashbox,
+      target_date: movementDate,
+      target_notes: movementNotes.trim() || null,
+    });
 
     setSaving(false);
 
     if (error) {
-      setMessage("تعذر تنفيذ عملية الشريك. تحقق من البيانات والصندوق والصلاحيات وحاول مرة ثانية.");
+      setMessage(partnerError(error));
       return;
     }
 
@@ -353,16 +277,11 @@ export function PartnersClient({
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            الشركاء وحقوق الملكية
-          </span>
+          <span className="eyebrow">الشركاء وحقوق الملكية</span>
 
           <h2>إدارة الشركاء</h2>
 
-          <p className="muted">
-            الملكية ورأس المال والمسحوبات وقروض الشركاء
-            وتوزيعات الأرباح.
-          </p>
+          <p className="muted">الملكية ورأس المال والمسحوبات وقروض الشركاء وتوزيعات الأرباح.</p>
         </div>
 
         <div className="rowActions">
@@ -379,11 +298,7 @@ export function PartnersClient({
           )}
 
           {canManage && (
-            <button
-              type="button"
-              className="primaryButton"
-              onClick={openNewPartner}
-            >
+            <button type="button" className="primaryButton" onClick={openNewPartner}>
               <Icons.plus size={14} />
               شريك جديد
             </button>
@@ -392,40 +307,44 @@ export function PartnersClient({
       </div>
 
       <section className="statsGrid">
-        <Mini
-          title="الشركاء"
-          value={String(activePartners.length)}
-        />
+        <Mini title="الشركاء" value={String(activePartners.length)} />
 
         <Mini
           title="رأس المال المدخل"
-          value={safeSingleCurrencyTotals ? `${totalCapital.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
+          value={
+            safeSingleCurrencyTotals
+              ? `${totalCapital.toFixed(2)} ${partnerDisplayCurrency}`
+              : "حسب العملة"
+          }
         />
 
         <Mini
           title="المسحوبات"
-          value={safeSingleCurrencyTotals ? `${totalDrawings.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
+          value={
+            safeSingleCurrencyTotals
+              ? `${totalDrawings.toFixed(2)} ${partnerDisplayCurrency}`
+              : "حسب العملة"
+          }
         />
 
         <Mini
           title="قروض الشركاء"
-          value={safeSingleCurrencyTotals ? `${totalLoans.toFixed(2)} ${partnerDisplayCurrency}` : "حسب العملة"}
+          value={
+            safeSingleCurrencyTotals
+              ? `${totalLoans.toFixed(2)} ${partnerDisplayCurrency}`
+              : "حسب العملة"
+          }
         />
       </section>
 
-      <section
-        className="panel"
-        style={{ marginTop: 14 }}
-      >
+      <section className="panel" style={{ marginTop: 14 }}>
         <div className="filters">
           <div className="searchBox">
             <Icons.search size={16} />
 
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="بحث باسم الشريك..."
             />
           </div>
@@ -433,9 +352,7 @@ export function PartnersClient({
           <div />
           <div />
 
-          <div className="resultCount">
-            {filtered.length} شريك
-          </div>
+          <div className="resultCount">{filtered.length} شريك</div>
         </div>
 
         {!filtered.length ? (
@@ -465,36 +382,20 @@ export function PartnersClient({
                   <tr key={partner.id}>
                     <td>
                       <strong>{partner.name}</strong>
-                      <div className="muted">
-                        {partner.partner_number ||
-                          partner.phone ||
-                          ""}
-                      </div>
+                      <div className="muted">{partner.partner_number || partner.phone || ""}</div>
                     </td>
 
-                    <td>
-                      {num(partner.ownership_percent).toFixed(2)}%
-                    </td>
+                    <td>{num(partner.ownership_percent).toFixed(2)}%</td>
 
-                    <td>
-                      {num(partner.profit_share_percent).toFixed(2)}%
-                    </td>
+                    <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
 
-                    <td>
-                      {num(partner.capital_contributions).toFixed(2)}
-                    </td>
+                    <td>{num(partner.capital_contributions).toFixed(2)}</td>
 
-                    <td>
-                      {num(partner.drawings).toFixed(2)}
-                    </td>
+                    <td>{num(partner.drawings).toFixed(2)}</td>
 
-                    <td>
-                      {num(partner.partner_loan_balance).toFixed(2)}
-                    </td>
+                    <td>{num(partner.partner_loan_balance).toFixed(2)}</td>
 
-                    <td>
-                      {num(partner.profit_distributions).toFixed(2)}
-                    </td>
+                    <td>{num(partner.profit_distributions).toFixed(2)}</td>
 
                     <td>
                       <div className="rowActions">
@@ -502,9 +403,7 @@ export function PartnersClient({
                           <button
                             type="button"
                             className="softButton"
-                            onClick={() =>
-                              openMovement(partner.id)
-                            }
+                            onClick={() => openMovement(partner.id)}
                           >
                             حركة
                           </button>
@@ -514,9 +413,7 @@ export function PartnersClient({
                           <button
                             type="button"
                             className="softButton"
-                            onClick={() =>
-                              openEditPartner(partner)
-                            }
+                            onClick={() => openEditPartner(partner)}
                           >
                             <Icons.edit size={13} />
                           </button>
@@ -531,10 +428,7 @@ export function PartnersClient({
         )}
       </section>
 
-      <section
-        className="panel panelPad"
-        style={{ marginTop: 14 }}
-      >
+      <section className="panel panelPad" style={{ marginTop: 14 }}>
         <div className="panelHeader">
           <div>
             <h2>آخر حركات الشركاء</h2>
@@ -543,9 +437,7 @@ export function PartnersClient({
         </div>
 
         {!transactions.length ? (
-          <p className="muted">
-            ما في حركات مسجلة.
-          </p>
+          <p className="muted">ما في حركات مسجلة.</p>
         ) : (
           <div className="tableWrap">
             <table className="dataTable">
@@ -562,30 +454,19 @@ export function PartnersClient({
               <tbody>
                 {transactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td>
-                      {partnerName(transaction.partner_id)}
-                    </td>
+                    <td>{partnerName(transaction.partner_id)}</td>
 
-                    <td>
-                      {transactionLabel(
-                        transaction.transaction_type
-                      )}
-                    </td>
+                    <td>{transactionLabel(transaction.transaction_type)}</td>
 
                     <td>
                       <strong>
-                        {num(transaction.amount).toFixed(2)}{" "}
-                        {transaction.currency}
+                        {num(transaction.amount).toFixed(2)} {transaction.currency}
                       </strong>
                     </td>
 
-                    <td>
-                      {transaction.transaction_date}
-                    </td>
+                    <td>{transaction.transaction_date}</td>
 
-                    <td>
-                      {transaction.notes || "—"}
-                    </td>
+                    <td>{transaction.notes || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -600,47 +481,23 @@ export function PartnersClient({
             <div className="modalHeader">
               <div>
                 <span className="eyebrow">الشريك</span>
-                <h2>
-                  {editing
-                    ? "تعديل الشريك"
-                    : "شريك جديد"}
-                </h2>
+                <h2>{editing ? "تعديل الشريك" : "شريك جديد"}</h2>
               </div>
 
-              <button
-                type="button"
-                className="closeButton"
-                onClick={() => setPartnerOpen(false)}
-              >
+              <button type="button" className="closeButton" onClick={() => setPartnerOpen(false)}>
                 ×
               </button>
             </div>
 
             <form onSubmit={savePartner}>
               <div className="formGrid">
-                <Field
-                  label="اسم الشريك *"
-                  value={name}
-                  setValue={setName}
-                />
+                <Field label="اسم الشريك *" value={name} setValue={setName} />
 
-                <Field
-                  label="رقم الشريك"
-                  value={number}
-                  setValue={setNumber}
-                />
+                <Field label="رقم الشريك" value={number} setValue={setNumber} />
 
-                <Field
-                  label="الهاتف"
-                  value={phone}
-                  setValue={setPhone}
-                />
+                <Field label="الهاتف" value={phone} setValue={setPhone} />
 
-                <NumberField
-                  label="نسبة الملكية %"
-                  value={ownership}
-                  setValue={setOwnership}
-                />
+                <NumberField label="نسبة الملكية %" value={ownership} setValue={setOwnership} />
 
                 <NumberField
                   label="نسبة توزيع الربح %"
@@ -653,11 +510,7 @@ export function PartnersClient({
 
                   <select
                     value={active ? "yes" : "no"}
-                    onChange={(event) =>
-                      setActive(
-                        event.target.value === "yes"
-                      )
-                    }
+                    onChange={(event) => setActive(event.target.value === "yes")}
                   >
                     <option value="yes">نشط</option>
                     <option value="no">موقوف</option>
@@ -670,32 +523,19 @@ export function PartnersClient({
                   <textarea
                     rows={3}
                     value={notes}
-                    onChange={(event) =>
-                      setNotes(event.target.value)
-                    }
+                    onChange={(event) => setNotes(event.target.value)}
                   />
                 </label>
               </div>
 
-              {message && (
-                <div className="toastError">
-                  {message}
-                </div>
-              )}
+              {message && <div className="toastError">{message}</div>}
 
               <div className="modalActions">
-                <button
-                  type="button"
-                  className="softButton"
-                  onClick={() => setPartnerOpen(false)}
-                >
+                <button type="button" className="softButton" onClick={() => setPartnerOpen(false)}>
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={saving}
-                >
+                <button className="primaryButton" disabled={saving}>
                   حفظ الشريك
                 </button>
               </div>
@@ -709,18 +549,12 @@ export function PartnersClient({
           <section className="modal">
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  حركة الشريك
-                </span>
+                <span className="eyebrow">حركة الشريك</span>
 
                 <h2>حركة شريك</h2>
               </div>
 
-              <button
-                type="button"
-                className="closeButton"
-                onClick={() => setMovementOpen(false)}
-              >
+              <button type="button" className="closeButton" onClick={() => setMovementOpen(false)}>
                 ×
               </button>
             </div>
@@ -732,15 +566,10 @@ export function PartnersClient({
 
                   <select
                     value={movementPartner}
-                    onChange={(event) =>
-                      setMovementPartner(event.target.value)
-                    }
+                    onChange={(event) => setMovementPartner(event.target.value)}
                   >
                     {activePartners.map((partner) => (
-                      <option
-                        key={partner.id}
-                        value={partner.id}
-                      >
+                      <option key={partner.id} value={partner.id}>
                         {partner.name}
                       </option>
                     ))}
@@ -753,73 +582,39 @@ export function PartnersClient({
                   <select
                     value={movementType}
                     onChange={(event) =>
-                      setMovementType(
-                        event.target.value as PartnerTransaction["transaction_type"]
-                      )
+                      setMovementType(event.target.value as PartnerTransaction["transaction_type"])
                     }
                   >
-                    <option value="capital_contribution">
-                      إضافة رأس مال
-                    </option>
+                    <option value="capital_contribution">إضافة رأس مال</option>
 
-                    <option value="drawing">
-                      سحب شخصي
-                    </option>
+                    <option value="drawing">سحب شخصي</option>
 
-                    <option value="partner_loan_in">
-                      قرض من الشريك للشركة
-                    </option>
+                    <option value="partner_loan_in">قرض من الشريك للشركة</option>
 
-                    <option value="partner_loan_repayment">
-                      تسديد قرض للشريك
-                    </option>
+                    <option value="partner_loan_repayment">تسديد قرض للشريك</option>
 
-                    <option value="profit_distribution">
-                      توزيع أرباح
-                    </option>
+                    <option value="profit_distribution">توزيع أرباح</option>
                   </select>
                 </label>
 
-                <NumberField
-                  label="المبلغ"
-                  value={movementAmount}
-                  setValue={setMovementAmount}
-                />
+                <NumberField label="المبلغ" value={movementAmount} setValue={setMovementAmount} />
 
-                <Field
-                  label="العملة"
-                  value={movementCurrency}
-                  setValue={changeCurrency}
-                />
+                <Field label="العملة" value={movementCurrency} setValue={changeCurrency} />
 
                 <label className="field">
                   <span>الصندوق</span>
 
                   <select
                     value={movementCashbox}
-                    onChange={(event) =>
-                      setMovementCashbox(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setMovementCashbox(event.target.value)}
                   >
-                    <option value="">
-                      اختار
-                    </option>
+                    <option value="">اختار</option>
 
                     {cashboxes
-                      .filter(
-                        (cashbox) =>
-                          cashbox.currency ===
-                          movementCurrency
-                      )
+                      .filter((cashbox) => cashbox.currency === movementCurrency)
                       .map((cashbox) => (
-                        <option
-                          key={cashbox.id}
-                          value={cashbox.id}
-                        >
-                          {cashbox.name} -{" "}
-                          {cashbox.currency}
+                        <option key={cashbox.id} value={cashbox.id}>
+                          {cashbox.name} - {cashbox.currency}
                         </option>
                       ))}
                   </select>
@@ -831,11 +626,7 @@ export function PartnersClient({
                   <input
                     type="date"
                     value={movementDate}
-                    onChange={(event) =>
-                      setMovementDate(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setMovementDate(event.target.value)}
                   />
                 </label>
 
@@ -845,34 +636,19 @@ export function PartnersClient({
                   <textarea
                     rows={3}
                     value={movementNotes}
-                    onChange={(event) =>
-                      setMovementNotes(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setMovementNotes(event.target.value)}
                   />
                 </label>
               </div>
 
-              {message && (
-                <div className="toastError">
-                  {message}
-                </div>
-              )}
+              {message && <div className="toastError">{message}</div>}
 
               <div className="modalActions">
-                <button
-                  type="button"
-                  className="softButton"
-                  onClick={() => setMovementOpen(false)}
-                >
+                <button type="button" className="softButton" onClick={() => setMovementOpen(false)}>
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={saving}
-                >
+                <button className="primaryButton" disabled={saving}>
                   تسجيل الحركة
                 </button>
               </div>
@@ -884,9 +660,23 @@ export function PartnersClient({
   );
 }
 
-function transactionLabel(
-  type: PartnerTransaction["transaction_type"]
-) {
+function partnerError(error: { message?: string } | null) {
+  const message = (error?.message ?? "").toLowerCase();
+  const map: [string, string][] = [
+    ["not allowed", "ما عندك صلاحية لهالعملية."],
+    ["total ownership exceeds 100", "مجموع نسب الملكية لكل الشركاء صار أكتر من 100%."],
+    ["total profit share exceeds 100", "مجموع حصص الربح لكل الشركاء صار أكتر من 100%."],
+    ["financial period is closed", "هالشهر مقفل بالمالية."],
+    ["invalid cashbox or currency", "الصندوق لازم يكون شغّال وبنفس عملة الحركة."],
+    ["cashbox is required", "اختار الصندوق."],
+    ["partner name is required", "اسم الشريك مطلوب."],
+    ["missing exchange rate", "ما في سعر صرف مسجّل لهالعملة بهاليوم."],
+    ["duplicate", "في شريك بنفس الرقم."],
+  ];
+  return map.find(([key]) => message.includes(key))?.[1] ?? "تعذر تنفيذ العملية. حاول مرة تانية.";
+}
+
+function transactionLabel(type: PartnerTransaction["transaction_type"]) {
   const labels = {
     capital_contribution: "رأس مال",
     drawing: "سحب شخصي",
@@ -911,12 +701,7 @@ function Field({
     <label className="field">
       <span>{label}</span>
 
-      <input
-        value={value}
-        onChange={(event) =>
-          setValue(event.target.value)
-        }
-      />
+      <input value={value} onChange={(event) => setValue(event.target.value)} />
     </label>
   );
 }
@@ -939,21 +724,13 @@ function NumberField({
         min="0"
         step="0.01"
         value={value}
-        onChange={(event) =>
-          setValue(event.target.value)
-        }
+        onChange={(event) => setValue(event.target.value)}
       />
     </label>
   );
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
+function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
       <div className="statLabel">{title}</div>
