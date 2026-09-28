@@ -319,6 +319,37 @@ begin
 end;
 $function$;
 
+create or replace function public.enforce_trader_credit_permission()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  -- حد الدين ومهلة الدفع ما بيغيّرهن إلا اللي عنده صلاحية "تحديد حد الدين" (مش المندوب).
+  -- بدونها، مندوب عنده صلاحية "تعديل زبون" كان يقدر يرفع حد الدين من برا الشاشة.
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  if (
+    tg_op = 'INSERT'
+    and (new.credit_limit is not null or new.payment_terms_days <> 0)
+  ) or (
+    tg_op = 'UPDATE'
+    and (
+      new.credit_limit is distinct from old.credit_limit
+      or new.payment_terms_days is distinct from old.payment_terms_days
+    )
+  ) then
+    if not public.has_permission(new.company_id, 'traders.manage_credit') then
+      raise exception 'Not allowed to change credit terms';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
 create or replace function public.enforce_trader_archive_permission()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -743,6 +774,7 @@ create trigger trader_visits_company_guard before insert or update of company_id
 create trigger audit_traders after insert or delete or update on public.traders for each row execute function public.write_audit_log();
 
 create trigger traders_archive_permission_guard before insert or update on public.traders for each row execute function public.enforce_trader_archive_permission();
+create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days on public.traders for each row execute function public.enforce_trader_credit_permission();
 
 create trigger traders_prevent_duplicate_contact before insert or update of phone, whatsapp on public.traders for each row execute function public.prevent_duplicate_trader_contact();
 

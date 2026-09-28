@@ -131,6 +131,7 @@ insert into public.permissions (code, module, action, label, description, sort_o
   ('traders.archive', 'traders', 'archive', 'تعطيل أو أرشفة تاجر', null, 33),
   ('traders.assign_rep', 'traders', 'assign_rep', 'تعيين مندوب للتاجر', null, 34),
   ('traders.view_balance', 'traders', 'view_balance', 'عرض حساب التاجر', null, 35),
+  ('traders.manage_credit', 'traders', 'manage_credit', 'تحديد حد الدين ومهلة الدفع', null, 36),
   ('visits.view', 'visits', 'view', 'عرض الزيارات', null, 40),
   ('visits.create', 'visits', 'create', 'تسجيل زيارة', null, 41),
   ('visits.update', 'visits', 'update', 'تعديل زيارة', null, 42),
@@ -455,7 +456,12 @@ begin
     'map.view',
     'reports.view','reports.sales','reports.profit','reports.finance','reports.team',
     'settings.view','settings.manage_company',
-    'audit.view'
+    'audit.view',
+    'traders.manage_credit','orders.override_credit_limit',
+    'payroll.view','payroll.reports',
+    'assets.view','partners.view',
+    'returns.view','returns.create','returns.reverse',
+    'approvals.view','approvals.resolve'
   ]::text[])
   where r.company_id = new.id
     and r.name = 'مدير'
@@ -475,6 +481,7 @@ begin
     'deliveries.view','deliveries.update',
     'payments.sales_view','payments.sales_create',
     'inventory.view','map.view',
+    'returns.view','returns.create',
     'settings.view'
   ]::text[])
   where r.company_id = new.id
@@ -501,7 +508,13 @@ begin
     'finance.expenses_view','finance.expenses_write','finance.expense_categories',
     'finance.accounts_view','finance.accounts_write','finance.month_close',
     'reports.view','reports.sales','reports.profit','reports.finance',
-    'settings.view'
+    'settings.view',
+    'traders.manage_credit',
+    'payroll.view','payroll.manage_employees','payroll.process','payroll.pay','payroll.reports',
+    'assets.view','assets.manage','assets.depreciate',
+    'partners.view','partners.manage','partners.transactions',
+    'returns.view','returns.create','returns.reverse',
+    'approvals.view','approvals.create','approvals.resolve'
   ]::text[])
   where r.company_id = new.id
     and r.name = 'محاسب'
@@ -1472,6 +1485,37 @@ begin
 end;
 $function$;
 
+create or replace function public.enforce_trader_credit_permission()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  -- حد الدين ومهلة الدفع ما بيغيّرهن إلا اللي عنده صلاحية "تحديد حد الدين" (مش المندوب).
+  -- بدونها، مندوب عنده صلاحية "تعديل زبون" كان يقدر يرفع حد الدين من برا الشاشة.
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  if (
+    tg_op = 'INSERT'
+    and (new.credit_limit is not null or new.payment_terms_days <> 0)
+  ) or (
+    tg_op = 'UPDATE'
+    and (
+      new.credit_limit is distinct from old.credit_limit
+      or new.payment_terms_days is distinct from old.payment_terms_days
+    )
+  ) then
+    if not public.has_permission(new.company_id, 'traders.manage_credit') then
+      raise exception 'Not allowed to change credit terms';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
 create or replace function public.enforce_trader_archive_permission()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1896,6 +1940,7 @@ create trigger trader_visits_company_guard before insert or update of company_id
 create trigger audit_traders after insert or delete or update on public.traders for each row execute function public.write_audit_log();
 
 create trigger traders_archive_permission_guard before insert or update on public.traders for each row execute function public.enforce_trader_archive_permission();
+create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days on public.traders for each row execute function public.enforce_trader_credit_permission();
 
 create trigger traders_prevent_duplicate_contact before insert or update of phone, whatsapp on public.traders for each row execute function public.prevent_duplicate_trader_contact();
 
@@ -10872,6 +10917,45 @@ begin
 end;
 $function$;
 
+create or replace function public.sales_quote_matches(target_quote uuid, target_search text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- البحث بعروض الأسعار بكل شي: رقم العرض، الزبون (اسم، منطقة، هاتف)، الملاحظات،
+  -- المبلغ، أو اسم/كود/ماركة صنف موجود بالعرض.
+  select exists (
+    select 1
+    from public.sales_quotes q
+    join public.traders t on t.id = q.trader_id
+    where q.id = target_quote
+      and (
+        q.quote_number ilike '%' || target_search || '%'
+        or t.name ilike '%' || target_search || '%'
+        or coalesce(t.area, '') ilike '%' || target_search || '%'
+        or coalesce(t.phone, '') ilike '%' || target_search || '%'
+        or coalesce(t.whatsapp, '') ilike '%' || target_search || '%'
+        or coalesce(q.notes, '') ilike '%' || target_search || '%'
+        or q.total = case
+          when replace(target_search, ',', '') ~ '^[0-9]+([.][0-9]+)?$'
+            then replace(target_search, ',', '')::numeric
+        end
+        or exists (
+          select 1
+          from public.sales_quote_items qi
+          join public.products p on p.id = qi.product_id
+          where qi.quote_id = q.id
+            and (
+              p.name ilike '%' || target_search || '%'
+              or coalesce(p.sku, '') ilike '%' || target_search || '%'
+              or coalesce(p.brand, '') ilike '%' || target_search || '%'
+            )
+        )
+      )
+  )
+$function$;
+
 create or replace function public.get_quotes_queue(target_company uuid, target_search text DEFAULT NULL::text, target_status text DEFAULT NULL::text, target_limit integer DEFAULT 50, target_offset integer DEFAULT 0)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -10993,23 +11077,9 @@ begin
     )
 
     and (
-      v_search is null
-
-      or q.quote_number
-         ilike
-         '%' || v_search || '%'
-
-      or t.name
-         ilike
-         '%' || v_search || '%'
-
-      or coalesce(
-           t.area,
-           ''
-         )
-         ilike
-         '%' || v_search || '%'
-    );
+        v_search is null
+        or public.sales_quote_matches(q.id, v_search)
+      );
 
   select
     coalesce(
@@ -11188,21 +11258,7 @@ begin
 
       and (
         v_search is null
-
-        or q.quote_number
-           ilike
-           '%' || v_search || '%'
-
-        or t.name
-           ilike
-           '%' || v_search || '%'
-
-        or coalesce(
-             t.area,
-             ''
-           )
-           ilike
-           '%' || v_search || '%'
+        or public.sales_quote_matches(q.id, v_search)
       )
 
     order by
@@ -13271,6 +13327,7 @@ revoke execute on function public.refresh_customer_payment_totals(uuid) from aut
 revoke execute on function public.refresh_sales_order_inventory_status(uuid) from authenticated;
 revoke execute on function public.reserve_pending_orders_for_product(uuid,uuid,uuid) from authenticated;
 revoke execute on function public.reserve_sales_order(uuid,uuid) from authenticated;
+revoke execute on function public.sales_quote_matches(uuid,text) from authenticated;
 revoke execute on function public.validate_sales_quote_conversion_source(uuid,uuid,uuid,jsonb) from authenticated;
 
 -- ======================================================================

@@ -1559,3 +1559,7 @@ body{
 /* خانات الإدخال جوّا الجداول (الجرد، بنود الفواتير...) بنفس شكل باقي الخانات */
 .dataTable input, .dataTable select, .quickItem input, .quickItem select { background: #06110e; color: white; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; outline: none; min-width: 0; }
 .dataTable input:focus, .dataTable select:focus, .quickItem input:focus, .quickItem select:focus { border-color: rgba(47,202,158,.55); box-shadow: 0 0 0 3px rgba(47,202,158,.06); }
+
+/* اختيار موقع المحل بفورم الزبون */
+.locationPicker { display: grid; gap: 8px; }
+.locationPickerMap { height: 240px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }

@@ -3243,6 +3243,45 @@ begin
 end;
 $function$;
 
+create or replace function public.sales_quote_matches(target_quote uuid, target_search text)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- البحث بعروض الأسعار بكل شي: رقم العرض، الزبون (اسم، منطقة، هاتف)، الملاحظات،
+  -- المبلغ، أو اسم/كود/ماركة صنف موجود بالعرض.
+  select exists (
+    select 1
+    from public.sales_quotes q
+    join public.traders t on t.id = q.trader_id
+    where q.id = target_quote
+      and (
+        q.quote_number ilike '%' || target_search || '%'
+        or t.name ilike '%' || target_search || '%'
+        or coalesce(t.area, '') ilike '%' || target_search || '%'
+        or coalesce(t.phone, '') ilike '%' || target_search || '%'
+        or coalesce(t.whatsapp, '') ilike '%' || target_search || '%'
+        or coalesce(q.notes, '') ilike '%' || target_search || '%'
+        or q.total = case
+          when replace(target_search, ',', '') ~ '^[0-9]+([.][0-9]+)?$'
+            then replace(target_search, ',', '')::numeric
+        end
+        or exists (
+          select 1
+          from public.sales_quote_items qi
+          join public.products p on p.id = qi.product_id
+          where qi.quote_id = q.id
+            and (
+              p.name ilike '%' || target_search || '%'
+              or coalesce(p.sku, '') ilike '%' || target_search || '%'
+              or coalesce(p.brand, '') ilike '%' || target_search || '%'
+            )
+        )
+      )
+  )
+$function$;
+
 create or replace function public.get_quotes_queue(target_company uuid, target_search text DEFAULT NULL::text, target_status text DEFAULT NULL::text, target_limit integer DEFAULT 50, target_offset integer DEFAULT 0)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -3364,23 +3403,9 @@ begin
     )
 
     and (
-      v_search is null
-
-      or q.quote_number
-         ilike
-         '%' || v_search || '%'
-
-      or t.name
-         ilike
-         '%' || v_search || '%'
-
-      or coalesce(
-           t.area,
-           ''
-         )
-         ilike
-         '%' || v_search || '%'
-    );
+        v_search is null
+        or public.sales_quote_matches(q.id, v_search)
+      );
 
   select
     coalesce(
@@ -3559,21 +3584,7 @@ begin
 
       and (
         v_search is null
-
-        or q.quote_number
-           ilike
-           '%' || v_search || '%'
-
-        or t.name
-           ilike
-           '%' || v_search || '%'
-
-        or coalesce(
-             t.area,
-             ''
-           )
-           ilike
-           '%' || v_search || '%'
+        or public.sales_quote_matches(q.id, v_search)
       )
 
     order by
@@ -5642,4 +5653,5 @@ revoke execute on function public.refresh_customer_payment_totals(uuid) from aut
 revoke execute on function public.refresh_sales_order_inventory_status(uuid) from authenticated;
 revoke execute on function public.reserve_pending_orders_for_product(uuid,uuid,uuid) from authenticated;
 revoke execute on function public.reserve_sales_order(uuid,uuid) from authenticated;
+revoke execute on function public.sales_quote_matches(uuid,text) from authenticated;
 revoke execute on function public.validate_sales_quote_conversion_source(uuid,uuid,uuid,jsonb) from authenticated;

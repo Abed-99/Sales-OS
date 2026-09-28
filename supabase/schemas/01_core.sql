@@ -127,6 +127,7 @@ insert into public.permissions (code, module, action, label, description, sort_o
   ('traders.archive', 'traders', 'archive', 'تعطيل أو أرشفة تاجر', null, 33),
   ('traders.assign_rep', 'traders', 'assign_rep', 'تعيين مندوب للتاجر', null, 34),
   ('traders.view_balance', 'traders', 'view_balance', 'عرض حساب التاجر', null, 35),
+  ('traders.manage_credit', 'traders', 'manage_credit', 'تحديد حد الدين ومهلة الدفع', null, 36),
   ('visits.view', 'visits', 'view', 'عرض الزيارات', null, 40),
   ('visits.create', 'visits', 'create', 'تسجيل زيارة', null, 41),
   ('visits.update', 'visits', 'update', 'تعديل زيارة', null, 42),
@@ -451,7 +452,12 @@ begin
     'map.view',
     'reports.view','reports.sales','reports.profit','reports.finance','reports.team',
     'settings.view','settings.manage_company',
-    'audit.view'
+    'audit.view',
+    'traders.manage_credit','orders.override_credit_limit',
+    'payroll.view','payroll.reports',
+    'assets.view','partners.view',
+    'returns.view','returns.create','returns.reverse',
+    'approvals.view','approvals.resolve'
   ]::text[])
   where r.company_id = new.id
     and r.name = 'مدير'
@@ -471,6 +477,7 @@ begin
     'deliveries.view','deliveries.update',
     'payments.sales_view','payments.sales_create',
     'inventory.view','map.view',
+    'returns.view','returns.create',
     'settings.view'
   ]::text[])
   where r.company_id = new.id
@@ -497,7 +504,13 @@ begin
     'finance.expenses_view','finance.expenses_write','finance.expense_categories',
     'finance.accounts_view','finance.accounts_write','finance.month_close',
     'reports.view','reports.sales','reports.profit','reports.finance',
-    'settings.view'
+    'settings.view',
+    'traders.manage_credit',
+    'payroll.view','payroll.manage_employees','payroll.process','payroll.pay','payroll.reports',
+    'assets.view','assets.manage','assets.depreciate',
+    'partners.view','partners.manage','partners.transactions',
+    'returns.view','returns.create','returns.reverse',
+    'approvals.view','approvals.create','approvals.resolve'
   ]::text[])
   where r.company_id = new.id
     and r.name = 'محاسب'

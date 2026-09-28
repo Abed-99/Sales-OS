@@ -1,32 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-} from "react";
-import {
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
-import {
-  normalizeSyrianMobile,
-  syrianPhoneState,
-} from "@/lib/phone";
+import { LocationPicker } from "@/components/map/location-picker";
+import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 
-type Status =
-  | "new"
-  | "contacted"
-  | "interested"
-  | "customer"
-  | "inactive";
+type Status = "new" | "contacted" | "interested" | "customer" | "inactive";
 
 export type Trader = {
   id: string;
@@ -54,10 +38,7 @@ type Stats = {
   new: number;
 };
 
-const labels: Record<
-  Status,
-  string
-> = {
+const labels: Record<Status, string> = {
   new: "جديد",
   contacted: "تم التواصل",
   interested: "مهتم",
@@ -84,23 +65,17 @@ function emptyForm() {
 }
 
 function friendlyDbError(
-  error:
-    | {
-        code?: string;
-        message?: string;
-      }
-    | null,
-  action: "save" | "archive"
+  error: {
+    code?: string;
+    message?: string;
+  } | null,
+  action: "save" | "archive",
 ) {
-  const message =
-    error?.message?.toLowerCase() ??
-    "";
+  const message = error?.message?.toLowerCase() ?? "";
 
   if (
     error?.code === "23505" ||
-    message.includes(
-      "مستخدم عند تاجر"
-    ) ||
+    message.includes("مستخدم عند تاجر") ||
     message.includes("duplicate")
   ) {
     return "رقم الهاتف أو واتساب مستخدم عند عميل آخر.";
@@ -108,12 +83,8 @@ function friendlyDbError(
 
   if (
     error?.code === "42501" ||
-    message.includes(
-      "not allowed"
-    ) ||
-    message.includes(
-      "permission"
-    )
+    message.includes("not allowed") ||
+    message.includes("permission")
   ) {
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
@@ -125,9 +96,7 @@ function friendlyDbError(
   return "تعذر حفظ بيانات العميل. تحقق من البيانات وحاول مرة ثانية.";
 }
 
-function statusClass(
-  status: Status
-) {
+function statusClass(status: Status) {
   if (status === "customer") {
     return "green";
   }
@@ -159,6 +128,7 @@ export function CustomersClient({
   canArchive,
   canViewMap,
   canViewBalance,
+  canManageCredit,
 }: {
   companyId: string;
   currency: string;
@@ -175,59 +145,32 @@ export function CustomersClient({
   canArchive: boolean;
   canViewMap: boolean;
   canViewBalance: boolean;
+  canManageCredit: boolean;
 }) {
-  const [supabase] =
-    useState(() => createClient());
+  const [supabase] = useState(() => createClient());
 
   const router = useRouter();
-  const searchParams =
-    useSearchParams();
+  const searchParams = useSearchParams();
 
-  const [rows, setRows] =
-    useState(initialTraders);
+  const [rows, setRows] = useState(initialTraders);
 
-  const [search, setSearch] =
-    useState(searchQuery);
+  const [search, setSearch] = useState(searchQuery);
 
-  const [status, setStatus] =
-    useState<Status | "all">(
-      statusFilter
-    );
+  const [status, setStatus] = useState<Status | "all">(statusFilter);
 
-  const [open, setOpen] =
-    useState(false);
+  const [open, setOpen] = useState(false);
 
-  const [
-    editing,
-    setEditing,
-  ] = useState<Trader | null>(
-    null
-  );
+  const [editing, setEditing] = useState<Trader | null>(null);
 
-  const [form, setForm] =
-    useState(emptyForm);
+  const [form, setForm] = useState(emptyForm);
 
-  const [
-    formMessage,
-    setFormMessage,
-  ] = useState("");
+  const [formMessage, setFormMessage] = useState("");
 
-  const [
-    pageMessage,
-    setPageMessage,
-  ] = useState(
-    initialError ?? ""
-  );
+  const [pageMessage, setPageMessage] = useState(initialError ?? "");
 
-  const [saving, setSaving] =
-    useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const [
-    archivingId,
-    setArchivingId,
-  ] = useState<string | null>(
-    null
-  );
+  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   useEffect(() => {
     setRows(initialTraders);
@@ -242,119 +185,55 @@ export function CustomersClient({
   }, [statusFilter]);
 
   useEffect(() => {
-    setPageMessage(
-      initialError ?? ""
-    );
+    setPageMessage(initialError ?? "");
   }, [initialError]);
 
-  const pageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        totalCount / pageSize
-      )
-    );
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
 
-  const visibleFrom =
-    totalCount === 0
-      ? 0
-      : (page - 1) *
-          pageSize +
-        1;
+  const visibleFrom = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
 
-  const visibleTo =
-    Math.min(
-      page * pageSize,
-      totalCount
-    );
+  const visibleTo = Math.min(page * pageSize, totalCount);
 
-  const statusOptions =
-    useMemo(
-      () =>
-        (
-          Object.entries(
-            labels
-          ) as [
-            Status,
-            string,
-          ][]
-        ).filter(
-          ([key]) =>
-            key !== "inactive" ||
-            canArchive ||
-            editing?.status ===
-              "inactive"
-        ),
-      [
-        canArchive,
-        editing?.status,
-      ]
-    );
+  const statusOptions = useMemo(
+    () =>
+      (Object.entries(labels) as [Status, string][]).filter(
+        ([key]) => key !== "inactive" || canArchive || editing?.status === "inactive",
+      ),
+    [canArchive, editing?.status],
+  );
 
-  function navigateFilters(
-    nextSearch: string,
-    nextStatus:
-      | Status
-      | "all",
-    nextPage = 1
-  ) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+  function navigateFilters(nextSearch: string, nextStatus: Status | "all", nextPage = 1) {
+    const params = new URLSearchParams(searchParams.toString());
 
-    const cleanedSearch =
-      nextSearch.trim();
+    const cleanedSearch = nextSearch.trim();
 
     if (cleanedSearch) {
-      params.set(
-        "q",
-        cleanedSearch
-      );
+      params.set("q", cleanedSearch);
     } else {
       params.delete("q");
     }
 
-    if (
-      nextStatus !== "all"
-    ) {
-      params.set(
-        "status",
-        nextStatus
-      );
+    if (nextStatus !== "all") {
+      params.set("status", nextStatus);
     } else {
       params.delete("status");
     }
 
     if (nextPage > 1) {
-      params.set(
-        "page",
-        String(nextPage)
-      );
+      params.set("page", String(nextPage));
     } else {
       params.delete("page");
     }
 
-    const query =
-      params.toString();
+    const query = params.toString();
 
-    router.push(
-      query
-        ? `/customers?${query}`
-        : "/customers"
-    );
+    router.push(query ? `/customers?${query}` : "/customers");
   }
 
-  function submitSearch(
-    event: FormEvent
-  ) {
+  function submitSearch(event: FormEvent) {
     event.preventDefault();
 
-    navigateFilters(
-      search,
-      status,
-      1
-    );
+    navigateFilters(search, status, 1);
   }
 
   function startAdd() {
@@ -368,9 +247,7 @@ export function CustomersClient({
     setOpen(true);
   }
 
-  function startEdit(
-    trader: Trader
-  ) {
+  function startEdit(trader: Trader) {
     if (!canUpdate) {
       return;
     }
@@ -380,265 +257,139 @@ export function CustomersClient({
     setForm({
       name: trader.name,
 
-      contact_name:
-        trader.contact_name ??
-        "",
+      contact_name: trader.contact_name ?? "",
 
-      phone:
-        trader.phone ?? "",
+      phone: trader.phone ?? "",
 
-      whatsapp:
-        trader.whatsapp ?? "",
+      whatsapp: trader.whatsapp ?? "",
 
-      area:
-        trader.area ?? "",
+      area: trader.area ?? "",
 
-      address:
-        trader.address ?? "",
+      address: trader.address ?? "",
 
-      latitude:
-        trader.latitude != null
-          ? String(
-              trader.latitude
-            )
-          : "",
+      latitude: trader.latitude != null ? String(trader.latitude) : "",
 
-      longitude:
-        trader.longitude !=
-        null
-          ? String(
-              trader.longitude
-            )
-          : "",
+      longitude: trader.longitude != null ? String(trader.longitude) : "",
 
       status: trader.status,
 
-      notes:
-        trader.notes ?? "",
+      notes: trader.notes ?? "",
 
-      optin:
-        trader.whatsapp_marketing_opt_in,
+      optin: trader.whatsapp_marketing_opt_in,
 
-      credit_limit:
-        trader.credit_limit ==
-        null
-          ? ""
-          : String(
-              trader.credit_limit
-            ),
+      credit_limit: trader.credit_limit == null ? "" : String(trader.credit_limit),
 
-      payment_terms_days:
-        String(
-          trader.payment_terms_days ??
-            0
-        ),
+      payment_terms_days: String(trader.payment_terms_days ?? 0),
     });
 
     setFormMessage("");
     setOpen(true);
   }
 
-  async function save(
-    event: FormEvent
-  ) {
+  async function save(event: FormEvent) {
     event.preventDefault();
     setFormMessage("");
 
-    if (
-      editing &&
-      !canUpdate
-    ) {
-      setFormMessage(
-        "ما عندك صلاحية تعديل العميل."
-      );
+    if (editing && !canUpdate) {
+      setFormMessage("ما عندك صلاحية تعديل العميل.");
       return;
     }
 
-    if (
-      !editing &&
-      !canCreate
-    ) {
-      setFormMessage(
-        "ما عندك صلاحية إضافة عميل."
-      );
+    if (!editing && !canCreate) {
+      setFormMessage("ما عندك صلاحية إضافة عميل.");
       return;
     }
 
-    const name =
-      form.name.trim();
+    const name = form.name.trim();
 
     if (!name) {
-      setFormMessage(
-        "اسم العميل أو المحل مطلوب."
-      );
+      setFormMessage("اسم العميل أو المحل مطلوب.");
       return;
     }
 
     if (name.length > 200) {
-      setFormMessage(
-        "اسم العميل طويل جداً."
-      );
+      setFormMessage("اسم العميل طويل جداً.");
       return;
     }
 
-    if (
-      form.status ===
-        "inactive" &&
-      editing?.status !==
-        "inactive" &&
-      !canArchive
-    ) {
-      setFormMessage(
-        "ما عندك صلاحية أرشفة العميل."
-      );
+    if (form.status === "inactive" && editing?.status !== "inactive" && !canArchive) {
+      setFormMessage("ما عندك صلاحية أرشفة العميل.");
       return;
     }
 
-    const phone =
-      form.phone.trim()
-        ? normalizeSyrianMobile(
-            form.phone
-          )
-        : null;
+    const phone = form.phone.trim() ? normalizeAnyPhone(form.phone) : null;
 
-    const whatsapp =
-      form.whatsapp.trim()
-        ? normalizeSyrianMobile(
-            form.whatsapp
-          )
-        : null;
+    const whatsapp = form.whatsapp.trim() ? normalizeAnyPhone(form.whatsapp) : null;
 
-    if (
-      form.phone.trim() &&
-      !phone
-    ) {
-      setFormMessage(
-        "رقم الهاتف السوري غير صحيح."
-      );
+    if (form.phone.trim() && !phone) {
+      setFormMessage("رقم الهاتف غير صحيح. اكتب رقم سوري أو رقم دولي بيبلّش بـ +");
       return;
     }
 
-    if (
-      form.whatsapp.trim() &&
-      !whatsapp
-    ) {
-      setFormMessage(
-        "رقم واتساب السوري غير صحيح."
-      );
+    if (form.whatsapp.trim() && !whatsapp) {
+      setFormMessage("رقم الواتساب غير صحيح. اكتب رقم سوري أو رقم دولي بيبلّش بـ +");
       return;
     }
 
-    const duplicate =
-      rows.find(
-        (row) =>
-          row.id !==
-            editing?.id &&
-          Boolean(
-            (phone &&
-              (row.phone ===
-                phone ||
-                row.whatsapp ===
-                  phone)) ||
-              (whatsapp &&
-                (row.phone ===
-                  whatsapp ||
-                  row.whatsapp ===
-                    whatsapp))
-          )
-      );
+    const duplicate = rows.find(
+      (row) =>
+        row.id !== editing?.id &&
+        Boolean(
+          (phone && (row.phone === phone || row.whatsapp === phone)) ||
+          (whatsapp && (row.phone === whatsapp || row.whatsapp === whatsapp)),
+        ),
+    );
 
     if (duplicate) {
-      setFormMessage(
-        `الرقم مستخدم مسبقاً عند: ${duplicate.name}`
-      );
+      setFormMessage(`الرقم مستخدم مسبقاً عند: ${duplicate.name}`);
       return;
     }
 
-    const latitudeText =
-      form.latitude.trim();
+    const latitudeText = form.latitude.trim();
 
-    const longitudeText =
-      form.longitude.trim();
+    const longitudeText = form.longitude.trim();
 
-    if (
-      Boolean(latitudeText) !==
-      Boolean(longitudeText)
-    ) {
-      setFormMessage(
-        "يجب إدخال Latitude و Longitude معاً."
-      );
+    if (Boolean(latitudeText) !== Boolean(longitudeText)) {
+      setFormMessage("الموقع ناقص. حدد مكان المحل على الخريطة من جديد.");
       return;
     }
 
-    let latitude:
-      | number
-      | null = null;
+    let latitude: number | null = null;
 
-    let longitude:
-      | number
-      | null = null;
+    let longitude: number | null = null;
 
-    if (
-      latitudeText &&
-      longitudeText
-    ) {
-      latitude =
-        Number(latitudeText);
+    if (latitudeText && longitudeText) {
+      latitude = Number(latitudeText);
 
-      longitude =
-        Number(longitudeText);
+      longitude = Number(longitudeText);
 
       if (
-        !Number.isFinite(
-          latitude
-        ) ||
+        !Number.isFinite(latitude) ||
         latitude < -90 ||
-        latitude > 90
-      ) {
-        setFormMessage(
-          "Latitude يجب أن يكون بين -90 و 90."
-        );
-        return;
-      }
-
-      if (
-        !Number.isFinite(
-          longitude
-        ) ||
+        latitude > 90 ||
+        !Number.isFinite(longitude) ||
         longitude < -180 ||
         longitude > 180
       ) {
-        setFormMessage(
-          "Longitude يجب أن يكون بين -180 و 180."
-        );
+        setFormMessage("الموقع غير صحيح. حدد مكان المحل على الخريطة من جديد.");
         return;
       }
     }
 
-    const payload:
-      Record<
-        string,
-        unknown
-      > = {
+    const payload: Record<string, unknown> = {
       company_id: companyId,
 
       name,
 
-      contact_name:
-        form.contact_name.trim() ||
-        null,
+      contact_name: form.contact_name.trim() || null,
 
       phone,
 
       whatsapp,
 
-      area:
-        form.area.trim() ||
-        null,
+      area: form.area.trim() || null,
 
-      address:
-        form.address.trim() ||
-        null,
+      address: form.address.trim() || null,
 
       latitude,
 
@@ -646,101 +397,51 @@ export function CustomersClient({
 
       status: form.status,
 
-      notes:
-        form.notes.trim() ||
-        null,
+      notes: form.notes.trim() || null,
 
-      whatsapp_marketing_opt_in:
-        form.optin,
+      whatsapp_marketing_opt_in: form.optin,
     };
 
-    if (canViewBalance) {
-      const creditLimit =
-        form.credit_limit.trim() ===
-        ""
-          ? null
-          : Number(
-              form.credit_limit
-            );
+    // حد الدين ومهلة الدفع بيتغيّروا بس بصلاحية "تحديد حد الدين" (القاعدة كمان بتمنع).
+    if (canManageCredit) {
+      const creditLimit = form.credit_limit.trim() === "" ? null : Number(form.credit_limit);
 
-      const paymentTerms =
-        Number(
-          form.payment_terms_days ||
-            0
-        );
+      const paymentTerms = Number(form.payment_terms_days || 0);
 
-      if (
-        creditLimit !== null &&
-        (!Number.isFinite(
-          creditLimit
-        ) ||
-          creditLimit < 0)
-      ) {
-        setFormMessage(
-          "حد الائتمان يجب أن يكون صفراً أو أكبر."
-        );
+      if (creditLimit !== null && (!Number.isFinite(creditLimit) || creditLimit < 0)) {
+        setFormMessage("حد الائتمان يجب أن يكون صفراً أو أكبر.");
         return;
       }
 
-      if (
-        !Number.isInteger(
-          paymentTerms
-        ) ||
-        paymentTerms < 0 ||
-        paymentTerms > 3650
-      ) {
-        setFormMessage(
-          "مهلة الدفع يجب أن تكون بين 0 و 3650 يوماً."
-        );
+      if (!Number.isInteger(paymentTerms) || paymentTerms < 0 || paymentTerms > 3650) {
+        setFormMessage("مهلة الدفع يجب أن تكون بين 0 و 3650 يوماً.");
         return;
       }
 
-      payload.credit_limit =
-        creditLimit;
+      payload.credit_limit = creditLimit;
 
-      payload.payment_terms_days =
-        paymentTerms;
+      payload.payment_terms_days = paymentTerms;
     }
 
     setSaving(true);
 
     try {
       if (editing) {
-        const { error } =
-          await supabase
-            .from("traders")
-            .update(payload)
-            .eq(
-              "company_id",
-              companyId
-            )
-            .eq(
-              "id",
-              editing.id
-            );
+        const { error } = await supabase
+          .from("traders")
+          .update(payload)
+          .eq("company_id", companyId)
+          .eq("id", editing.id);
 
         if (error) {
-          setFormMessage(
-            friendlyDbError(
-              error,
-              "save"
-            )
-          );
+          setFormMessage(friendlyDbError(error, "save"));
           return;
         }
       } else {
-        const { error } =
-          await supabase
-            .from("traders")
-            .insert(payload);
+        const { error } = await supabase.from("traders").insert(payload);
 
         if (error) {
-          setFormMessage(
-            friendlyDbError(
-              error,
-              "save"
-            )
-          );
+          setFormMessage(friendlyDbError(error, "save"));
           return;
         }
       }
@@ -755,50 +456,27 @@ export function CustomersClient({
     }
   }
 
-  async function archiveTrader(
-    trader: Trader
-  ) {
-    if (
-      !canArchive ||
-      trader.status ===
-        "inactive"
-    ) {
+  async function archiveTrader(trader: Trader) {
+    if (!canArchive || trader.status === "inactive") {
       return;
     }
 
-    if (
-      !confirm(
-        `أرشفة ${trader.name}؟ سيبقى السجل محفوظاً ويمكن إعادة تفعيله لاحقاً.`
-      )
-    ) {
+    if (!confirm(`أرشفة ${trader.name}؟ سيبقى السجل محفوظاً ويمكن إعادة تفعيله لاحقاً.`)) {
       return;
     }
 
     setPageMessage("");
-    setArchivingId(
-      trader.id
-    );
+    setArchivingId(trader.id);
 
     try {
-      const { error } =
-        await supabase.rpc(
-          "archive_trader",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("archive_trader", {
+        target_company: companyId,
 
-            target_trader:
-              trader.id,
-          }
-        );
+        target_trader: trader.id,
+      });
 
       if (error) {
-        setPageMessage(
-          friendlyDbError(
-            error,
-            "archive"
-          )
-        );
+        setPageMessage(friendlyDbError(error, "archive"));
         return;
       }
 
@@ -807,91 +485,32 @@ export function CustomersClient({
           row.id === trader.id
             ? {
                 ...row,
-                status:
-                  "inactive",
+                status: "inactive",
               }
-            : row
-        )
+            : row,
+        ),
       );
 
       router.refresh();
     } finally {
-      setArchivingId(
-        null
-      );
+      setArchivingId(null);
     }
-  }
-
-  function useLocation() {
-    setFormMessage("");
-
-    if (
-      !navigator.geolocation
-    ) {
-      setFormMessage(
-        "المتصفح لا يدعم تحديد الموقع."
-      );
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setForm(
-          (current) => ({
-            ...current,
-
-            latitude:
-              position.coords.latitude.toFixed(
-                7
-              ),
-
-            longitude:
-              position.coords.longitude.toFixed(
-                7
-              ),
-          })
-        );
-      },
-
-      () => {
-        setFormMessage(
-          "تعذر الحصول على الموقع الحالي."
-        );
-      },
-
-      {
-        enableHighAccuracy:
-          true,
-        timeout: 8000,
-      }
-    );
   }
 
   return (
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            قاعدة السوق
-          </span>
+          <span className="eyebrow">قاعدة السوق</span>
 
-          <h2>
-            العملاء والتجار
-          </h2>
+          <h2>العملاء والتجار</h2>
 
-          <p className="muted">
-            إدارة بيانات العملاء والتواصل والموقع وشروط الائتمان.
-          </p>
+          <p className="muted">إدارة بيانات العملاء والتواصل والموقع وشروط الائتمان.</p>
         </div>
 
         {canCreate ? (
-          <button
-            className="primaryButton"
-            onClick={startAdd}
-          >
-            <Icons.plus
-              size={15}
-            />
+          <button className="primaryButton" onClick={startAdd}>
+            <Icons.plus size={15} />
             إضافة عميل
           </button>
         ) : null}
@@ -911,35 +530,13 @@ export function CustomersClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini
-          n={
-            stats?.all ?? "—"
-          }
-          t="كل السجلات"
-        />
+        <Mini n={stats?.all ?? "—"} t="كل السجلات" />
 
-        <Mini
-          n={
-            stats?.customers ??
-            "—"
-          }
-          t="عملاء"
-        />
+        <Mini n={stats?.customers ?? "—"} t="عملاء" />
 
-        <Mini
-          n={
-            stats?.interested ??
-            "—"
-          }
-          t="مهتمون"
-        />
+        <Mini n={stats?.interested ?? "—"} t="مهتمون" />
 
-        <Mini
-          n={
-            stats?.new ?? "—"
-          }
-          t="جدد"
-        />
+        <Mini n={stats?.new ?? "—"} t="جدد" />
       </section>
 
       <section
@@ -949,34 +546,17 @@ export function CustomersClient({
         }}
       >
         <div className="filters">
-          <form
-            className="searchBox"
-            onSubmit={
-              submitSearch
-            }
-          >
-            <Icons.search
-              size={16}
-            />
+          <form className="searchBox" onSubmit={submitSearch}>
+            <Icons.search size={16} />
 
             <input
               value={search}
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event.target
-                    .value
-                )
-              }
-              placeholder="ابحث بالاسم، الرقم أو المنطقة..."
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="الاسم، الرقم، المنطقة أو العنوان..."
               aria-label="بحث في العملاء"
             />
 
-            <button
-              type="submit"
-              className="softButton"
-            >
+            <button type="submit" className="softButton">
               بحث
             </button>
           </form>
@@ -984,81 +564,38 @@ export function CustomersClient({
           <select
             value={status}
             aria-label="تصفية حسب الحالة"
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value as
-                  | Status
-                  | "all";
+            onChange={(event) => {
+              const value = event.target.value as Status | "all";
 
               setStatus(value);
 
-              navigateFilters(
-                search,
-                value,
-                1
-              );
+              navigateFilters(search, value, 1);
             }}
           >
-            <option value="all">
-              كل الحالات
-            </option>
+            <option value="all">كل الحالات</option>
 
-            {(
-              Object.entries(
-                labels
-              ) as [
-                Status,
-                string,
-              ][]
-            ).map(
-              ([
-                key,
-                value,
-              ]) => (
-                <option
-                  key={key}
-                  value={key}
-                >
-                  {value}
-                </option>
-              )
-            )}
+            {(Object.entries(labels) as [Status, string][]).map(([key, value]) => (
+              <option key={key} value={key}>
+                {value}
+              </option>
+            ))}
           </select>
 
           <div className="resultCount">
-            {totalCount === 0
-              ? "0 نتيجة"
-              : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+            {totalCount === 0 ? "0 نتيجة" : `${visibleFrom}–${visibleTo} من ${totalCount}`}
           </div>
         </div>
 
         {!rows.length ? (
           <div className="empty">
-            <Icons.users
-              size={29}
-            />
+            <Icons.users size={29} />
 
-            <h3>
-              لا توجد نتائج
-            </h3>
+            <h3>لا توجد نتائج</h3>
 
-            <p>
-              غيّر البحث أو حالة العميل وحاول مرة ثانية.
-            </p>
+            <p>غيّر البحث أو حالة العميل وحاول مرة ثانية.</p>
 
-            {canCreate &&
-            !searchQuery &&
-            statusFilter ===
-              "all" ? (
-              <button
-                className="primaryButton"
-                onClick={
-                  startAdd
-                }
-              >
+            {canCreate && !searchQuery && statusFilter === "all" ? (
+              <button className="primaryButton" onClick={startAdd}>
                 إضافة أول عميل
               </button>
             ) : null}
@@ -1068,223 +605,127 @@ export function CustomersClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>
-                    العميل
-                  </th>
-                  <th>
-                    المنطقة
-                  </th>
-                  <th>
-                    الحالة
-                  </th>
+                  <th>العميل</th>
+                  <th>المنطقة</th>
+                  <th>الحالة</th>
 
-                  {canViewBalance ? (
-                    <th>
-                      الائتمان
-                    </th>
-                  ) : null}
+                  {canViewBalance ? <th>الائتمان</th> : null}
 
-                  <th>
-                    واتساب
-                  </th>
+                  <th>واتساب</th>
 
-                  {canViewMap ? (
-                    <th>
-                      الموقع
-                    </th>
-                  ) : null}
+                  {canViewMap ? <th>الموقع</th> : null}
 
-                  <th>
-                    إجراءات
-                  </th>
+                  <th>إجراءات</th>
                 </tr>
               </thead>
 
               <tbody>
-                {rows.map(
-                  (trader) => (
-                    <tr
-                      key={
-                        trader.id
-                      }
-                    >
-                      <td>
-                        <div className="merchant">
-                          <div className="merchantLogo">
-                            {trader.name.charAt(
-                              0
-                            )}
-                          </div>
+                {rows.map((trader) => (
+                  <tr key={trader.id}>
+                    <td>
+                      <div className="merchant">
+                        <div className="merchantLogo">{trader.name.charAt(0)}</div>
 
-                          <div>
-                            <strong>
-                              {
-                                trader.name
-                              }
-                            </strong>
+                        <div>
+                          <strong>{trader.name}</strong>
 
-                            <span>
-                              {trader.contact_name ||
-                                trader.phone ||
-                                "بدون تفاصيل"}
-                            </span>
-                          </div>
+                          <span>{trader.contact_name || trader.phone || "بدون تفاصيل"}</span>
                         </div>
-                      </td>
+                      </div>
+                    </td>
 
-                      <td>
-                        {trader.area ||
-                          "—"}
-                      </td>
+                    <td>{trader.area || "—"}</td>
 
+                    <td>
+                      <span className={`chip ${statusClass(trader.status)}`}>
+                        {labels[trader.status]}
+                      </span>
+                    </td>
+
+                    {canViewBalance ? (
                       <td>
+                        <strong>
+                          {trader.credit_limit == null
+                            ? "بدون حد"
+                            : `${Number(trader.credit_limit).toFixed(2)} ${currency}`}
+                        </strong>
+
                         <span
-                          className={`chip ${statusClass(
-                            trader.status
-                          )}`}
+                          className="muted"
+                          style={{
+                            display: "block",
+                          }}
                         >
-                          {
-                            labels[
-                              trader
-                                .status
-                            ]
-                          }
+                          {trader.payment_terms_days > 0
+                            ? `${trader.payment_terms_days} يوم`
+                            : "نقدي"}
                         </span>
                       </td>
+                    ) : null}
 
-                      {canViewBalance ? (
-                        <td>
-                          <strong>
-                            {trader.credit_limit ==
-                            null
-                              ? "بدون حد"
-                              : `${Number(
-                                  trader.credit_limit
-                                ).toFixed(
-                                  2
-                                )} ${currency}`}
-                          </strong>
+                    <td>
+                      {trader.whatsapp ? (
+                        <a
+                          className="softButton"
+                          target="_blank"
+                          rel="noreferrer"
+                          href={`https://wa.me/${trader.whatsapp.replace(/\D/g, "")}`}
+                        >
+                          <Icons.whatsapp size={13} />
+                          واتساب
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
 
-                          <span
-                            className="muted"
-                            style={{
-                              display:
-                                "block",
-                            }}
-                          >
-                            {trader.payment_terms_days >
-                            0
-                              ? `${trader.payment_terms_days} يوم`
-                              : "نقدي"}
-                          </span>
-                        </td>
-                      ) : null}
-
+                    {canViewMap ? (
                       <td>
-                        {trader.whatsapp ? (
-                          <a
-                            className="softButton"
-                            target="_blank"
-                            rel="noreferrer"
-                            href={`https://wa.me/${trader.whatsapp.replace(
-                              /\D/g,
-                              ""
-                            )}`}
-                          >
-                            <Icons.whatsapp
-                              size={
-                                13
-                              }
-                            />
-                            واتساب
-                          </a>
+                        {trader.latitude != null && trader.longitude != null ? (
+                          <Link className="softButton" href={`/map?trader=${trader.id}`}>
+                            <Icons.map size={13} />
+                            خريطة
+                          </Link>
                         ) : (
                           "—"
                         )}
                       </td>
+                    ) : null}
 
-                      {canViewMap ? (
-                        <td>
-                          {trader.latitude !=
-                            null &&
-                          trader.longitude !=
-                            null ? (
-                            <Link
-                              className="softButton"
-                              href={`/map?trader=${trader.id}`}
-                            >
-                              <Icons.map
-                                size={
-                                  13
-                                }
-                              />
-                              خريطة
-                            </Link>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      ) : null}
+                    <td>
+                      <div className="rowActions">
+                        <Link className="softButton" href={`/customers/${trader.id}`}>
+                          فتح
+                        </Link>
 
-                      <td>
-                        <div className="rowActions">
-                          <Link
+                        {canUpdate ? (
+                          <button
+                            type="button"
                             className="softButton"
-                            href={`/customers/${trader.id}`}
+                            aria-label={`تعديل ${trader.name}`}
+                            title="تعديل"
+                            onClick={() => startEdit(trader)}
                           >
-                            فتح
-                          </Link>
+                            <Icons.edit size={13} />
+                          </button>
+                        ) : null}
 
-                          {canUpdate ? (
-                            <button
-                              type="button"
-                              className="softButton"
-                              aria-label={`تعديل ${trader.name}`}
-                              title="تعديل"
-                              onClick={() =>
-                                startEdit(
-                                  trader
-                                )
-                              }
-                            >
-                              <Icons.edit
-                                size={
-                                  13
-                                }
-                              />
-                            </button>
-                          ) : null}
-
-                          {canArchive &&
-                          trader.status !==
-                            "inactive" ? (
-                            <button
-                              type="button"
-                              className="dangerButton"
-                              aria-label={`أرشفة ${trader.name}`}
-                              title="أرشفة"
-                              disabled={
-                                archivingId ===
-                                trader.id
-                              }
-                              onClick={() =>
-                                archiveTrader(
-                                  trader
-                                )
-                              }
-                            >
-                              <Icons.box
-                                size={
-                                  13
-                                }
-                              />
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                )}
+                        {canArchive && trader.status !== "inactive" ? (
+                          <button
+                            type="button"
+                            className="dangerButton"
+                            aria-label={`أرشفة ${trader.name}`}
+                            title="أرشفة"
+                            disabled={archivingId === trader.id}
+                            onClick={() => archiveTrader(trader)}
+                          >
+                            <Icons.box size={13} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1294,8 +735,7 @@ export function CustomersClient({
           <div
             className="rowActions"
             style={{
-              justifyContent:
-                "center",
+              justifyContent: "center",
               padding: 16,
             }}
           >
@@ -1303,41 +743,21 @@ export function CustomersClient({
               type="button"
               className="softButton"
               disabled={page <= 1}
-              onClick={() =>
-                navigateFilters(
-                  searchQuery,
-                  statusFilter,
-                  Math.max(
-                    1,
-                    page - 1
-                  )
-                )
-              }
+              onClick={() => navigateFilters(searchQuery, statusFilter, Math.max(1, page - 1))}
             >
               السابق
             </button>
 
             <span className="muted">
-              صفحة {page} من{" "}
-              {pageCount}
+              صفحة {page} من {pageCount}
             </span>
 
             <button
               type="button"
               className="softButton"
-              disabled={
-                page >=
-                pageCount
-              }
+              disabled={page >= pageCount}
               onClick={() =>
-                navigateFilters(
-                  searchQuery,
-                  statusFilter,
-                  Math.min(
-                    pageCount,
-                    page + 1
-                  )
-                )
+                navigateFilters(searchQuery, statusFilter, Math.min(pageCount, page + 1))
               }
             >
               التالي
@@ -1349,14 +769,8 @@ export function CustomersClient({
       {open ? (
         <div
           className="modalOverlay"
-          onMouseDown={(
-            event
-          ) => {
-            if (
-              event.target ===
-                event.currentTarget &&
-              !saving
-            ) {
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) {
               setOpen(false);
             }
           }}
@@ -1369,401 +783,200 @@ export function CustomersClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  {editing
-                    ? "تعديل العميل"
-                    : "عميل جديد"}
-                </span>
+                <span className="eyebrow">{editing ? "تعديل العميل" : "عميل جديد"}</span>
 
-                <h2 id="customer-modal-title">
-                  {editing
-                    ? editing.name
-                    : "إضافة عميل"}
-                </h2>
+                <h2 id="customer-modal-title">{editing ? editing.name : "إضافة عميل"}</h2>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
                 aria-label="إغلاق"
-                disabled={
-                  saving
-                }
-                onClick={() =>
-                  setOpen(
-                    false
-                  )
-                }
+                disabled={saving}
+                onClick={() => setOpen(false)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={save}
-            >
+            <form onSubmit={save}>
               <div className="formGrid">
                 <Field
                   label="اسم المحل / العميل *"
-                  value={
-                    form.name
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        name: value,
-                      })
-                    )
+                  value={form.name}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: value,
+                    }))
                   }
                 />
 
                 <Field
                   label="اسم الشخص المسؤول"
-                  value={
-                    form.contact_name
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        contact_name:
-                          value,
-                      })
-                    )
+                  value={form.contact_name}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      contact_name: value,
+                    }))
                   }
                 />
 
                 <PhoneField
-                  label="رقم الهاتف السوري"
-                  value={
-                    form.phone
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        phone:
-                          value,
-                      })
-                    )
+                  label="رقم الهاتف"
+                  value={form.phone}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      phone: value,
+                    }))
                   }
                 />
 
                 <PhoneField
-                  label="رقم واتساب السوري"
-                  value={
-                    form.whatsapp
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        whatsapp:
-                          value,
-                      })
-                    )
+                  label="رقم واتساب"
+                  value={form.whatsapp}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      whatsapp: value,
+                    }))
                   }
                 />
 
                 <Field
                   label="المنطقة"
-                  value={
-                    form.area
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        area: value,
-                      })
-                    )
+                  value={form.area}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      area: value,
+                    }))
                   }
                 />
 
                 <label className="field">
-                  <span>
-                    الحالة
-                  </span>
+                  <span>الحالة</span>
 
                   <select
-                    value={
-                      form.status
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          status:
-                            event
-                              .target
-                              .value as Status,
-                        })
-                      )
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        status: event.target.value as Status,
+                      }))
                     }
                   >
-                    {statusOptions.map(
-                      ([
-                        key,
-                        value,
-                      ]) => (
-                        <option
-                          key={
-                            key
-                          }
-                          value={
-                            key
-                          }
-                        >
-                          {
-                            value
-                          }
-                        </option>
-                      )
-                    )}
+                    {statusOptions.map(([key, value]) => (
+                      <option key={key} value={key}>
+                        {value}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <Field
                   label="العنوان"
-                  value={
-                    form.address
-                  }
+                  value={form.address}
                   full
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        address:
-                          value,
-                      })
-                    )
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      address: value,
+                    }))
                   }
                 />
 
-                <Field
-                  label="Latitude"
-                  value={
-                    form.latitude
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
+                <div className="field full">
+                  <span>موقع المحل</span>
+
+                  <LocationPicker
+                    latitude={form.latitude ? Number(form.latitude) : null}
+                    longitude={form.longitude ? Number(form.longitude) : null}
+                    onChange={(latitude, longitude) =>
+                      setForm((current) => ({
                         ...current,
-                        latitude:
-                          value,
-                      })
-                    )
-                  }
-                />
-
-                <Field
-                  label="Longitude"
-                  value={
-                    form.longitude
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        longitude:
-                          value,
-                      })
-                    )
-                  }
-                />
-
-                <div className="field">
-                  <span>
-                    الموقع
-                  </span>
-
-                  <button
-                    type="button"
-                    className="softButton"
-                    onClick={
-                      useLocation
+                        latitude: latitude == null ? "" : String(latitude),
+                        longitude: longitude == null ? "" : String(longitude),
+                      }))
                     }
-                  >
-                    <Icons.map
-                      size={14}
-                    />
-                    استخدم موقعي الحالي
-                  </button>
+                  />
                 </div>
 
                 <label className="field">
-                  <span>
-                    حملات واتساب
-                  </span>
+                  <span>حملات واتساب</span>
 
                   <select
-                    value={
-                      form.optin
-                        ? "yes"
-                        : "no"
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          optin:
-                            event
-                              .target
-                              .value ===
-                            "yes",
-                        })
-                      )
+                    value={form.optin ? "yes" : "no"}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        optin: event.target.value === "yes",
+                      }))
                     }
                   >
-                    <option value="no">
-                      غير موافق
-                    </option>
+                    <option value="no">غير موافق</option>
 
-                    <option value="yes">
-                      موافق على الرسائل
-                    </option>
+                    <option value="yes">موافق على الرسائل</option>
                   </select>
                 </label>
 
-                {canViewBalance ? (
+                {canManageCredit ? (
                   <>
                     <label className="field">
-                      <span>
-                        حد الائتمان
-                      </span>
+                      <span>حد الائتمان</span>
 
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         placeholder="بدون حد"
-                        value={
-                          form.credit_limit
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setForm(
-                            (
-                              current
-                            ) => ({
-                              ...current,
-                              credit_limit:
-                                event
-                                  .target
-                                  .value,
-                            })
-                          )
+                        value={form.credit_limit}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            credit_limit: event.target.value,
+                          }))
                         }
                       />
 
-                      <small className="helpText">
-                        اتركه فارغاً إذا لم يوجد حد ائتمان.
-                      </small>
+                      <small className="helpText">اتركه فارغاً إذا لم يوجد حد ائتمان.</small>
                     </label>
 
                     <label className="field">
-                      <span>
-                        مهلة الدفع (يوم)
-                      </span>
+                      <span>مهلة الدفع (يوم)</span>
 
                       <input
                         type="number"
                         min="0"
                         max="3650"
                         step="1"
-                        value={
-                          form.payment_terms_days
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setForm(
-                            (
-                              current
-                            ) => ({
-                              ...current,
-                              payment_terms_days:
-                                event
-                                  .target
-                                  .value,
-                            })
-                          )
+                        value={form.payment_terms_days}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            payment_terms_days: event.target.value,
+                          }))
                         }
                       />
 
-                      <small className="helpText">
-                        0 يعني الدفع مستحق بنفس اليوم.
-                      </small>
+                      <small className="helpText">0 يعني الدفع مستحق بنفس اليوم.</small>
                     </label>
                   </>
                 ) : null}
 
                 <label className="field full">
-                  <span>
-                    ملاحظات
-                  </span>
+                  <span>ملاحظات</span>
 
                   <textarea
                     rows={4}
-                    value={
-                      form.notes
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          notes:
-                            event
-                              .target
-                              .value,
-                        })
-                      )
+                    value={form.notes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
                     }
                   />
                 </label>
@@ -1778,9 +991,7 @@ export function CustomersClient({
                     marginTop: 12,
                   }}
                 >
-                  {
-                    formMessage
-                  }
+                  {formMessage}
                 </div>
               ) : null}
 
@@ -1788,29 +999,14 @@ export function CustomersClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    saving
-                  }
-                  onClick={() =>
-                    setOpen(
-                      false
-                    )
-                  }
+                  disabled={saving}
+                  onClick={() => setOpen(false)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={
-                    saving
-                  }
-                >
-                  {saving
-                    ? "جارٍ الحفظ..."
-                    : editing
-                      ? "حفظ التعديلات"
-                      : "إضافة العميل"}
+                <button className="primaryButton" disabled={saving}>
+                  {saving ? "جارٍ الحفظ..." : editing ? "حفظ التعديلات" : "إضافة العميل"}
                 </button>
               </div>
             </form>
@@ -1829,29 +1025,14 @@ function Field({
 }: {
   label: string;
   value: string;
-  onChange: (
-    value: string
-  ) => void;
+  onChange: (value: string) => void;
   full?: boolean;
 }) {
   return (
-    <label
-      className={`field ${
-        full ? "full" : ""
-      }`}
-    >
+    <label className={`field ${full ? "full" : ""}`}>
       <span>{label}</span>
 
-      <input
-        value={value}
-        onChange={(
-          event
-        ) =>
-          onChange(
-            event.target.value
-          )
-        }
-      />
+      <input value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
@@ -1863,12 +1044,9 @@ function PhoneField({
 }: {
   label: string;
   value: string;
-  onChange: (
-    value: string
-  ) => void;
+  onChange: (value: string) => void;
 }) {
-  const state =
-    syrianPhoneState(value);
+  const state = anyPhoneState(value);
 
   return (
     <label className="field">
@@ -1878,52 +1056,30 @@ function PhoneField({
         dir="ltr"
         placeholder="0944123456"
         value={value}
-        onChange={(
-          event
-        ) =>
-          onChange(
-            event.target.value
-          )
-        }
+        onChange={(event) => onChange(event.target.value)}
       />
 
       <small
         className={
-          state === "valid"
-            ? "validText"
-            : state ===
-                "invalid"
-              ? "invalidText"
-              : "helpText"
+          state === "valid" ? "validText" : state === "invalid" ? "invalidText" : "helpText"
         }
       >
         {state === "valid"
-          ? "✓ رقم سوري صحيح"
-          : state ===
-              "invalid"
+          ? "✓ رقم صحيح"
+          : state === "invalid"
             ? "الرقم غير صحيح"
-            : "09xxxxxxxx أو +9639xxxxxxxx"}
+            : "09xxxxxxxx أو رقم دولي +..."}
       </small>
     </label>
   );
 }
 
-function Mini({
-  n,
-  t,
-}: {
-  n: number | string;
-  t: string;
-}) {
+function Mini({ n, t }: { n: number | string; t: string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {t}
-      </div>
+      <div className="statLabel">{t}</div>
 
-      <div className="statValue">
-        {n}
-      </div>
+      <div className="statValue">{n}</div>
     </div>
   );
 }

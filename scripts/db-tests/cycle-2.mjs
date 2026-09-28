@@ -129,6 +129,12 @@ else {
   must("المالك وافق", await u.rpc("resolve_approval_request", { target_company: company, target_request: approval, target_decision: "approved", target_notes: null }));
   const { data: made } = await admin.from("sales_orders").select("id, total").eq("trader_id", trader).order("created_at", { ascending: false }).limit(1).single();
   check("انعملت الطلبية بعد الموافقة (15$)", made.total, 15);
+  const quoteAfter = (await admin.from("sales_quotes").select("status, converted_order_id").eq("id", q2Id).single()).data;
+  if (quoteAfter.status !== "converted" || quoteAfter.converted_order_id !== made.id) { failures++; log(`   ❌ العرض ما تعلّم إنه تحوّل: ${JSON.stringify(quoteAfter)}`); }
+  else log("   ✅ العرض صار «تحوّل لطلبية» ومربوط بالطلبية");
+  const again = await salesRep.rpc("convert_sales_quote_to_order", { target_company: company, target_quote: q2Id });
+  const orderCount = (await admin.from("sales_orders").select("id", { count: "exact", head: true }).eq("trader_id", trader).eq("total", 15)).count;
+  check("تحويل العرض مرة تانية ما بيعمل طلبية مكررة", orderCount, 1);
   must("إلغاء الطلبية", await u.rpc("cancel_sales_order", { target_company: company, target_order: made.id, target_reason: "تجربة" }));
 }
 
