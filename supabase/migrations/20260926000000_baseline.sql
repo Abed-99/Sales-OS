@@ -10610,6 +10610,7 @@ begin
 
       or so.id::text ilike
          '%' || v_search || '%'
+      or coalesce(so.order_number, '') ilike '%' || v_search || '%'
     );
 
   select
@@ -10638,6 +10639,9 @@ begin
       jsonb_build_object(
         'id',
           so.id,
+
+        'order_number',
+          so.order_number,
 
         'status',
           so.status,
@@ -10842,6 +10846,7 @@ begin
 
         or so.id::text ilike
            '%' || v_search || '%'
+      or coalesce(so.order_number, '') ilike '%' || v_search || '%'
       )
 
     order by

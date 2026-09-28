@@ -23,22 +23,20 @@ export type MapTrader = {
 export type MapProps = {
   traders: MapTrader[];
   initialTraderId: string | null;
+  initialMode?: "customers" | "deliveries";
   companyId: string;
   currency: string;
   canEditLocation: boolean;
 };
 
-const Inner = dynamic(
-  () => import("./map-inner").then((module) => module.MapInner),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="panel empty">
-        <p>عم نحمل الخريطة...</p>
-      </div>
-    ),
-  }
-);
+const Inner = dynamic(() => import("./map-inner").then((module) => module.MapInner), {
+  ssr: false,
+  loading: () => (
+    <div className="panel empty">
+      <p>عم نحمل الخريطة...</p>
+    </div>
+  ),
+});
 
 export function MapShell(props: MapProps) {
   return <Inner {...props} />;

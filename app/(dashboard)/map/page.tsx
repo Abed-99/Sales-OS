@@ -7,63 +7,38 @@ import { createClient } from "@/lib/supabase/server";
 export default async function MapPage({
   searchParams,
 }: {
-  searchParams: Promise<{ trader?: string | string[] }>;
+  searchParams: Promise<{ trader?: string | string[]; mode?: string | string[] }>;
 }) {
   const params = await searchParams;
   const initialTraderId = Array.isArray(params.trader)
-    ? params.trader[0] ?? null
-    : params.trader ?? null;
+    ? (params.trader[0] ?? null)
+    : (params.trader ?? null);
 
-  const context =
-    await getCurrentContext();
+  const context = await getCurrentContext();
 
-  const {
-    companyId,
-    companyName,
-    currency,
-  } = context;
+  const { companyId, companyName, currency } = context;
 
-  const canView =
-    hasPermission(
-      context.permissions,
-      "map.view",
-      context.isOwner
-    );
+  const canView = hasPermission(context.permissions, "map.view", context.isOwner);
 
   if (!canView) {
     return (
       <>
-        <Topbar
-          title="خريطة السوق"
-          subtitle="مواقع التجار"
-          companyName={companyName}
-        />
+        <Topbar title="خريطة السوق" subtitle="مواقع التجار" companyName={companyName} />
 
         <div className="page">
-          <section className="panel panelPad">
-            ما عندك صلاحية لعرض الخريطة.
-          </section>
+          <section className="panel panelPad">ما عندك صلاحية لعرض الخريطة.</section>
         </div>
       </>
     );
   }
 
-  const supabase =
-    await createClient();
+  const supabase = await createClient();
 
-  const { data, error } =
-    await supabase.rpc(
-      "get_map_traders",
-      {
-        target_company:
-          companyId,
-      }
-    );
+  const { data, error } = await supabase.rpc("get_map_traders", {
+    target_company: companyId,
+  });
 
-  const traders =
-    error
-      ? []
-      : ((data ?? []) as unknown as MapTrader[]);
+  const traders = error ? [] : ((data ?? []) as unknown as MapTrader[]);
 
   return (
     <>
@@ -74,10 +49,7 @@ export default async function MapPage({
       />
       {error && (
         <div className="page">
-          <div
-            className="toastError"
-            role="alert"
-          >
+          <div className="toastError" role="alert">
             تعذر تحميل مواقع التجار. حاول تحديث الصفحة.
           </div>
         </div>
@@ -86,13 +58,14 @@ export default async function MapPage({
       <MapShell
         traders={traders}
         initialTraderId={initialTraderId}
+        initialMode={
+          (Array.isArray(params.mode) ? params.mode[0] : params.mode) === "deliveries"
+            ? "deliveries"
+            : "customers"
+        }
         companyId={companyId}
         currency={currency}
-        canEditLocation={hasPermission(
-          context.permissions,
-          "traders.update",
-          context.isOwner
-        )}
+        canEditLocation={hasPermission(context.permissions, "traders.update", context.isOwner)}
       />
     </>
   );

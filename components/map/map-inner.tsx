@@ -15,11 +15,7 @@ import {
 
 import { Icons } from "@/components/icons";
 import { normalizeSyrianMobile } from "@/lib/phone";
-import {
-  googleMapsRouteLinks,
-  planRoute,
-  type LatLng,
-} from "@/lib/route";
+import { googleMapsRouteLinks, planRoute, type LatLng } from "@/lib/route";
 import { createClient } from "@/lib/supabase/client";
 
 import type { MapProps, MapTrader } from "./map-shell";
@@ -58,10 +54,9 @@ function locate(onDone: (point: LatLng) => void, onError: (message: string) => v
     return;
   }
   navigator.geolocation.getCurrentPosition(
-    (position) =>
-      onDone({ lat: position.coords.latitude, lng: position.coords.longitude }),
+    (position) => onDone({ lat: position.coords.latitude, lng: position.coords.longitude }),
     () => onError("ما قدرنا نحدد موقعك. تأكد من إذن الموقع وحاول مرة ثانية."),
-    { enableHighAccuracy: true, timeout: 10000 }
+    { enableHighAccuracy: true, timeout: 10000 },
   );
 }
 
@@ -81,10 +76,10 @@ function FitToPoints({ points }: { points: LatLng[] }) {
     } else if (points.length === 1) {
       map.setView([points[0].lat, points[0].lng], 15);
     } else {
-      map.fitBounds(
-        L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])),
-        { padding: [40, 40], maxZoom: 15 }
-      );
+      map.fitBounds(L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])), {
+        padding: [40, 40],
+        maxZoom: 15,
+      });
     }
     // Refit only when the set of points changes, not on every render.
   }, [key]);
@@ -102,13 +97,14 @@ function PickOnClick({ onPick }: { onPick: (point: LatLng) => void }) {
 export function MapInner({
   traders: initialTraders,
   initialTraderId,
+  initialMode = "customers",
   companyId,
   currency,
   canEditLocation,
 }: MapProps) {
   const [supabase] = useState(() => createClient());
   const [traders, setTraders] = useState(initialTraders);
-  const [mode, setMode] = useState<Mode>("customers");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [area, setArea] = useState("all");
   const [me, setMe] = useState<LatLng>();
   const [message, setMessage] = useState("");
@@ -123,11 +119,8 @@ export function MapInner({
     `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}`;
 
   const areas = useMemo(
-    () =>
-      Array.from(
-        new Set(traders.map((t) => t.area).filter((a): a is string => Boolean(a)))
-      ),
-    [traders]
+    () => Array.from(new Set(traders.map((t) => t.area).filter((a): a is string => Boolean(a)))),
+    [traders],
   );
 
   const inArea = area === "all" ? traders : traders.filter((t) => t.area === area);
@@ -141,8 +134,7 @@ export function MapInner({
   const deliveryStops = located.filter((t) => (t.pending_orders ?? 0) > 0);
   const deliveriesWithoutLocation = unlocated.filter((t) => (t.pending_orders ?? 0) > 0);
 
-  const shown: Located[] =
-    mode === "deliveries" ? route?.stops ?? deliveryStops : located;
+  const shown: Located[] = mode === "deliveries" ? (route?.stops ?? deliveryStops) : located;
 
   const focused = located.find((t) => t.id === initialTraderId);
   const fitPoints: LatLng[] = focused
@@ -183,8 +175,8 @@ export function MapInner({
 
     setTraders((rows) =>
       rows.map((t) =>
-        t.id === pickingId ? { ...t, latitude: picked.lat, longitude: picked.lng } : t
-      )
+        t.id === pickingId ? { ...t, latitude: picked.lat, longitude: picked.lng } : t,
+      ),
     );
     setPickingId("");
     setPicked(undefined);
@@ -232,7 +224,8 @@ export function MapInner({
               className={mode === "deliveries" ? "primaryButton" : "softButton"}
               onClick={() => switchMode("deliveries")}
             >
-              <Icons.truck size={14} /> التوصيلات ({deliveryStops.length + deliveriesWithoutLocation.length})
+              <Icons.truck size={14} /> التوصيلات (
+              {deliveryStops.length + deliveriesWithoutLocation.length})
             </button>
           )}
           <select
@@ -248,21 +241,14 @@ export function MapInner({
               <option key={name}>{name}</option>
             ))}
           </select>
-          <button
-            className="softButton"
-            onClick={() => locate(setMe, setMessage)}
-          >
+          <button className="softButton" onClick={() => locate(setMe, setMessage)}>
             <Icons.map size={14} /> موقعي
           </button>
         </div>
       </div>
 
       <div className="mapWrap">
-        <MapContainer
-          center={DAMASCUS}
-          zoom={12}
-          style={{ height: "100%", width: "100%" }}
-        >
+        <MapContainer center={DAMASCUS} zoom={12} style={{ height: "100%", width: "100%" }}>
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -286,7 +272,11 @@ export function MapInner({
               position={[trader.lat, trader.lng]}
               icon={pin(
                 debtColor(trader),
-                route ? String(index + 1) : mode === "deliveries" ? String(trader.pending_orders) : "•"
+                route
+                  ? String(index + 1)
+                  : mode === "deliveries"
+                    ? String(trader.pending_orders)
+                    : "•",
               )}
             >
               <Popup>
@@ -315,7 +305,12 @@ export function MapInner({
                     <Icons.route size={13} /> خذني لعنده
                   </a>
                   {whatsappLink(trader) && (
-                    <a className="softButton" target="_blank" rel="noreferrer" href={whatsappLink(trader)!}>
+                    <a
+                      className="softButton"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={whatsappLink(trader)!}
+                    >
                       <Icons.whatsapp size={13} />
                     </a>
                   )}
@@ -365,10 +360,7 @@ export function MapInner({
                   <span className="muted">
                     {picked ? "تمام، اكبس «احفظ الموقع»." : "اكبس على مكان المحل على الخريطة 👆"}
                   </span>
-                  <button
-                    className="softButton"
-                    onClick={() => locate(setPicked, setMessage)}
-                  >
+                  <button className="softButton" onClick={() => locate(setPicked, setMessage)}>
                     <Icons.map size={14} /> أنا عند المحل هلق
                   </button>
                   <button
@@ -413,7 +405,8 @@ export function MapInner({
           {deliveriesWithoutLocation.length > 0 && (
             <div className="toastError" style={{ marginBottom: 10 }}>
               {deliveriesWithoutLocation.length} زبون عندهم طلبيات بس ما إلهم موقع:{" "}
-              {deliveriesWithoutLocation.map((t) => t.name).join("، ")}. حدد مواقعهم من تبويب الزبائن.
+              {deliveriesWithoutLocation.map((t) => t.name).join("، ")}. حدد مواقعهم من تبويب
+              الزبائن.
             </div>
           )}
 
@@ -421,7 +414,13 @@ export function MapInner({
             <>
               <div className="rowActions" style={{ marginBottom: 10 }}>
                 {googleLinks.map((href, index) => (
-                  <a key={href} className="primaryButton" target="_blank" rel="noreferrer" href={href}>
+                  <a
+                    key={href}
+                    className="primaryButton"
+                    target="_blank"
+                    rel="noreferrer"
+                    href={href}
+                  >
                     <Icons.truck size={14} />
                     {googleLinks.length > 1
                       ? ` ابدأ الجزء ${index + 1} بـ Google Maps`
@@ -446,7 +445,12 @@ export function MapInner({
                       </div>
                     </div>
                     {whatsappLink(stop) && (
-                      <a className="softButton" target="_blank" rel="noreferrer" href={whatsappLink(stop)!}>
+                      <a
+                        className="softButton"
+                        target="_blank"
+                        rel="noreferrer"
+                        href={whatsappLink(stop)!}
+                      >
                         <Icons.whatsapp size={13} />
                       </a>
                     )}

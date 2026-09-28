@@ -5,74 +5,37 @@ import {
 } from "@/components/deliveries/deliveries-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import {
-  hasAnyPermission,
-  hasPermission,
-} from "@/lib/permissions";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
-type DeliveryStatusFilter =
-  | "all"
-  | "ready"
-  | "out_for_delivery";
+type DeliveryStatusFilter = "all" | "ready" | "out_for_delivery";
 
-function firstParam(
-  value:
-    | string
-    | string[]
-    | undefined
-) {
-  return Array.isArray(value)
-    ? value[0] ?? ""
-    : value ?? "";
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-function cleanSearch(
-  value: string
-) {
+function cleanSearch(value: string) {
   return value
-    .replace(
-      /[%_(),"'\\]/g,
-      " "
-    )
-    .replace(
-      /\s+/g,
-      " "
-    )
+    .replace(/[%_(),"'\\]/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
-    .slice(
-      0,
-      100
-    );
+    .slice(0, 100);
 }
 
 export default async function DeliveriesPage({
   searchParams,
 }: {
-  searchParams: Promise<
-    Record<
-      string,
-      | string
-      | string[]
-      | undefined
-    >
-  >;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const context =
-    await getCurrentContext();
+  const context = await getCurrentContext();
 
-  const params =
-    await searchParams;
+  const params = await searchParams;
 
-  const canAccess =
-    hasAnyPermission(
-      context.permissions,
-      [
-        "deliveries.view",
-        "deliveries.update",
-      ],
-      context.isOwner
-    );
+  const canAccess = hasAnyPermission(
+    context.permissions,
+    ["deliveries.view", "deliveries.update"],
+    context.isOwner,
+  );
 
   if (!canAccess) {
     return (
@@ -80,21 +43,15 @@ export default async function DeliveriesPage({
         <Topbar
           title="التوصيل"
           subtitle="تجهيز وتسليم طلبيات العملاء"
-          companyName={
-            context.companyName
-          }
+          companyName={context.companyName}
         />
 
         <div className="page">
           <section className="panel panelPad">
             <div className="empty">
-              <h3>
-                لا تملك صلاحية عرض التوصيلات
-              </h3>
+              <h3>لا تملك صلاحية عرض التوصيلات</h3>
 
-              <p>
-                تحتاج إلى صلاحية التوصيلات للوصول لهذه الصفحة.
-              </p>
+              <p>تحتاج إلى صلاحية التوصيلات للوصول لهذه الصفحة.</p>
             </div>
           </section>
         </div>
@@ -102,188 +59,78 @@ export default async function DeliveriesPage({
     );
   }
 
-  const canUpdate =
-    hasPermission(
-      context.permissions,
-      "deliveries.update",
-      context.isOwner
-    );
+  const canUpdate = hasPermission(context.permissions, "deliveries.update", context.isOwner);
 
-  const canViewMap =
-    hasPermission(
-      context.permissions,
-      "map.view",
-      context.isOwner
-    );
+  const canViewMap = hasPermission(context.permissions, "map.view", context.isOwner);
 
-  const searchQuery =
-    cleanSearch(
-      firstParam(
-        params.q
-      )
-    );
+  const searchQuery = cleanSearch(firstParam(params.q));
 
-  const rawStatus =
-    firstParam(
-      params.status
-    );
+  const rawStatus = firstParam(params.status);
 
-  const statusFilter:
-    DeliveryStatusFilter =
-      rawStatus ===
-        "ready" ||
-      rawStatus ===
-        "out_for_delivery"
-        ? rawStatus
-        : "all";
+  const statusFilter: DeliveryStatusFilter =
+    rawStatus === "ready" || rawStatus === "out_for_delivery" ? rawStatus : "all";
 
-  const page =
-    Math.max(
-      1,
-      Number.parseInt(
-        firstParam(
-          params.page
-        ),
-        10
-      ) || 1
-    );
+  const page = Math.max(1, Number.parseInt(firstParam(params.page), 10) || 1);
 
-  const pageSize =
-    50;
+  const pageSize = 50;
 
-  const offset =
-    (page - 1) *
-    pageSize;
+  const offset = (page - 1) * pageSize;
 
-  const supabase =
-    await createClient();
+  const supabase = await createClient();
 
-  const [
-    queueResult,
-    summaryResult,
-  ] =
-    await Promise.all([
-      supabase.rpc(
-        "get_delivery_queue",
-        {
-          target_company:
-            context.companyId,
+  const [queueResult, summaryResult] = await Promise.all([
+    supabase.rpc("get_delivery_queue", {
+      target_company: context.companyId,
 
-          target_search:
-            searchQuery ||
-            null,
+      target_search: searchQuery || null,
 
-          target_status:
-            statusFilter ===
-            "all"
-              ? null
-              : statusFilter,
+      target_status: statusFilter === "all" ? null : statusFilter,
 
-          target_limit:
-            pageSize,
+      target_limit: pageSize,
 
-          target_offset:
-            offset,
-        }
-      ),
+      target_offset: offset,
+    }),
 
-      supabase.rpc(
-        "get_deliveries_summary",
-        {
-          target_company:
-            context.companyId,
-        }
-      ),
-    ]);
+    supabase.rpc("get_deliveries_summary", {
+      target_company: context.companyId,
+    }),
+  ]);
 
-  let initialError:
-    string | null =
-      null;
+  let initialError: string | null = null;
 
   if (queueResult.error) {
-    initialError =
-      "تعذر تحميل قائمة التوصيلات.";
+    initialError = "تعذر تحميل قائمة التوصيلات.";
   }
 
   if (summaryResult.error) {
-    initialError ??=
-      "تعذر تحميل ملخص التوصيلات.";
+    initialError ??= "تعذر تحميل ملخص التوصيلات.";
   }
 
   const queueData =
-    queueResult.data &&
-    typeof queueResult.data ===
-      "object" &&
-    !Array.isArray(
-      queueResult.data
-    )
-      ? (
-          queueResult.data as {
-            rows?: unknown;
-            total_count?: unknown;
-          }
-        )
+    queueResult.data && typeof queueResult.data === "object" && !Array.isArray(queueResult.data)
+      ? (queueResult.data as {
+          rows?: unknown;
+          total_count?: unknown;
+        })
       : null;
 
-  const initialRows =
-    Array.isArray(
-      queueData?.rows
-    )
-      ? (
-          queueData?.rows as DeliveryQueueRow[]
-        )
-      : [];
+  const initialRows = Array.isArray(queueData?.rows) ? (queueData?.rows as DeliveryQueueRow[]) : [];
 
-  const totalCount =
-    Number(
-      queueData?.total_count ??
-        0
-    );
+  const totalCount = Number(queueData?.total_count ?? 0);
 
-  const summaryRaw =
-    Array.isArray(
-      summaryResult.data
-    )
-      ? summaryResult.data[0]
-      : summaryResult.data;
+  const summaryRaw = Array.isArray(summaryResult.data) ? summaryResult.data[0] : summaryResult.data;
 
   const summary =
-    summaryRaw &&
-    typeof summaryRaw ===
-      "object"
-      ? (
-          summaryRaw as Record<
-            string,
-            unknown
-          >
-        )
-      : null;
+    summaryRaw && typeof summaryRaw === "object" ? (summaryRaw as Record<string, unknown>) : null;
 
-  const stats:
-    DeliveryStats = {
-      readyCount:
-        Number(
-          summary?.ready_count ??
-            0
-        ),
+  const stats: DeliveryStats = {
+    readyCount: Number(summary?.ready_count ?? 0),
 
-      roadCount:
-        Number(
-          summary?.road_count ??
-            0
-        ),
+    roadCount: Number(summary?.road_count ?? 0),
 
-      roadUnits:
-        Number(
-          summary?.road_units ??
-            0
-        ),
+    roadUnits: Number(summary?.road_units ?? 0),
 
-      remainingUnits:
-        Number(
-          summary?.remaining_units ??
-            0
-        ),
+    remainingUnits: Number(summary?.remaining_units ?? 0),
   };
 
   return (
@@ -291,52 +138,22 @@ export default async function DeliveriesPage({
       <Topbar
         title="التوصيل"
         subtitle="جهّز التسليمات الكاملة أو الجزئية وتابعها حتى التسليم"
-        companyName={
-          context.companyName
-        }
+        companyName={context.companyName}
       />
 
       <DeliveriesClient
-        companyId={
-          context.companyId
-        }
-        currency={
-          context.currency
-        }
-        initialRows={
-          initialRows
-        }
-        initialStats={
-          stats
-        }
-        totalCount={
-          Number.isFinite(
-            totalCount
-          )
-            ? totalCount
-            : 0
-        }
-        page={
-          page
-        }
-        pageSize={
-          pageSize
-        }
-        searchQuery={
-          searchQuery
-        }
-        statusFilter={
-          statusFilter
-        }
-        canUpdate={
-          canUpdate
-        }
-        canViewMap={
-          canViewMap
-        }
-        initialError={
-          initialError
-        }
+        companyId={context.companyId}
+        currency={context.currency}
+        initialRows={initialRows}
+        initialStats={stats}
+        totalCount={Number.isFinite(totalCount) ? totalCount : 0}
+        page={page}
+        pageSize={pageSize}
+        searchQuery={searchQuery}
+        statusFilter={statusFilter}
+        canUpdate={canUpdate}
+        canViewMap={canViewMap}
+        initialError={initialError}
       />
     </>
   );

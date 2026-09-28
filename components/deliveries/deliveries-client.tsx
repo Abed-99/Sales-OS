@@ -1,17 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useEffect,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-} from "react";
-import {
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
@@ -42,10 +34,9 @@ export type DeliveryTrader = {
 
 export type DeliveryQueueRow = {
   id: string;
+  order_number: string | null;
 
-  status:
-    | "ready"
-    | "out_for_delivery";
+  status: "ready" | "out_for_delivery";
 
   payment_status: string;
 
@@ -53,12 +44,9 @@ export type DeliveryQueueRow = {
   created_at: string;
   ordered_at: string | null;
 
-  trader:
-    | DeliveryTrader
-    | null;
+  trader: DeliveryTrader | null;
 
-  items:
-    DeliveryQueueItem[];
+  items: DeliveryQueueItem[];
 };
 
 export type DeliveryStats = {
@@ -68,210 +56,121 @@ export type DeliveryStats = {
   remainingUnits: number;
 };
 
-type DeliveryStatusFilter =
-  | "all"
-  | "ready"
-  | "out_for_delivery";
+type DeliveryStatusFilter = "all" | "ready" | "out_for_delivery";
 
 type Notice = {
-  type:
-    | "success"
-    | "error";
+  type: "success" | "error";
 
   text: string;
 };
 
-function numeric(
-  value: unknown
-) {
-  const result =
-    Number(
-      value ?? 0
-    );
-
-  return Number.isFinite(
-    result
-  )
-    ? result
-    : 0;
+/** 15 بدل 15.000 */
+function qty(value: unknown) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(numeric(value));
 }
 
-function money(
-  value: number,
-  currency: string
-) {
-  return `${new Intl.NumberFormat(
-    "en-US",
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  ).format(
-    numeric(value)
-  )} ${currency}`;
+function numeric(value: unknown) {
+  const result = Number(value ?? 0);
+
+  return Number.isFinite(result) ? result : 0;
 }
 
-function formatDateTime(
-  value:
-    | string
-    | null
-) {
+function money(value: number, currency: string) {
+  return `${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numeric(value))} ${currency}`;
+}
+
+function formatDateTime(value: string | null) {
   if (!value) {
     return "—";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return new Intl.DateTimeFormat(
-    "ar",
-    {
-      timeZone:
-        "Asia/Damascus",
+  return new Intl.DateTimeFormat("ar", {
+    timeZone: "Asia/Damascus",
 
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  ).format(date);
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function friendlyError(
-  error:
-    | {
-        code?: string;
-        message?: string;
-      }
-    | null,
-  action:
-    | "start"
-    | "complete"
-    | "fail"
+  error: {
+    code?: string;
+    message?: string;
+  } | null,
+  action: "start" | "complete" | "fail",
 ) {
-  const raw =
-    error?.message ?? "";
+  const raw = error?.message ?? "";
 
-  const message =
-    raw.toLowerCase();
+  const message = raw.toLowerCase();
 
   if (
-    error?.code ===
-      "42501" ||
-    message.includes(
-      "not allowed"
-    ) ||
-    message.includes(
-      "permission"
-    )
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
   ) {
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (
-    message.includes(
-      "order not found"
-    )
-  ) {
+  if (message.includes("order not found")) {
     return "الطلبية غير موجودة أو لم تعد متاحة.";
   }
 
-  if (
-    message.includes(
-      "not ready for delivery"
-    )
-  ) {
+  if (message.includes("not ready for delivery")) {
     return "الطلبية لم تعد جاهزة للتوصيل.";
   }
 
-  if (
-    message.includes(
-      "active delivery"
-    ) ||
-    message.includes(
-      "already has an active delivery"
-    )
-  ) {
+  if (message.includes("active delivery") || message.includes("already has an active delivery")) {
     return "يوجد توصيل نشط لهذه الطلبية حالياً.";
   }
 
   if (
-    message.includes(
-      "exceeds remaining"
-    ) ||
-    message.includes(
-      "exceeds remaining order quantity"
-    )
+    message.includes("exceeds remaining") ||
+    message.includes("exceeds remaining order quantity")
   ) {
     return "إحدى الكميات أكبر من الكمية المتبقية للتوصيل.";
   }
 
   if (
-    message.includes(
-      "not fully reserved"
-    ) ||
-    message.includes(
-      "reserved stock is missing"
-    ) ||
-    message.includes(
-      "could not allocate reserved stock"
-    )
+    message.includes("not fully reserved") ||
+    message.includes("reserved stock is missing") ||
+    message.includes("could not allocate reserved stock")
   ) {
     return "المخزون المحجوز لم يعد كافياً لهذه التسليمة. حدّث الصفحة وراجع المخزون.";
   }
 
-  if (
-    message.includes(
-      "not currently out for delivery"
-    )
-  ) {
+  if (message.includes("not currently out for delivery")) {
     return "الطلبية لم تعد بحالة التوصيل.";
   }
 
-  if (
-    message.includes(
-      "active delivery not found"
-    )
-  ) {
+  if (message.includes("active delivery not found")) {
     return "لم تعد هناك تسليمة نشطة لهذه الطلبية.";
   }
 
-  if (
-    message.includes(
-      "failure reason required"
-    )
-  ) {
+  if (message.includes("failure reason required")) {
     return "سبب فشل التوصيل مطلوب.";
   }
 
-  if (
-    message.includes(
-      "cannot be failed"
-    )
-  ) {
+  if (message.includes("cannot be failed")) {
     return "لا يمكن تسجيل فشل هذه التسليمة لأنها سُلّمت أو تمت فوترتها.";
   }
 
-  if (
-    action ===
-    "start"
-  ) {
+  if (action === "start") {
     return "تعذر تجهيز التسليمة. راجع الكميات وحاول مرة ثانية.";
   }
 
-  if (
-    action ===
-    "complete"
-  ) {
+  if (action === "complete") {
     return "تعذر تأكيد التسليم.";
   }
 
@@ -295,11 +194,9 @@ export function DeliveriesClient({
   companyId: string;
   currency: string;
 
-  initialRows:
-    DeliveryQueueRow[];
+  initialRows: DeliveryQueueRow[];
 
-  initialStats:
-    DeliveryStats;
+  initialStats: DeliveryStats;
 
   totalCount: number;
   page: number;
@@ -307,732 +204,346 @@ export function DeliveriesClient({
 
   searchQuery: string;
 
-  statusFilter:
-    DeliveryStatusFilter;
+  statusFilter: DeliveryStatusFilter;
 
   canUpdate: boolean;
   canViewMap: boolean;
 
-  initialError:
-    string | null;
+  initialError: string | null;
 }) {
-  const [supabase] =
-    useState(
-      () =>
-        createClient()
-    );
+  const [supabase] = useState(() => createClient());
 
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const searchParams =
-    useSearchParams();
+  const searchParams = useSearchParams();
 
-  const [
-    rows,
-    setRows,
-  ] =
-    useState(
-      initialRows
-    );
+  const [rows, setRows] = useState(initialRows);
 
-  const [
-    notice,
-    setNotice,
-  ] =
-    useState<
-      Notice | null
-    >(
-      initialError
-        ? {
-            type:
-              "error",
+  const [notice, setNotice] = useState<Notice | null>(
+    initialError
+      ? {
+          type: "error",
 
-            text:
-              initialError,
-          }
-        : null
-    );
+          text: initialError,
+        }
+      : null,
+  );
 
-  const [
-    search,
-    setSearch,
-  ] =
-    useState(
-      searchQuery
-    );
+  const [search, setSearch] = useState(searchQuery);
 
-  const [
-    filter,
-    setFilter,
-  ] =
-    useState<
-      DeliveryStatusFilter
-    >(
-      statusFilter
-    );
+  const [filter, setFilter] = useState<DeliveryStatusFilter>(statusFilter);
 
-  const [
-    deliveryTarget,
-    setDeliveryTarget,
-  ] =
-    useState<
-      DeliveryQueueRow | null
-    >(null);
+  const [deliveryTarget, setDeliveryTarget] = useState<DeliveryQueueRow | null>(null);
 
-  const [
-    quantities,
-    setQuantities,
-  ] =
-    useState<
-      Record<
-        string,
-        string
-      >
-    >({});
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
 
-  const [
-    deliveryMessage,
-    setDeliveryMessage,
-  ] =
-    useState("");
+  const [deliveryMessage, setDeliveryMessage] = useState("");
 
-  const [
-    completeTarget,
-    setCompleteTarget,
-  ] =
-    useState<
-      DeliveryQueueRow | null
-    >(null);
+  const [completeTarget, setCompleteTarget] = useState<DeliveryQueueRow | null>(null);
 
-  const [
-    completeNotes,
-    setCompleteNotes,
-  ] =
-    useState("");
+  const [completeNotes, setCompleteNotes] = useState("");
 
-  const [
-    completeMessage,
-    setCompleteMessage,
-  ] =
-    useState("");
+  const [completeMessage, setCompleteMessage] = useState("");
 
-  const [
-    failTarget,
-    setFailTarget,
-  ] =
-    useState<
-      DeliveryQueueRow | null
-    >(null);
+  const [failTarget, setFailTarget] = useState<DeliveryQueueRow | null>(null);
 
-  const [
-    failReason,
-    setFailReason,
-  ] =
-    useState("");
+  const [failReason, setFailReason] = useState("");
 
-  const [
-    failMessage,
-    setFailMessage,
-  ] =
-    useState("");
+  const [failMessage, setFailMessage] = useState("");
 
-  const [
-    busyId,
-    setBusyId,
-  ] =
-    useState<
-      string | null
-    >(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    setRows(
-      initialRows
-    );
-  }, [
-    initialRows,
-  ]);
+    setRows(initialRows);
+  }, [initialRows]);
 
   useEffect(() => {
-    setSearch(
-      searchQuery
-    );
+    setSearch(searchQuery);
 
-    setFilter(
-      statusFilter
-    );
-  }, [
-    searchQuery,
-    statusFilter,
-  ]);
+    setFilter(statusFilter);
+  }, [searchQuery, statusFilter]);
 
   useEffect(() => {
-    if (
-      initialError
-    ) {
+    if (initialError) {
       setNotice({
         type: "error",
-        text:
-          initialError,
+        text: initialError,
       });
     }
-  }, [
-    initialError,
-  ]);
+  }, [initialError]);
 
-  const pageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        totalCount /
-          pageSize
-      )
-    );
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
 
-  function navigate(
-    nextSearch:
-      string,
-    nextFilter:
-      DeliveryStatusFilter,
-    nextPage = 1
-  ) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+  function navigate(nextSearch: string, nextFilter: DeliveryStatusFilter, nextPage = 1) {
+    const params = new URLSearchParams(searchParams.toString());
 
-    const clean =
-      nextSearch.trim();
+    const clean = nextSearch.trim();
 
     if (clean) {
-      params.set(
-        "q",
-        clean
-      );
+      params.set("q", clean);
     } else {
-      params.delete(
-        "q"
-      );
+      params.delete("q");
     }
 
-    if (
-      nextFilter !==
-      "all"
-    ) {
-      params.set(
-        "status",
-        nextFilter
-      );
+    if (nextFilter !== "all") {
+      params.set("status", nextFilter);
     } else {
-      params.delete(
-        "status"
-      );
+      params.delete("status");
     }
 
-    if (
-      nextPage > 1
-    ) {
-      params.set(
-        "page",
-        String(
-          nextPage
-        )
-      );
+    if (nextPage > 1) {
+      params.set("page", String(nextPage));
     } else {
-      params.delete(
-        "page"
-      );
+      params.delete("page");
     }
 
-    const query =
-      params.toString();
+    const query = params.toString();
 
-    router.push(
-      query
-        ? `/deliveries?${query}`
-        : "/deliveries"
-    );
+    router.push(query ? `/deliveries?${query}` : "/deliveries");
   }
 
-  function openDelivery(
-    order:
-      DeliveryQueueRow
-  ) {
-    if (
-      !canUpdate ||
-      order.status !==
-        "ready"
-    ) {
+  function openDelivery(order: DeliveryQueueRow) {
+    if (!canUpdate || order.status !== "ready") {
       return;
     }
 
-    const next:
-      Record<
-        string,
-        string
-      > = {};
+    const next: Record<string, string> = {};
 
-    for (
-      const item of
-      order.items
-    ) {
-      const remaining =
-        numeric(
-          item.remaining_quantity
-        );
+    for (const item of order.items) {
+      const remaining = numeric(item.remaining_quantity);
 
-      next[item.id] =
-        remaining > 0
-          ? remaining.toFixed(
-              3
-            )
-          : "0";
+      next[item.id] = remaining > 0 ? String(remaining) : "0";
     }
 
-    setQuantities(
-      next
-    );
+    setQuantities(next);
 
-    setDeliveryMessage(
-      ""
-    );
+    setDeliveryMessage("");
 
-    setDeliveryTarget(
-      order
-    );
+    setDeliveryTarget(order);
   }
 
   function fillAll() {
-    if (
-      !deliveryTarget
-    ) {
+    if (!deliveryTarget) {
       return;
     }
 
-    const next:
-      Record<
-        string,
-        string
-      > = {};
+    const next: Record<string, string> = {};
 
-    for (
-      const item of
-      deliveryTarget.items
-    ) {
-      next[item.id] =
-        numeric(
-          item.remaining_quantity
-        ).toFixed(
-          3
-        );
+    for (const item of deliveryTarget.items) {
+      next[item.id] = String(numeric(item.remaining_quantity));
     }
 
-    setQuantities(
-      next
-    );
+    setQuantities(next);
   }
 
-  async function saveDelivery(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function saveDelivery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !deliveryTarget ||
-      !canUpdate
-    ) {
+    if (!deliveryTarget || !canUpdate) {
       return;
     }
 
-    setDeliveryMessage(
-      ""
-    );
+    setDeliveryMessage("");
 
-    const payload:
-      Array<{
-        sales_order_item_id:
-          string;
+    const payload: Array<{
+      sales_order_item_id: string;
 
-        quantity:
-          number;
-      }> = [];
+      quantity: number;
+    }> = [];
 
-    for (
-      const item of
-      deliveryTarget.items
-    ) {
-      const quantity =
-        numeric(
-          quantities[
-            item.id
-          ]
-        );
+    for (const item of deliveryTarget.items) {
+      const quantity = numeric(quantities[item.id]);
 
-      const remaining =
-        numeric(
-          item.remaining_quantity
-        );
+      const remaining = numeric(item.remaining_quantity);
 
-      if (
-        quantity < 0
-      ) {
-        setDeliveryMessage(
-          "كمية التوصيل لا يمكن أن تكون سالبة."
-        );
+      if (quantity < 0) {
+        setDeliveryMessage("كمية التوصيل لا يمكن أن تكون سالبة.");
         return;
       }
 
-      if (
-        quantity >
-        remaining +
-          0.0005
-      ) {
-        setDeliveryMessage(
-          `كمية ${item.product_name} أكبر من المتبقي.`
-        );
+      if (quantity > remaining + 0.0005) {
+        setDeliveryMessage(`كمية ${item.product_name} أكبر من المتبقي.`);
         return;
       }
 
-      if (
-        quantity > 0
-      ) {
+      if (quantity > 0) {
         payload.push({
-          sales_order_item_id:
-            item.id,
+          sales_order_item_id: item.id,
 
-          quantity:
-            Number(
-              quantity.toFixed(
-                3
-              )
-            ),
+          quantity: Number(quantity.toFixed(3)),
         });
       }
     }
 
-    if (
-      !payload.length
-    ) {
-      setDeliveryMessage(
-        "حدد كمية واحدة على الأقل للتوصيل."
-      );
+    if (!payload.length) {
+      setDeliveryMessage("حدد كمية واحدة على الأقل للتوصيل.");
       return;
     }
 
-    setBusyId(
-      deliveryTarget.id
-    );
+    setBusyId(deliveryTarget.id);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "create_order_delivery",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("create_order_delivery", {
+        target_company: companyId,
 
-            target_order:
-              deliveryTarget.id,
+        target_order: deliveryTarget.id,
 
-            items_payload:
-              payload,
-          }
-        );
+        items_payload: payload,
+      });
 
       if (error) {
-        setDeliveryMessage(
-          friendlyError(
-            error,
-            "start"
-          )
-        );
+        setDeliveryMessage(friendlyError(error, "start"));
         return;
       }
 
-      setRows(
-        (current) =>
-          current.map(
-            (order) => {
-              if (
-                order.id !==
-                deliveryTarget.id
-              ) {
-                return order;
-              }
+      setRows((current) =>
+        current.map((order) => {
+          if (order.id !== deliveryTarget.id) {
+            return order;
+          }
 
-              const byItem =
-                new Map(
-                  payload.map(
-                    (
-                      item
-                    ) => [
-                      item.sales_order_item_id,
-                      item.quantity,
-                    ]
-                  )
-                );
+          const byItem = new Map(payload.map((item) => [item.sales_order_item_id, item.quantity]));
+
+          return {
+            ...order,
+
+            status: "out_for_delivery",
+
+            items: order.items.map((item) => {
+              const sent = byItem.get(item.id) ?? 0;
 
               return {
-                ...order,
+                ...item,
 
-                status:
-                  "out_for_delivery",
+                active_quantity: numeric(item.active_quantity) + sent,
 
-                items:
-                  order.items.map(
-                    (item) => {
-                      const sent =
-                        byItem.get(
-                          item.id
-                        ) ?? 0;
-
-                      return {
-                        ...item,
-
-                        active_quantity:
-                          numeric(
-                            item.active_quantity
-                          ) +
-                          sent,
-
-                        remaining_quantity:
-                          Math.max(
-                            numeric(
-                              item.remaining_quantity
-                            ) -
-                              sent,
-                            0
-                          ),
-                      };
-                    }
-                  ),
+                remaining_quantity: Math.max(numeric(item.remaining_quantity) - sent, 0),
               };
-            }
-          )
+            }),
+          };
+        }),
       );
 
-      setDeliveryTarget(
-        null
-      );
+      setDeliveryTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم تجهيز التسليمة وتحويل الطلبية إلى بالطريق.",
+        text: "تم تجهيز التسليمة وتحويل الطلبية إلى بالطريق.",
       });
 
       router.refresh();
-
     } finally {
-      setBusyId(
-        null
-      );
+      setBusyId(null);
     }
   }
 
-  function openComplete(
-    order:
-      DeliveryQueueRow
-  ) {
-    if (
-      !canUpdate ||
-      order.status !==
-        "out_for_delivery"
-    ) {
+  function openComplete(order: DeliveryQueueRow) {
+    if (!canUpdate || order.status !== "out_for_delivery") {
       return;
     }
 
-    setCompleteTarget(
-      order
-    );
+    setCompleteTarget(order);
 
-    setCompleteNotes(
-      ""
-    );
+    setCompleteNotes("");
 
-    setCompleteMessage(
-      ""
-    );
+    setCompleteMessage("");
   }
 
-  async function saveComplete(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function saveComplete(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !completeTarget ||
-      !canUpdate
-    ) {
+    if (!completeTarget || !canUpdate) {
       return;
     }
 
-    setBusyId(
-      completeTarget.id
-    );
+    setBusyId(completeTarget.id);
 
-    setCompleteMessage(
-      ""
-    );
+    setCompleteMessage("");
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "complete_order_delivery",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("complete_order_delivery", {
+        target_company: companyId,
 
-            target_order:
-              completeTarget.id,
+        target_order: completeTarget.id,
 
-            target_notes:
-              completeNotes.trim() ||
-              null,
-          }
-        );
+        target_notes: completeNotes.trim() || null,
+      });
 
       if (error) {
-        setCompleteMessage(
-          friendlyError(
-            error,
-            "complete"
-          )
-        );
+        setCompleteMessage(friendlyError(error, "complete"));
         return;
       }
 
-      setCompleteTarget(
-        null
-      );
+      setCompleteTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم تأكيد وصول التسليمة، خصم المخزون وإنشاء فاتورة البيع.",
+        text: "تم تأكيد وصول التسليمة، خصم المخزون وإنشاء فاتورة البيع.",
       });
 
       router.refresh();
-
     } finally {
-      setBusyId(
-        null
-      );
+      setBusyId(null);
     }
   }
 
-  function openFail(
-    order:
-      DeliveryQueueRow
-  ) {
-    if (
-      !canUpdate ||
-      order.status !==
-        "out_for_delivery"
-    ) {
+  function openFail(order: DeliveryQueueRow) {
+    if (!canUpdate || order.status !== "out_for_delivery") {
       return;
     }
 
-    setFailTarget(
-      order
-    );
+    setFailTarget(order);
 
-    setFailReason(
-      ""
-    );
+    setFailReason("");
 
-    setFailMessage(
-      ""
-    );
+    setFailMessage("");
   }
 
-  async function saveFail(
-    event:
-      FormEvent<HTMLFormElement>
-  ) {
+  async function saveFail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      !failTarget ||
-      !canUpdate
-    ) {
+    if (!failTarget || !canUpdate) {
       return;
     }
 
-    const reason =
-      failReason.trim();
+    const reason = failReason.trim();
 
     if (!reason) {
-      setFailMessage(
-        "اكتب سبب فشل التوصيل."
-      );
+      setFailMessage("اكتب سبب فشل التوصيل.");
       return;
     }
 
-    setBusyId(
-      failTarget.id
-    );
+    setBusyId(failTarget.id);
 
-    setFailMessage(
-      ""
-    );
+    setFailMessage("");
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "fail_order_delivery",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("fail_order_delivery", {
+        target_company: companyId,
 
-            target_order:
-              failTarget.id,
+        target_order: failTarget.id,
 
-            target_reason:
-              reason,
-          }
-        );
+        target_reason: reason,
+      });
 
       if (error) {
-        setFailMessage(
-          friendlyError(
-            error,
-            "fail"
-          )
-        );
+        setFailMessage(friendlyError(error, "fail"));
         return;
       }
 
-      setFailTarget(
-        null
-      );
+      setFailTarget(null);
 
       setNotice({
-        type:
-          "success",
+        type: "success",
 
-        text:
-          "تم تسجيل فشل التوصيل وإعادة الطلبية لمسار التجهيز.",
+        text: "تم تسجيل فشل التوصيل وإعادة الطلبية لمسار التجهيز.",
       });
 
       router.refresh();
-
     } finally {
-      setBusyId(
-        null
-      );
+      setBusyId(null);
     }
   }
 
@@ -1040,49 +551,27 @@ export function DeliveriesClient({
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            دورة التوصيل
-          </span>
+          <span className="eyebrow">دورة التوصيل</span>
 
-          <h2>
-            تجهيز وتسليم الطلبات
-          </h2>
+          <h2>تجهيز وتسليم الطلبات</h2>
 
-          <p className="muted">
-            جهّز تسليمة كاملة أو جزئية، ثم أكد الوصول أو سجل فشل التوصيل.
-          </p>
+          <p className="muted">جهّز تسليمة كاملة أو جزئية، ثم أكد الوصول أو سجل فشل التوصيل.</p>
         </div>
 
         {canViewMap ? (
-          <Link
-            href="/map"
-            className="softButton"
-          >
-            <Icons.map
-              size={14}
-            />
-            خريطة العملاء
+          <Link href="/map?mode=deliveries" className="softButton">
+            <Icons.map size={14} />
+            طريق التوصيل على الخريطة
           </Link>
         ) : null}
       </div>
 
       {notice ? (
         <div
-          className={
-            notice.type ===
-            "error"
-              ? "toastError"
-              : "panel panelPad"
-          }
-          role={
-            notice.type ===
-            "error"
-              ? "alert"
-              : "status"
-          }
+          className={notice.type === "error" ? "toastError" : "panel panelPad"}
+          role={notice.type === "error" ? "alert" : "status"}
           style={{
-            marginBottom:
-              14,
+            marginBottom: 14,
           }}
         >
           {notice.text}
@@ -1090,33 +579,13 @@ export function DeliveriesClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini
-          title="جاهزة للتوصيل"
-          value={String(
-            initialStats.readyCount
-          )}
-        />
+        <Mini title="جاهزة للتوصيل" value={String(initialStats.readyCount)} />
 
-        <Mini
-          title="بالطريق"
-          value={String(
-            initialStats.roadCount
-          )}
-        />
+        <Mini title="بالطريق" value={String(initialStats.roadCount)} />
 
-        <Mini
-          title="قطع بالسيارة"
-          value={numeric(
-            initialStats.roadUnits
-          ).toFixed(3)}
-        />
+        <Mini title="قطع بالسيارة" value={qty(initialStats.roadUnits)} />
 
-        <Mini
-          title="قطع متبقية"
-          value={numeric(
-            initialStats.remainingUnits
-          ).toFixed(3)}
-        />
+        <Mini title="قطع متبقية" value={qty(initialStats.remainingUnits)} />
       </section>
 
       <section
@@ -1127,40 +596,23 @@ export function DeliveriesClient({
       >
         <form
           className="filters"
-          onSubmit={(
-            event
-          ) => {
+          onSubmit={(event) => {
             event.preventDefault();
 
-            navigate(
-              search,
-              filter,
-              1
-            );
+            navigate(search, filter, 1);
           }}
         >
           <div className="searchBox">
-            <Icons.search
-              size={16}
-            />
+            <Icons.search size={16} />
 
             <input
               value={search}
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event.target.value
-                )
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="اسم العميل، الهاتف، المنطقة أو رقم الطلب..."
               aria-label="بحث في التوصيلات"
             />
 
-            <button
-              type="submit"
-              className="softButton"
-            >
+            <button type="submit" className="softButton">
               بحث
             </button>
           </div>
@@ -1168,57 +620,33 @@ export function DeliveriesClient({
           <select
             value={filter}
             aria-label="حالة التوصيل"
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value as DeliveryStatusFilter;
+            onChange={(event) => {
+              const value = event.target.value as DeliveryStatusFilter;
 
-              setFilter(
-                value
-              );
+              setFilter(value);
 
-              navigate(
-                search,
-                value,
-                1
-              );
+              navigate(search, value, 1);
             }}
           >
-            <option value="all">
-              كل الحالات
-            </option>
+            <option value="all">كل الحالات</option>
 
-            <option value="ready">
-              جاهزة
-            </option>
+            <option value="ready">جاهزة</option>
 
-            <option value="out_for_delivery">
-              بالطريق
-            </option>
+            <option value="out_for_delivery">بالطريق</option>
           </select>
 
           <div />
 
-          <div className="resultCount">
-            {totalCount} نتيجة
-          </div>
+          <div className="resultCount">{totalCount} نتيجة</div>
         </form>
 
         {!rows.length ? (
           <div className="empty">
-            <Icons.truck
-              size={30}
-            />
+            <Icons.truck size={30} />
 
-            <h3>
-              لا توجد طلبات للتوصيل
-            </h3>
+            <h3>لا توجد طلبات للتوصيل</h3>
 
-            <p>
-              الطلبات الجاهزة أو الموجودة بالطريق ستظهر هنا.
-            </p>
+            <p>الطلبات الجاهزة أو الموجودة بالطريق ستظهر هنا.</p>
           </div>
         ) : (
           <div className="tableWrap">
@@ -1236,317 +664,175 @@ export function DeliveriesClient({
               </thead>
 
               <tbody>
-                {rows.map(
-                  (order) => {
-                    const totalQty =
-                      order.items.reduce(
-                        (
-                          total,
-                          item
-                        ) =>
-                          total +
-                          numeric(
-                            item.quantity
-                          ),
-                        0
-                      );
+                {rows.map((order) => {
+                  const totalQty = order.items.reduce(
+                    (total, item) => total + numeric(item.quantity),
+                    0,
+                  );
 
-                    const deliveredQty =
-                      order.items.reduce(
-                        (
-                          total,
-                          item
-                        ) =>
-                          total +
-                          numeric(
-                            item.delivered_quantity
-                          ),
-                        0
-                      );
+                  const deliveredQty = order.items.reduce(
+                    (total, item) => total + numeric(item.delivered_quantity),
+                    0,
+                  );
 
-                    const activeQty =
-                      order.items.reduce(
-                        (
-                          total,
-                          item
-                        ) =>
-                          total +
-                          numeric(
-                            item.active_quantity
-                          ),
-                        0
-                      );
+                  const activeQty = order.items.reduce(
+                    (total, item) => total + numeric(item.active_quantity),
+                    0,
+                  );
 
-                    const trader =
-                      order.trader;
+                  const trader = order.trader;
 
-                    return (
-                      <tr
-                        key={
-                          order.id
-                        }
-                      >
-                        <td>
-                          <div className="merchant">
-                            <div className="merchantLogo">
-                              {trader?.name?.charAt(
-                                0
-                              ) ||
-                                "؟"}
-                            </div>
+                  return (
+                    <tr key={order.id}>
+                      <td>
+                        <div className="merchant">
+                          <div className="merchantLogo">{trader?.name?.charAt(0) || "؟"}</div>
 
-                            <div>
-                              <strong>
-                                {trader?.name ||
-                                  "عميل"}
-                              </strong>
+                          <div>
+                            <strong>{trader?.name || "عميل"}</strong>
 
-                              <span>
-                                {trader?.area ||
-                                  trader?.address ||
-                                  "—"}
-                              </span>
-                            </div>
+                            <span>{trader?.area || trader?.address || "—"}</span>
                           </div>
-                        </td>
+                        </div>
+                      </td>
 
-                        <td>
-                          <strong>
-                            #
-                            {order.id.slice(
-                              0,
-                              8
-                            )}
-                          </strong>
+                      <td>
+                        <strong>{order.order_number ?? `#${order.id.slice(0, 8)}`}</strong>
 
-                          <div className="muted">
-                            {order.items.length} أصناف
-                          </div>
+                        <div className="muted">{order.items.length} أصناف</div>
 
-                          <div className="muted">
-                            {formatDateTime(
-                              order.ordered_at ||
-                                order.created_at
-                            )}
-                          </div>
-                        </td>
+                        <div className="muted">
+                          {formatDateTime(order.ordered_at || order.created_at)}
+                        </div>
+                      </td>
 
-                        <td>
-                          <strong>
-                            {deliveredQty.toFixed(
-                              3
-                            )}{" "}
-                            /{" "}
-                            {totalQty.toFixed(
-                              3
-                            )}
-                          </strong>
+                      <td>
+                        <strong>
+                          {qty(deliveredQty)} / {qty(totalQty)}
+                        </strong>
 
-                          {activeQty >
-                          0 ? (
-                            <div className="muted">
-                              {activeQty.toFixed(
-                                3
-                              )}{" "}
-                              بالطريق
-                            </div>
+                        {activeQty > 0 ? (
+                          <div className="muted">{qty(activeQty)} بالطريق</div>
+                        ) : null}
+                      </td>
+
+                      <td>{money(order.total, currency)}</td>
+
+                      <td>
+                        <span className={`chip ${order.status === "ready" ? "orange" : "blue"}`}>
+                          {order.status === "ready" ? "جاهز" : "بالطريق"}
+                        </span>
+                      </td>
+
+                      <td>
+                        <div className="rowActions">
+                          {trader?.phone ? (
+                            <a
+                              className="softButton"
+                              href={`tel:${trader.phone}`}
+                              aria-label={`اتصال بـ ${trader.name}`}
+                            >
+                              <Icons.phone size={13} />
+                            </a>
                           ) : null}
-                        </td>
 
-                        <td>
-                          {money(
-                            order.total,
-                            currency
-                          )}
-                        </td>
+                          {trader?.whatsapp ? (
+                            <a
+                              className="softButton"
+                              target="_blank"
+                              rel="noreferrer"
+                              href={`https://wa.me/${String(trader.whatsapp).replace(/\D/g, "")}`}
+                              aria-label={`واتساب ${trader.name}`}
+                            >
+                              <Icons.whatsapp size={13} />
+                            </a>
+                          ) : null}
 
-                        <td>
-                          <span
-                            className={`chip ${
-                              order.status ===
-                              "ready"
-                                ? "orange"
-                                : "blue"
-                            }`}
-                          >
-                            {order.status ===
-                            "ready"
-                              ? "جاهز"
-                              : "بالطريق"}
-                          </span>
-                        </td>
+                          {canViewMap && trader?.latitude != null && trader?.longitude != null ? (
+                            <Link
+                              className="softButton"
+                              href={`/map?trader=${trader.id}`}
+                              aria-label={`موقع ${trader.name}`}
+                            >
+                              <Icons.map size={13} />
+                            </Link>
+                          ) : null}
+                        </div>
+                      </td>
 
-                        <td>
+                      <td>
+                        {canUpdate ? (
                           <div className="rowActions">
-                            {trader?.phone ? (
-                              <a
-                                className="softButton"
-                                href={`tel:${trader.phone}`}
-                                aria-label={`اتصال بـ ${trader.name}`}
+                            {order.status === "ready" ? (
+                              <button
+                                type="button"
+                                className="primaryButton"
+                                disabled={busyId === order.id}
+                                onClick={() => openDelivery(order)}
                               >
-                                <Icons.phone
-                                  size={13}
-                                />
-                              </a>
-                            ) : null}
-
-                            {trader?.whatsapp ? (
-                              <a
-                                className="softButton"
-                                target="_blank"
-                                rel="noreferrer"
-                                href={`https://wa.me/${String(
-                                  trader.whatsapp
-                                ).replace(
-                                  /\D/g,
-                                  ""
-                                )}`}
-                                aria-label={`واتساب ${trader.name}`}
-                              >
-                                <Icons.whatsapp
-                                  size={13}
-                                />
-                              </a>
-                            ) : null}
-
-                            {canViewMap &&
-                            trader?.latitude !=
-                              null &&
-                            trader?.longitude !=
-                              null ? (
-                              <Link
-                                className="softButton"
-                                href={`/map?trader=${trader.id}`}
-                                aria-label={`موقع ${trader.name}`}
-                              >
-                                <Icons.map
-                                  size={13}
-                                />
-                              </Link>
-                            ) : null}
-                          </div>
-                        </td>
-
-                        <td>
-                          {canUpdate ? (
-                            <div className="rowActions">
-                              {order.status ===
-                              "ready" ? (
+                                <Icons.truck size={14} />
+                                تجهيز تسليمة
+                              </button>
+                            ) : (
+                              <>
                                 <button
                                   type="button"
                                   className="primaryButton"
-                                  disabled={
-                                    busyId ===
-                                    order.id
-                                  }
-                                  onClick={() =>
-                                    openDelivery(
-                                      order
-                                    )
-                                  }
+                                  disabled={busyId === order.id}
+                                  onClick={() => openComplete(order)}
                                 >
-                                  <Icons.truck
-                                    size={14}
-                                  />
-                                  تجهيز تسليمة
+                                  تم التسليم
                                 </button>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="primaryButton"
-                                    disabled={
-                                      busyId ===
-                                      order.id
-                                    }
-                                    onClick={() =>
-                                      openComplete(
-                                        order
-                                      )
-                                    }
-                                  >
-                                    تم التسليم
-                                  </button>
 
-                                  <button
-                                    type="button"
-                                    className="dangerButton"
-                                    disabled={
-                                      busyId ===
-                                      order.id
-                                    }
-                                    onClick={() =>
-                                      openFail(
-                                        order
-                                      )
-                                    }
-                                  >
-                                    فشل التوصيل
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="muted">
-                              عرض فقط
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
+                                <button
+                                  type="button"
+                                  className="dangerButton"
+                                  disabled={busyId === order.id}
+                                  onClick={() => openFail(order)}
+                                >
+                                  فشل التوصيل
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="muted">عرض فقط</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
 
-        {pageCount >
-        1 ? (
+        {pageCount > 1 ? (
           <div
             className="rowActions"
             style={{
-              justifyContent:
-                "center",
+              justifyContent: "center",
               padding: 16,
             }}
           >
             <button
               type="button"
               className="softButton"
-              disabled={
-                page <= 1
-              }
-              onClick={() =>
-                navigate(
-                  searchQuery,
-                  statusFilter,
-                  page - 1
-                )
-              }
+              disabled={page <= 1}
+              onClick={() => navigate(searchQuery, statusFilter, page - 1)}
             >
               السابق
             </button>
 
             <span className="muted">
-              صفحة {page} من{" "}
-              {pageCount}
+              صفحة {page} من {pageCount}
             </span>
 
             <button
               type="button"
               className="softButton"
-              disabled={
-                page >=
-                pageCount
-              }
-              onClick={() =>
-                navigate(
-                  searchQuery,
-                  statusFilter,
-                  page + 1
-                )
-              }
+              disabled={page >= pageCount}
+              onClick={() => navigate(searchQuery, statusFilter, page + 1)}
             >
               التالي
             </button>
@@ -1567,53 +853,28 @@ export function DeliveriesClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  تسليمة جديدة
-                </span>
+                <span className="eyebrow">تسليمة جديدة</span>
 
-                <h2>
-                  حدد الكميات التي ستخرج
-                </h2>
+                <h2>حدد الكميات التي ستخرج</h2>
 
                 <p className="muted">
-                  طلب #
-                  {deliveryTarget.id.slice(
-                    0,
-                    8
-                  )}
+                  طلب {deliveryTarget.order_number ?? `#${deliveryTarget.id.slice(0, 8)}`}
                 </p>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
-                disabled={
-                  busyId ===
-                  deliveryTarget.id
-                }
-                onClick={() =>
-                  setDeliveryTarget(
-                    null
-                  )
-                }
+                disabled={busyId === deliveryTarget.id}
+                onClick={() => setDeliveryTarget(null)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={
-                saveDelivery
-              }
-            >
+            <form onSubmit={saveDelivery}>
               <div className="rowActions">
-                <button
-                  type="button"
-                  className="softButton"
-                  onClick={
-                    fillAll
-                  }
-                >
+                <button type="button" className="softButton" onClick={fillAll}>
                   تعبئة كل المتبقي
                 </button>
               </div>
@@ -1636,96 +897,45 @@ export function DeliveriesClient({
                   </thead>
 
                   <tbody>
-                    {deliveryTarget.items.map(
-                      (item) => (
-                        <tr
-                          key={
-                            item.id
-                          }
-                        >
-                          <td>
-                            <strong>
-                              {
-                                item.product_name
-                              }
-                            </strong>
+                    {deliveryTarget.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <strong>{item.product_name}</strong>
 
-                            <div className="muted">
-                              {item.sku ||
-                                item.unit ||
-                                "—"}
-                            </div>
-                          </td>
+                          <div className="muted">{item.sku || item.unit || "—"}</div>
+                        </td>
 
-                          <td>
-                            {numeric(
-                              item.quantity
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+                        <td>{qty(item.quantity)}</td>
 
-                          <td>
-                            {numeric(
-                              item.delivered_quantity
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+                        <td>{qty(item.delivered_quantity)}</td>
 
-                          <td>
-                            {numeric(
-                              item.remaining_quantity
-                            ).toFixed(
-                              3
-                            )}
-                          </td>
+                        <td>{qty(item.remaining_quantity)}</td>
 
-                          <td>
-                            <input
-                              type="number"
-                              min="0"
-                              max={
-                                item.remaining_quantity
-                              }
-                              step="0.001"
-                              value={
-                                quantities[
-                                  item.id
-                                ] ??
-                                ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                setQuantities(
-                                  (
-                                    current
-                                  ) => ({
-                                    ...current,
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            max={item.remaining_quantity}
+                            step="0.001"
+                            value={quantities[item.id] ?? ""}
+                            onChange={(event) =>
+                              setQuantities((current) => ({
+                                ...current,
 
-                                    [item.id]:
-                                      event.target.value,
-                                  })
-                                )
-                              }
-                            />
-                          </td>
-                        </tr>
-                      )
-                    )}
+                                [item.id]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
               {deliveryMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    deliveryMessage
-                  }
+                <div className="toastError" role="alert">
+                  {deliveryMessage}
                 </div>
               ) : null}
 
@@ -1733,30 +943,14 @@ export function DeliveriesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    busyId ===
-                    deliveryTarget.id
-                  }
-                  onClick={() =>
-                    setDeliveryTarget(
-                      null
-                    )
-                  }
+                  disabled={busyId === deliveryTarget.id}
+                  onClick={() => setDeliveryTarget(null)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={
-                    busyId ===
-                    deliveryTarget.id
-                  }
-                >
-                  {busyId ===
-                  deliveryTarget.id
-                    ? "جارٍ التجهيز..."
-                    : "إخراج التسليمة"}
+                <button className="primaryButton" disabled={busyId === deliveryTarget.id}>
+                  {busyId === deliveryTarget.id ? "جارٍ التجهيز..." : "إخراج التسليمة"}
                 </button>
               </div>
             </form>
@@ -1766,71 +960,41 @@ export function DeliveriesClient({
 
       {completeTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  تأكيد التسليم
-                </span>
+                <span className="eyebrow">تأكيد التسليم</span>
 
-                <h2>
-                  وصلت التسليمة للعميل؟
-                </h2>
+                <h2>وصلت التسليمة للعميل؟</h2>
               </div>
             </div>
 
-            <form
-              onSubmit={
-                saveComplete
-              }
-            >
+            <form onSubmit={saveComplete}>
               <p>
                 الطلبية:{" "}
                 <strong>
-                  #
-                  {completeTarget.id.slice(
-                    0,
-                    8
-                  )}
+                  {completeTarget.order_number ?? `#${completeTarget.id.slice(0, 8)}`}
                 </strong>
               </p>
 
               <p className="muted">
-                عند التأكيد سيتم خصم البضاعة من المخزون، إنهاء الحجز وإنشاء فاتورة بيع لهذه التسليمة.
+                عند التأكيد سيتم خصم البضاعة من المخزون، إنهاء الحجز وإنشاء فاتورة بيع لهذه
+                التسليمة.
               </p>
 
               <label className="field">
-                <span>
-                  ملاحظات التسليم
-                </span>
+                <span>ملاحظات التسليم</span>
 
                 <textarea
-                  value={
-                    completeNotes
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setCompleteNotes(
-                      event.target.value
-                    )
-                  }
+                  value={completeNotes}
+                  onChange={(event) => setCompleteNotes(event.target.value)}
                   placeholder="اختياري"
                 />
               </label>
 
               {completeMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    completeMessage
-                  }
+                <div className="toastError" role="alert">
+                  {completeMessage}
                 </div>
               ) : null}
 
@@ -1838,30 +1002,14 @@ export function DeliveriesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    busyId ===
-                    completeTarget.id
-                  }
-                  onClick={() =>
-                    setCompleteTarget(
-                      null
-                    )
-                  }
+                  disabled={busyId === completeTarget.id}
+                  onClick={() => setCompleteTarget(null)}
                 >
                   رجوع
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={
-                    busyId ===
-                    completeTarget.id
-                  }
-                >
-                  {busyId ===
-                  completeTarget.id
-                    ? "جارٍ التثبيت..."
-                    : "تأكيد الوصول"}
+                <button className="primaryButton" disabled={busyId === completeTarget.id}>
+                  {busyId === completeTarget.id ? "جارٍ التثبيت..." : "تأكيد الوصول"}
                 </button>
               </div>
             </form>
@@ -1871,37 +1019,19 @@ export function DeliveriesClient({
 
       {failTarget ? (
         <div className="modalOverlay">
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-          >
+          <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  فشل التوصيل
-                </span>
+                <span className="eyebrow">فشل التوصيل</span>
 
-                <h2>
-                  إعادة الطلبية لمسار التجهيز
-                </h2>
+                <h2>إعادة الطلبية لمسار التجهيز</h2>
               </div>
             </div>
 
-            <form
-              onSubmit={
-                saveFail
-              }
-            >
+            <form onSubmit={saveFail}>
               <p>
                 الطلبية:{" "}
-                <strong>
-                  #
-                  {failTarget.id.slice(
-                    0,
-                    8
-                  )}
-                </strong>
+                <strong>{failTarget.order_number ?? `#${failTarget.id.slice(0, 8)}`}</strong>
               </p>
 
               <p className="muted">
@@ -1909,33 +1039,18 @@ export function DeliveriesClient({
               </p>
 
               <label className="field">
-                <span>
-                  سبب فشل التوصيل *
-                </span>
+                <span>سبب فشل التوصيل *</span>
 
                 <textarea
-                  value={
-                    failReason
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setFailReason(
-                      event.target.value
-                    )
-                  }
+                  value={failReason}
+                  onChange={(event) => setFailReason(event.target.value)}
                   placeholder="مثال: العميل غير موجود، العنوان مغلق..."
                 />
               </label>
 
               {failMessage ? (
-                <div
-                  className="toastError"
-                  role="alert"
-                >
-                  {
-                    failMessage
-                  }
+                <div className="toastError" role="alert">
+                  {failMessage}
                 </div>
               ) : null}
 
@@ -1943,30 +1058,14 @@ export function DeliveriesClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    busyId ===
-                    failTarget.id
-                  }
-                  onClick={() =>
-                    setFailTarget(
-                      null
-                    )
-                  }
+                  disabled={busyId === failTarget.id}
+                  onClick={() => setFailTarget(null)}
                 >
                   رجوع
                 </button>
 
-                <button
-                  className="dangerButton"
-                  disabled={
-                    busyId ===
-                    failTarget.id
-                  }
-                >
-                  {busyId ===
-                  failTarget.id
-                    ? "جارٍ التسجيل..."
-                    : "تأكيد فشل التوصيل"}
+                <button className="dangerButton" disabled={busyId === failTarget.id}>
+                  {busyId === failTarget.id ? "جارٍ التسجيل..." : "تأكيد فشل التوصيل"}
                 </button>
               </div>
             </form>
@@ -1977,22 +1076,12 @@ export function DeliveriesClient({
   );
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value: string;
-}) {
+function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {title}
-      </div>
+      <div className="statLabel">{title}</div>
 
-      <div className="statValue">
-        {value}
-      </div>
+      <div className="statValue">{value}</div>
     </div>
   );
 }
