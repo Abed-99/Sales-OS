@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 
 type Relation<T> = T | T[] | null;
@@ -295,6 +296,7 @@ export function PayrollClient({
   const [paymentItem, setPaymentItem] = useState<PayrollItem | null>(null);
 
   const [paymentCashbox, setPaymentCashbox] = useState("");
+  const [txRate, setTxRate] = useState("");
 
   const [paymentAmount, setPaymentAmount] = useState("");
 
@@ -340,6 +342,21 @@ export function PayrollClient({
     }
     setSaving(true);
     setMessage("");
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      cashboxes.find((cashbox) => cashbox.id === disburseCashbox)?.currency ?? "",
+      baseCurrency,
+      disburseDate,
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setMessage(rateError);
+      return;
+    }
+
     const { error } = await supabase.rpc("disburse_employee_loan", {
       target_company: companyId,
       target_loan: disburseLoan.id,
@@ -732,6 +749,21 @@ export function PayrollClient({
 
     setSaving(true);
     setMessage("");
+
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      cashboxes.find((cashbox) => cashbox.id === paymentCashbox)?.currency ?? "",
+      baseCurrency,
+      paymentDate,
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setMessage(rateError);
+      return;
+    }
 
     const { error } = await supabase.rpc("record_payroll_payment", {
       target_company: companyId,
@@ -1807,6 +1839,18 @@ export function PayrollClient({
                   />
                 </label>
 
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === paymentCashbox)?.currency ?? ""
+                  }
+                  baseCurrency={baseCurrency}
+                  date={paymentDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
+
                 <label className="field">
                   <span>طريقة الدفع</span>
 
@@ -1901,6 +1945,18 @@ export function PayrollClient({
                     onChange={(event) => setDisburseDate(event.target.value)}
                   />
                 </label>
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === disburseCashbox)?.currency ?? ""
+                  }
+                  baseCurrency={baseCurrency}
+                  date={disburseDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
               </div>
               {message ? <div className="toastError">{message}</div> : null}
               <div className="modalActions">

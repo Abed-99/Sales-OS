@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 
 const expenseCategories = [
@@ -184,6 +185,8 @@ export function CashboxClient({
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [cashboxId, setCashboxId] = useState(defaultCashboxId);
+  // سعر الصرف لحظة العملية إذا الصندوق مش بالعملة الأساسية.
+  const [txRate, setTxRate] = useState("");
   const [movementType, setMovementType] = useState("adjustment_in");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -293,6 +296,21 @@ export function CashboxClient({
     setFeedback(null);
     setSaving(true);
 
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? "",
+      defaultCurrency,
+      todayDamascus(),
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setFeedback(rateError);
+      return;
+    }
+
     const { error } = await supabase.rpc("record_expense", {
       target_company: companyId,
       target_cashbox: cashboxId,
@@ -329,6 +347,21 @@ export function CashboxClient({
 
     setFeedback(null);
     setSaving(true);
+
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? "",
+      defaultCurrency,
+      todayDamascus(),
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setFeedback(rateError);
+      return;
+    }
 
     const { error } = await supabase.rpc("record_cash_movement", {
       target_company: companyId,
@@ -682,6 +715,16 @@ export function CashboxClient({
               <div className="formGrid">
                 <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
 
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? ""}
+                  baseCurrency={defaultCurrency}
+                  date={todayDamascus()}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
+
                 <label className="field">
                   <span>الفئة</span>
                   <select value={category} onChange={(event) => setCategory(event.target.value)}>
@@ -764,6 +807,16 @@ export function CashboxClient({
             <form onSubmit={addMovement}>
               <div className="formGrid">
                 <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? ""}
+                  baseCurrency={defaultCurrency}
+                  date={todayDamascus()}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
 
                 <label className="field">
                   <span>نوع التسوية</span>
@@ -892,6 +945,10 @@ export function CashboxClient({
       ) : null}
     </div>
   );
+}
+
+function todayDamascus() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
 }
 
 function CashboxField({

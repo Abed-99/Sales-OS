@@ -230,6 +230,16 @@ const cq = must("عرض كرتونة بـ100$", await u.rpc("create_sales_quote"
 const cqId = typeof cq === "string" ? cq : cq?.quote_id ?? cq?.id;
 check("مجموع كرتونة بـ100$ = 100", (await admin.from("sales_quotes").select("total").eq("id", cqId).single()).data.total, 100);
 
+// ---------------------------------------------------------------- L. rate per transaction
+log("\nL️⃣  سعر الصرف مع كل عملية");
+must("المندوب كتب سعر الليرة 15000", await salesRep.rpc("set_transaction_rate", { target_company: company, target_currency: "SYP", target_date: today, target_units_per_base: 15000 }));
+check("آخر سعر = 15000", (await u.rpc("get_units_per_base", { target_company: company, target_currency: "SYP", target_date: today })).data, 15000);
+const sypCash = await byCode(sypAcc.finance_accounts.code);
+must("مصروف 150000 ليرة من صندوق الليرة", await u.rpc("record_cash_movement", { target_company: company, target_cashbox: sypBox, movement_type: "adjustment_in", movement_amount: 150000, movement_notes: null }));
+check("صندوق الليرة زاد 10$ بسعر 15000", (await byCode(sypAcc.finance_accounts.code)) - sypCash, 10);
+must("طلّعناهن بنفس السعر", await u.rpc("record_cash_movement", { target_company: company, target_cashbox: sypBox, movement_type: "adjustment_out", movement_amount: 150000, movement_notes: null }));
+must("رجّعنا السعر 13000", await u.rpc("set_transaction_rate", { target_company: company, target_currency: "SYP", target_date: today, target_units_per_base: 13000 }));
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

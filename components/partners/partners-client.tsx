@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 
 function num(value: unknown) {
@@ -104,6 +105,7 @@ export function PartnersClient({
   const [movementCurrency, setMovementCurrency] = useState(baseCurrency);
   const [movementCashbox, setMovementCashbox] = useState("");
   const [movementDate, setMovementDate] = useState(today());
+  const [txRate, setTxRate] = useState("");
   const [movementNotes, setMovementNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -250,6 +252,21 @@ export function PartnersClient({
 
     setSaving(true);
     setMessage("");
+
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      movementCurrency,
+      baseCurrency,
+      movementDate,
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setMessage(rateError);
+      return;
+    }
 
     const { error } = await supabase.rpc("record_partner_transaction", {
       target_company: companyId,
@@ -629,6 +646,16 @@ export function PartnersClient({
                     onChange={(event) => setMovementDate(event.target.value)}
                   />
                 </label>
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={movementCurrency}
+                  baseCurrency={baseCurrency}
+                  date={movementDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
 
                 <label className="field full">
                   <span>ملاحظات</span>

@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { convertPrice, toBasePrice, toBaseQuantity, type UnitMode } from "@/lib/units";
 import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
@@ -462,6 +463,8 @@ export function PurchasesClient({
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const [paymentDate, setPaymentDate] = useState(businessDateInput());
+  // سعر الصرف لحظة الدفع (1 دولار = كم ليرة).
+  const [txRate, setTxRate] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
@@ -1057,6 +1060,13 @@ export function PurchasesClient({
         return;
       }
 
+      if (invoiceCurrency === currency && Number(txRate) > 0) {
+        setPaymentCashAmount((amount * Number(txRate)).toFixed(2));
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
       setQuoteLoading(true);
 
       setPaymentCashAmount("");
@@ -1104,6 +1114,7 @@ export function PurchasesClient({
       cancelled = true;
     };
   }, [
+    txRate,
     paymentOpen,
     paymentCashboxId,
     paymentDate,
@@ -1190,6 +1201,20 @@ export function PurchasesClient({
       let cashAmount = amount;
 
       if (cashbox.currency !== invoiceCurrency) {
+        const rateError = await applyTransactionRate(
+          supabase,
+          companyId,
+          cashbox.currency,
+          currency,
+          paymentDate,
+          txRate,
+        );
+
+        if (rateError) {
+          setPaymentMessage(rateError);
+          return;
+        }
+
         const { data, error } = await supabase.rpc("payment_currency_quote", {
           target_company: companyId,
 
@@ -2377,6 +2402,18 @@ export function PurchasesClient({
                     ))}
                   </select>
                 </label>
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === paymentCashboxId)?.currency ?? ""
+                  }
+                  baseCurrency={currency}
+                  date={paymentDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
 
                 <label className="field">
                   <span>التاريخ</span>

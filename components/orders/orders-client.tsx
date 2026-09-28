@@ -10,6 +10,7 @@ import { Icons } from "@/components/icons";
 import { OrderDetails } from "@/components/orders/order-details";
 import { SearchPicker } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import {
   convertPrice,
   toBasePrice,
@@ -386,6 +387,8 @@ export function OrdersClient({
   const [paymentInvoiceCurrency, setPaymentInvoiceCurrency] = useState(currency);
 
   const [paymentFxRate, setPaymentFxRate] = useState<number | null>(1);
+  // سعر الصرف لحظة القبض (1 دولار = كم ليرة) — بيكتبو الموظف.
+  const [txRate, setTxRate] = useState("");
 
   const [paymentQuoteError, setPaymentQuoteError] = useState("");
 
@@ -875,6 +878,15 @@ export function OrdersClient({
         return;
       }
 
+      // فاتورة بالدولار ومقبوضة بالليرة: المبلغ = الدولار × السعر اللي كتبو الموظف.
+      if (invoiceCurrency === currency && Number(txRate) > 0) {
+        setPaymentCashAmount((invoiceAmount * Number(txRate)).toFixed(2));
+        setPaymentFxRate(1 / Number(txRate));
+        setPaymentQuoteError("");
+        setQuoteLoading(false);
+        return;
+      }
+
       setQuoteLoading(true);
       setPaymentCashAmount("");
       setPaymentFxRate(null);
@@ -927,6 +939,7 @@ export function OrdersClient({
       cancelled = true;
     };
   }, [
+    txRate,
     collection,
     paymentCashbox,
     paymentDate,
@@ -1021,6 +1034,20 @@ export function OrdersClient({
       let cashAmount = amount;
 
       if (selectedCashbox.currency !== invoiceCurrency) {
+        const rateError = await applyTransactionRate(
+          supabase,
+          companyId,
+          selectedCashbox.currency,
+          currency,
+          paymentDate,
+          txRate,
+        );
+
+        if (rateError) {
+          setPaymentMessage(rateError);
+          return;
+        }
+
         const { data, error } = await supabase.rpc("payment_currency_quote", {
           target_company: companyId,
           target_invoice_currency: invoiceCurrency,
@@ -1592,6 +1619,18 @@ export function OrdersClient({
                     ))}
                   </select>
                 </label>
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === paymentCashbox)?.currency ?? ""
+                  }
+                  baseCurrency={currency}
+                  date={paymentDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
 
                 <label className="field">
                   <span>طريقة الدفع</span>

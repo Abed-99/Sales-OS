@@ -238,7 +238,7 @@ create table public.customer_payments (
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   payment_currency text,
-  exchange_rate_to_base numeric(24,10),
+  exchange_rate_to_base numeric(30,18),
   base_amount numeric(20,4),
   constraint customer_payments_company_id_payment_number_key unique (company_id, payment_number),
   constraint customer_payments_amount_check check ((amount > (0)::numeric)),
@@ -262,7 +262,7 @@ create table public.customer_payment_allocations (
   payment_amount numeric(20,2),
   payment_currency text,
   invoice_currency text,
-  payment_rate_to_base numeric(24,10),
+  payment_rate_to_base numeric(30,18),
   constraint customer_payment_allocations_payment_id_sales_invoice_id_key unique (payment_id, sales_invoice_id),
   constraint customer_payment_allocations_amount_check check ((amount > (0)::numeric))
 );
@@ -4286,7 +4286,7 @@ declare
 
   v_base_currency text;
   v_payment_currency text;
-  v_payment_rate numeric(24,10);
+  v_payment_rate numeric(30,18);
   v_base_amount numeric(20,4);
 
   v_allocation jsonb;

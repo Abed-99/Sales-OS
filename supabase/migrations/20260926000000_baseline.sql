@@ -2231,7 +2231,7 @@ create table public.finance_exchange_rates (
   company_id uuid not null references public.companies(id) on delete cascade,
   currency text not null,
   rate_date date not null,
-  rate_to_base numeric(24,10) not null,
+  rate_to_base numeric(30,18) not null,
   notes text,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
@@ -2250,7 +2250,7 @@ create table public.journal_entries (
   description text not null,
   status text default 'posted'::text not null,
   currency text default 'USD'::text not null,
-  exchange_rate_to_base numeric(20,8) default 1 not null,
+  exchange_rate_to_base numeric(30,18) default 1 not null,
   source_type text,
   source_id uuid,
   reversed_from_id uuid references public.journal_entries(id) on delete restrict,
@@ -3352,7 +3352,7 @@ AS $function$
 declare
   v_base text;
   v_currency text;
-  v_rate numeric(24,10);
+  v_rate numeric(30,18);
   v_effective_date date;
 begin
   select upper(trim(default_currency))
@@ -3552,7 +3552,7 @@ declare
   v_base text;
   v_invoice_currency text;
   v_payment_currency text;
-  v_rate numeric(24,10);
+  v_rate numeric(30,18);
 begin
   if not public.has_any_permission(
     target_company,
@@ -3668,7 +3668,7 @@ declare
 
   v_base_currency text;
   v_currency text;
-  v_rate numeric(20,8);
+  v_rate numeric(30,18);
   v_business_date date;
 
   v_line jsonb;
@@ -4009,7 +4009,7 @@ declare
   v_number text;
   v_currency text;
   v_base_currency text;
-  v_rate numeric(24,10);
+  v_rate numeric(30,18);
   v_business_date date;
 
   v_line jsonb;
@@ -4954,6 +4954,75 @@ begin
 
   return v_id;
 end;
+$function$;
+
+-- سعر الصرف لحظة العملية: الموظف اللي عم يقبض أو يدفع بالليرة بيكتب السعر الحالي،
+-- وبينسجّل كسعر هاليوم (القيد بياخدو وبيحفظو معه، فتغيير السعر بعدين ما بيأثر على القيود القديمة).
+create or replace function public.set_transaction_rate(target_company uuid, target_currency text, target_date date, target_units_per_base numeric)
+ RETURNS numeric
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_base text;
+  v_currency text := upper(trim(coalesce(target_currency, '')));
+  v_date date := coalesce(target_date, (now() at time zone 'Asia/Damascus')::date);
+  v_rate numeric(30,18);
+begin
+  if not public.has_any_permission(target_company, array[
+    'finance.accounts_write', 'finance.cashbox_write', 'finance.expenses_write',
+    'payments.sales_create', 'payments.supplier_create', 'payroll.pay',
+    'assets.manage', 'partners.transactions'
+  ]) then
+    raise exception 'Not allowed';
+  end if;
+
+  select upper(trim(default_currency)) into v_base from public.companies where id = target_company;
+
+  if v_currency !~ '^[A-Z]{3}$' then
+    raise exception 'Invalid currency';
+  end if;
+
+  if v_currency = v_base then
+    return 1;
+  end if;
+
+  if target_units_per_base is null or target_units_per_base <= 0 then
+    raise exception 'Invalid exchange rate';
+  end if;
+
+  if v_date > (now() at time zone 'Asia/Damascus')::date then
+    raise exception 'Future exchange rate date is not allowed';
+  end if;
+
+  v_rate := round(1 / target_units_per_base, 18);
+
+  insert into public.finance_exchange_rates(company_id, currency, rate_date, rate_to_base, notes)
+  values (target_company, v_currency, v_date, v_rate, 'من عملية')
+  on conflict (company_id, currency, rate_date)
+  do update set rate_to_base = excluded.rate_to_base, notes = excluded.notes;
+
+  return v_rate;
+end;
+$function$;
+
+-- آخر سعر مسجّل لحد هالتاريخ، بصيغة "كم ليرة بالدولار" لتعبئة الخانة.
+create or replace function public.get_units_per_base(target_company uuid, target_currency text, target_date date)
+ RETURNS numeric
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- الليرة (رقم كبير) بدون فواصل، والعملات الصغيرة بـ 4 خانات.
+  select case when 1 / r.rate_to_base >= 100 then round(1 / r.rate_to_base, 0) else round(1 / r.rate_to_base, 4) end
+  from public.finance_exchange_rates r
+  where r.company_id = target_company
+    and upper(r.currency) = upper(target_currency)
+    and r.rate_date <= coalesce(target_date, (now() at time zone 'Asia/Damascus')::date)
+    and public.is_company_member(target_company)
+  order by r.rate_date desc
+  limit 1;
 $function$;
 
 create or replace function public.save_finance_exchange_rate(target_company uuid, target_currency text, target_date date, target_rate numeric, target_notes text DEFAULT NULL::text)
@@ -8093,7 +8162,7 @@ create table public.customer_payments (
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   payment_currency text,
-  exchange_rate_to_base numeric(24,10),
+  exchange_rate_to_base numeric(30,18),
   base_amount numeric(20,4),
   constraint customer_payments_company_id_payment_number_key unique (company_id, payment_number),
   constraint customer_payments_amount_check check ((amount > (0)::numeric)),
@@ -8117,7 +8186,7 @@ create table public.customer_payment_allocations (
   payment_amount numeric(20,2),
   payment_currency text,
   invoice_currency text,
-  payment_rate_to_base numeric(24,10),
+  payment_rate_to_base numeric(30,18),
   constraint customer_payment_allocations_payment_id_sales_invoice_id_key unique (payment_id, sales_invoice_id),
   constraint customer_payment_allocations_amount_check check ((amount > (0)::numeric))
 );
@@ -12141,7 +12210,7 @@ declare
 
   v_base_currency text;
   v_payment_currency text;
-  v_payment_rate numeric(24,10);
+  v_payment_rate numeric(30,18);
   v_base_amount numeric(20,4);
 
   v_allocation jsonb;
@@ -13737,7 +13806,7 @@ create table public.supplier_payments (
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   payment_currency text,
-  exchange_rate_to_base numeric(24,10),
+  exchange_rate_to_base numeric(30,18),
   base_amount numeric(20,4),
   constraint supplier_payments_company_id_payment_number_key unique (company_id, payment_number),
   constraint supplier_payments_amount_check check ((amount > (0)::numeric)),
@@ -13761,7 +13830,7 @@ create table public.supplier_payment_allocations (
   payment_amount numeric(20,2),
   payment_currency text,
   invoice_currency text,
-  payment_rate_to_base numeric(24,10),
+  payment_rate_to_base numeric(30,18),
   constraint supplier_payment_allocations_payment_id_purchase_invoice_id_key unique (payment_id, purchase_invoice_id),
   constraint supplier_payment_allocations_amount_check check ((amount > (0)::numeric))
 );
@@ -15608,7 +15677,7 @@ declare
 
   v_base_currency text;
   v_payment_currency text;
-  v_payment_rate numeric(24,10);
+  v_payment_rate numeric(30,18);
   v_base_amount numeric(20,4);
 
   v_allocation jsonb;

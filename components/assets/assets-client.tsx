@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 
 function num(value: unknown) {
@@ -124,6 +125,7 @@ export function AssetsClient({
   const [depreciationMonth, setDepreciationMonth] = useState(currentMonth());
 
   const [saving, setSaving] = useState(false);
+  const [txRate, setTxRate] = useState("");
   const [message, setMessage] = useState("");
 
   // بيع أو شطب أصل
@@ -157,6 +159,21 @@ export function AssetsClient({
     }
     setSaving(true);
     setMessage("");
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      disposeAsset.currency,
+      baseCurrency,
+      disposeDate,
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setMessage(rateError);
+      return;
+    }
+
     const { error } = await supabase.rpc("dispose_fixed_asset", {
       target_company: companyId,
       target_asset: disposeAsset.id,
@@ -217,6 +234,21 @@ export function AssetsClient({
 
     setSaving(true);
     setMessage("");
+
+    const rateError = await applyTransactionRate(
+      supabase,
+      companyId,
+      currency,
+      baseCurrency,
+      purchaseDate,
+      txRate,
+    );
+
+    if (rateError) {
+      setSaving(false);
+      setMessage(rateError);
+      return;
+    }
 
     const { error } = await supabase.rpc("create_fixed_asset", {
       target_company: companyId,
@@ -564,6 +596,16 @@ export function AssetsClient({
 
                 <NumberField label="تكلفة الشراء *" value={cost} setValue={setCost} />
 
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={currency}
+                  baseCurrency={baseCurrency}
+                  date={purchaseDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
+
                 <NumberField label="قيمة الخردة" value={salvage} setValue={setSalvage} />
 
                 <NumberField
@@ -738,6 +780,16 @@ export function AssetsClient({
                     onChange={(event) => setDisposeDate(event.target.value)}
                   />
                 </label>
+
+                <RateField
+                  supabase={supabase}
+                  companyId={companyId}
+                  currency={disposeAsset.currency}
+                  baseCurrency={baseCurrency}
+                  date={disposeDate}
+                  value={txRate}
+                  onChange={setTxRate}
+                />
                 <label className="field">
                   <span>ملاحظة</span>
                   <input
