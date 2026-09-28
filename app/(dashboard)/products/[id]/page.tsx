@@ -205,7 +205,7 @@ export default async function ProductDetailPage({
     await supabase
       .from("products")
       .select(
-        "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,image_url,active,created_at,updated_at"
+        "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,reorder_level,image_url,active,created_at,updated_at"
       )
       .eq(
         "company_id",

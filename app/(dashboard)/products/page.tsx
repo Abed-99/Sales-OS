@@ -177,7 +177,7 @@ export default async function ProductsPage({
     supabase
       .from("products")
       .select(
-        "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,image_url,active,created_at",
+        "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,reorder_level,image_url,active,created_at",
         {
           count: "exact",
         }

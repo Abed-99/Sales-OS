@@ -4014,6 +4014,24 @@ begin
 end;
 $function$;
 
+-- أول فاتورة للزبون بتحوّلو من "جديد/تواصلنا/مهتم" لـ "عميل" تلقائيًا.
+create or replace function public.promote_trader_on_invoice()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.status = 'posted' then
+    update public.traders
+    set status = 'customer'
+    where id = new.trader_id
+      and status in ('new', 'contacted', 'interested');
+  end if;
+  return new;
+end;
+$function$;
+
 create or replace function public.recalc_sales_invoice_payment(target_invoice uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -5583,6 +5601,8 @@ create view public.inventory_summary as
 -- ----------------------------------------------------------------------
 
 create trigger sales_orders_assign_number before insert on public.sales_orders for each row execute function public.assign_sales_order_number();
+create trigger promote_trader_on_invoice after insert on public.sales_invoices for each row execute function public.promote_trader_on_invoice();
+
 create trigger audit_customer_payment_allocations after insert or delete or update on public.customer_payment_allocations for each row execute function public.write_audit_log();
 
 create trigger customer_payment_allocation_changed_trigger after insert or delete or update on public.customer_payment_allocations for each row execute function public.customer_payment_allocation_changed();

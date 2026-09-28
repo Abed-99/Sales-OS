@@ -29,6 +29,7 @@ create table public.products (
   unit text default 'قطعة'::text not null,
   sale_price numeric(14,2),
   minimum_sale_price numeric(14,2),
+  reorder_level numeric(14,3),
   image_url text,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
@@ -495,7 +496,7 @@ begin
 end;
 $function$;
 
-create or replace function public.save_product_with_supplier_prices(target_company uuid, target_product uuid, product_name text, product_sku text, product_brand text, target_category uuid, product_unit text, product_sale_price numeric, product_minimum_sale_price numeric, product_image_url text, product_active boolean, supplier_prices_payload jsonb)
+create or replace function public.save_product_with_supplier_prices(target_company uuid, target_product uuid, product_name text, product_sku text, product_brand text, target_category uuid, product_unit text, product_sale_price numeric, product_minimum_sale_price numeric, product_image_url text, product_active boolean, supplier_prices_payload jsonb, product_reorder_level numeric DEFAULT NULL::numeric)
  RETURNS uuid
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -548,7 +549,8 @@ begin
       sale_price,
       minimum_sale_price,
       image_url,
-      active
+      active,
+      reorder_level
     )
     values(
       target_company,
@@ -560,7 +562,8 @@ begin
       product_sale_price,
       product_minimum_sale_price,
       nullif(trim(product_image_url), ''),
-      product_active
+      product_active,
+      nullif(greatest(product_reorder_level, 0), 0)
     )
     returning id into v_product;
 
@@ -581,6 +584,7 @@ begin
       minimum_sale_price = product_minimum_sale_price,
       image_url = nullif(trim(product_image_url), ''),
       active = product_active,
+      reorder_level = nullif(greatest(product_reorder_level, 0), 0),
       updated_at = now()
     where id = target_product
       and company_id = target_company

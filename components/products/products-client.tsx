@@ -1,40 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-} from "react";
-import {
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 
 export type Product = {
   id: string;
-  category_id:
-    | string
-    | null;
+  category_id: string | null;
   sku: string | null;
   name: string;
   brand: string | null;
   unit: string;
-  sale_price:
-    | number
-    | null;
-  minimum_sale_price:
-    | number
-    | null;
-  image_url:
-    | string
-    | null;
+  sale_price: number | null;
+  minimum_sale_price: number | null;
+  reorder_level?: number | null;
+  image_url: string | null;
   active: boolean;
   created_at: string;
 };
@@ -60,10 +44,7 @@ export type SupplierPrice = {
   last_checked_at: string;
 };
 
-type ProductFilter =
-  | "all"
-  | "active"
-  | "archived";
+type ProductFilter = "all" | "active" | "archived";
 
 type Stats = {
   all: number;
@@ -79,11 +60,11 @@ type ProductForm = {
   unit: string;
   sale_price: string;
   minimum_sale_price: string;
+  reorder_level: string;
   image_url: string;
 };
 
-function emptyForm():
-  ProductForm {
+function emptyForm(): ProductForm {
   return {
     name: "",
     sku: "",
@@ -91,105 +72,60 @@ function emptyForm():
     category_id: "",
     unit: "قطعة",
     sale_price: "",
-    minimum_sale_price:
-      "",
+    minimum_sale_price: "",
+    reorder_level: "",
     image_url: "",
   };
 }
 
-function validHttpUrl(
-  value: string
-) {
+function validHttpUrl(value: string) {
   if (!value.trim()) {
     return true;
   }
 
   try {
-    const url =
-      new URL(
-        value.trim()
-      );
+    const url = new URL(value.trim());
 
-    return (
-      url.protocol ===
-        "http:" ||
-      url.protocol ===
-        "https:"
-    );
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }
 }
 
 function friendlyError(
-  error:
-    | {
-        code?: string;
-        message?: string;
-      }
-    | null,
-  action:
-    | "save"
-    | "archive"
-    | "category"
+  error: {
+    code?: string;
+    message?: string;
+  } | null,
+  action: "save" | "archive" | "category",
 ) {
-  const message =
-    error?.message?.toLowerCase() ??
-    "";
+  const message = error?.message?.toLowerCase() ?? "";
 
   if (
-    error?.code ===
-      "42501" ||
-    message.includes(
-      "not allowed"
-    ) ||
-    message.includes(
-      "permission"
-    )
+    error?.code === "42501" ||
+    message.includes("not allowed") ||
+    message.includes("permission")
   ) {
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (
-    error?.code ===
-      "23505" ||
-    message.includes(
-      "duplicate"
-    )
-  ) {
-    return action ===
-      "category"
-      ? "هذه الفئة موجودة مسبقاً."
-      : "كود الصنف مستخدم مسبقاً.";
+  if (error?.code === "23505" || message.includes("duplicate")) {
+    return action === "category" ? "هذه الفئة موجودة مسبقاً." : "كود الصنف مستخدم مسبقاً.";
   }
 
-  if (
-    message.includes(
-      "category does not belong"
-    )
-  ) {
+  if (message.includes("category does not belong")) {
     return "الفئة المختارة غير صالحة لهذه الشركة.";
   }
 
-  if (
-    message.includes(
-      "open orders"
-    )
-  ) {
+  if (message.includes("open orders")) {
     return "ما فيك تأرشف هالصنف لأنه موجود بطلبية لسا ما انسلّمت. سلّم الطلبية أو ألغيها أول.";
   }
 
-  if (
-    action ===
-    "archive"
-  ) {
+  if (action === "archive") {
     return "تعذر تغيير حالة الصنف. حاول مرة ثانية.";
   }
 
-  if (
-    action ===
-    "category"
-  ) {
+  if (action === "category") {
     return "تعذر إضافة الفئة. حاول مرة ثانية.";
   }
 
@@ -222,9 +158,7 @@ export function ProductsClient({
   initialCategories: Category[];
   suppliers: Supplier[];
   initialPrices: SupplierPrice[];
-  initialError:
-    | string
-    | null;
+  initialError: string | null;
   stats: Stats | null;
   totalCount: number;
   page: number;
@@ -237,400 +171,161 @@ export function ProductsClient({
   canArchive: boolean;
   canViewCost: boolean;
 }) {
-  const [supabase] =
-    useState(
-      () =>
-        createClient()
-    );
+  const [supabase] = useState(() => createClient());
 
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const searchParams =
-    useSearchParams();
+  const searchParams = useSearchParams();
 
-  const [
-    products,
-    setProducts,
-  ] =
-    useState(
-      initialProducts
-    );
+  const [products, setProducts] = useState(initialProducts);
 
-  const [
-    categories,
-    setCategories,
-  ] =
-    useState(
-      initialCategories
-    );
+  const [categories, setCategories] = useState(initialCategories);
 
-  const [
-    prices,
-    setPrices,
-  ] =
-    useState(
-      initialPrices
-    );
+  const [prices, setPrices] = useState(initialPrices);
 
-  const [
-    search,
-    setSearch,
-  ] =
-    useState(
-      searchQuery
-    );
+  const [search, setSearch] = useState(searchQuery);
 
-  const [
-    status,
-    setStatus,
-  ] =
-    useState<ProductFilter>(
-      statusFilter
-    );
+  const [status, setStatus] = useState<ProductFilter>(statusFilter);
 
-  const [
-    category,
-    setCategory,
-  ] =
-    useState(
-      categoryFilter
-    );
+  const [category, setCategory] = useState(categoryFilter);
 
-  const [
-    open,
-    setOpen,
-  ] =
-    useState(false);
+  const [open, setOpen] = useState(false);
 
-  const [
-    editing,
-    setEditing,
-  ] =
-    useState<Product | null>(
-      null
-    );
+  const [editing, setEditing] = useState<Product | null>(null);
 
-  const [
-    form,
-    setForm,
-  ] =
-    useState<ProductForm>(
-      emptyForm
-    );
+  const [form, setForm] = useState<ProductForm>(emptyForm);
 
-  const [
-    priceForm,
-    setPriceForm,
-  ] =
-    useState<
-      Record<
-        string,
-        string
-      >
-    >({});
+  const [priceForm, setPriceForm] = useState<Record<string, string>>({});
 
-  const [
-    available,
-    setAvailable,
-  ] =
-    useState<
-      Record<
-        string,
-        boolean
-      >
-    >({});
+  const [available, setAvailable] = useState<Record<string, boolean>>({});
 
-  const [
-    priceNotes,
-    setPriceNotes,
-  ] =
-    useState<
-      Record<
-        string,
-        string
-      >
-    >({});
+  const [priceNotes, setPriceNotes] = useState<Record<string, string>>({});
 
-  const [
-    newCategory,
-    setNewCategory,
-  ] =
-    useState("");
+  const [newCategory, setNewCategory] = useState("");
 
-  const [
-    formMessage,
-    setFormMessage,
-  ] =
-    useState("");
+  const [formMessage, setFormMessage] = useState("");
 
-  const [
-    pageMessage,
-    setPageMessage,
-  ] =
-    useState(
-      initialError ?? ""
-    );
+  const [pageMessage, setPageMessage] = useState(initialError ?? "");
 
-  const [
-    saving,
-    setSaving,
-  ] =
-    useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const [
-    categorySaving,
-    setCategorySaving,
-  ] =
-    useState(false);
+  const [categorySaving, setCategorySaving] = useState(false);
 
-  const [
-    busyId,
-    setBusyId,
-  ] =
-    useState<string | null>(
-      null
-    );
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    setProducts(
-      initialProducts
-    );
+    setProducts(initialProducts);
   }, [initialProducts]);
 
   useEffect(() => {
-    setCategories(
-      initialCategories
-    );
+    setCategories(initialCategories);
   }, [initialCategories]);
 
   useEffect(() => {
-    setPrices(
-      initialPrices
-    );
+    setPrices(initialPrices);
   }, [initialPrices]);
 
   useEffect(() => {
-    setSearch(
-      searchQuery
-    );
+    setSearch(searchQuery);
   }, [searchQuery]);
 
   useEffect(() => {
-    setStatus(
-      statusFilter
-    );
+    setStatus(statusFilter);
   }, [statusFilter]);
 
   useEffect(() => {
-    setCategory(
-      categoryFilter
-    );
+    setCategory(categoryFilter);
   }, [categoryFilter]);
 
   useEffect(() => {
-    setPageMessage(
-      initialError ?? ""
-    );
+    setPageMessage(initialError ?? "");
   }, [initialError]);
 
-  const pageCount =
-    Math.max(
-      1,
-      Math.ceil(
-        totalCount /
-          pageSize
-      )
-    );
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
 
-  const visibleFrom =
-    totalCount === 0
-      ? 0
-      : (page - 1) *
-          pageSize +
-        1;
+  const visibleFrom = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
 
-  const visibleTo =
-    Math.min(
-      page *
-        pageSize,
-      totalCount
-    );
+  const visibleTo = Math.min(page * pageSize, totalCount);
 
-  const categoryNames =
-    useMemo(
-      () =>
-        new Map(
-          categories.map(
-            (row) => [
-              row.id,
-              row.name,
-            ]
-          )
-        ),
-      [categories]
-    );
+  const categoryNames = useMemo(
+    () => new Map(categories.map((row) => [row.id, row.name])),
+    [categories],
+  );
 
-  const supplierNames =
-    useMemo(
-      () =>
-        new Map(
-          suppliers.map(
-            (row) => [
-              row.id,
-              row.name,
-            ]
-          )
-        ),
-      [suppliers]
-    );
+  const supplierNames = useMemo(
+    () => new Map(suppliers.map((row) => [row.id, row.name])),
+    [suppliers],
+  );
 
-  const priceMap =
-    useMemo(() => {
-      const map =
-        new Map<
-          string,
-          SupplierPrice[]
-        >();
+  const priceMap = useMemo(() => {
+    const map = new Map<string, SupplierPrice[]>();
 
-      for (
-        const price of
-        prices
-      ) {
-        map.set(
-          price.product_id,
-          [
-            ...(map.get(
-              price.product_id
-            ) ?? []),
-            price,
-          ]
-        );
-      }
+    for (const price of prices) {
+      map.set(price.product_id, [...(map.get(price.product_id) ?? []), price]);
+    }
 
-      return map;
-    }, [prices]);
+    return map;
+  }, [prices]);
 
-  function cheapest(
-    product: Product
-  ) {
-    if (
-      !canViewCost
-    ) {
+  function cheapest(product: Product) {
+    if (!canViewCost) {
       return null;
     }
 
-    const rows =
-      (
-        priceMap.get(
-          product.id
-        ) ?? []
-      ).filter(
-        (row) =>
-          row.available
-      );
+    const rows = (priceMap.get(product.id) ?? []).filter((row) => row.available);
 
     if (!rows.length) {
       return null;
     }
 
-    return rows.reduce(
-      (
-        best,
-        current
-      ) =>
-        Number(
-          best.purchase_price
-        ) <=
-        Number(
-          current.purchase_price
-        )
-          ? best
-          : current
+    return rows.reduce((best, current) =>
+      Number(best.purchase_price) <= Number(current.purchase_price) ? best : current,
     );
   }
 
   function navigate(
     nextSearch: string,
-    nextStatus:
-      ProductFilter,
+    nextStatus: ProductFilter,
     nextCategory: string,
-    nextPage = 1
+    nextPage = 1,
   ) {
-    const params =
-      new URLSearchParams(
-        searchParams.toString()
-      );
+    const params = new URLSearchParams(searchParams.toString());
 
-    const clean =
-      nextSearch.trim();
+    const clean = nextSearch.trim();
 
     if (clean) {
-      params.set(
-        "q",
-        clean
-      );
+      params.set("q", clean);
     } else {
       params.delete("q");
     }
 
-    if (
-      nextStatus !==
-      "all"
-    ) {
-      params.set(
-        "status",
-        nextStatus
-      );
+    if (nextStatus !== "all") {
+      params.set("status", nextStatus);
     } else {
-      params.delete(
-        "status"
-      );
+      params.delete("status");
     }
 
     if (nextCategory) {
-      params.set(
-        "category",
-        nextCategory
-      );
+      params.set("category", nextCategory);
     } else {
-      params.delete(
-        "category"
-      );
+      params.delete("category");
     }
 
     if (nextPage > 1) {
-      params.set(
-        "page",
-        String(nextPage)
-      );
+      params.set("page", String(nextPage));
     } else {
-      params.delete(
-        "page"
-      );
+      params.delete("page");
     }
 
-    const query =
-      params.toString();
+    const query = params.toString();
 
-    router.push(
-      query
-        ? `/products?${query}`
-        : "/products"
-    );
+    router.push(query ? `/products?${query}` : "/products");
   }
 
-  function submitSearch(
-    event: FormEvent
-  ) {
+  function submitSearch(event: FormEvent) {
     event.preventDefault();
 
-    navigate(
-      search,
-      status,
-      category,
-      1
-    );
+    navigate(search, status, category, 1);
   }
 
   function startAdd() {
@@ -640,9 +335,7 @@ export function ProductsClient({
 
     setEditing(null);
 
-    setForm(
-      emptyForm()
-    );
+    setForm(emptyForm());
 
     setPriceForm({});
     setAvailable({});
@@ -652,110 +345,52 @@ export function ProductsClient({
     setOpen(true);
   }
 
-  function startEdit(
-    product: Product
-  ) {
+  function startEdit(product: Product) {
     if (!canUpdate) {
       return;
     }
 
-    setEditing(
-      product
-    );
+    setEditing(product);
 
     setForm({
-      name:
-        product.name,
+      name: product.name,
 
-      sku:
-        product.sku ??
-        "",
+      sku: product.sku ?? "",
 
-      brand:
-        product.brand ??
-        "",
+      brand: product.brand ?? "",
 
-      category_id:
-        product.category_id ??
-        "",
+      category_id: product.category_id ?? "",
 
-      unit:
-        product.unit,
+      unit: product.unit,
 
-      sale_price:
-        product.sale_price ==
-        null
-          ? ""
-          : String(
-              product.sale_price
-            ),
+      sale_price: product.sale_price == null ? "" : String(product.sale_price),
 
       minimum_sale_price:
-        product.minimum_sale_price ==
-        null
-          ? ""
-          : String(
-              product.minimum_sale_price
-            ),
+        product.minimum_sale_price == null ? "" : String(product.minimum_sale_price),
+      reorder_level: product.reorder_level == null ? "" : String(product.reorder_level),
 
-      image_url:
-        product.image_url ??
-        "",
+      image_url: product.image_url ?? "",
     });
 
-    const nextPrices:
-      Record<
-        string,
-        string
-      > = {};
+    const nextPrices: Record<string, string> = {};
 
-    const nextAvailable:
-      Record<
-        string,
-        boolean
-      > = {};
+    const nextAvailable: Record<string, boolean> = {};
 
-    const nextNotes:
-      Record<
-        string,
-        string
-      > = {};
+    const nextNotes: Record<string, string> = {};
 
-    for (
-      const price of
-        priceMap.get(
-          product.id
-        ) ?? []
-    ) {
-      nextPrices[
-        price.supplier_id
-      ] =
-        String(
-          price.purchase_price
-        );
+    for (const price of priceMap.get(product.id) ?? []) {
+      nextPrices[price.supplier_id] = String(price.purchase_price);
 
-      nextAvailable[
-        price.supplier_id
-      ] =
-        price.available;
+      nextAvailable[price.supplier_id] = price.available;
 
-      nextNotes[
-        price.supplier_id
-      ] =
-        price.notes ?? "";
+      nextNotes[price.supplier_id] = price.notes ?? "";
     }
 
-    setPriceForm(
-      nextPrices
-    );
+    setPriceForm(nextPrices);
 
-    setAvailable(
-      nextAvailable
-    );
+    setAvailable(nextAvailable);
 
-    setPriceNotes(
-      nextNotes
-    );
+    setPriceNotes(nextNotes);
 
     setNewCategory("");
     setFormMessage("");
@@ -764,286 +399,145 @@ export function ProductsClient({
 
   async function addCategory() {
     if (!canCreate) {
-      setFormMessage(
-        "ما عندك صلاحية إضافة فئة."
-      );
+      setFormMessage("ما عندك صلاحية إضافة فئة.");
       return;
     }
 
-    const name =
-      newCategory
-        .trim();
+    const name = newCategory.trim();
 
     if (!name) {
-      setFormMessage(
-        "اكتب اسم الفئة أولاً."
-      );
+      setFormMessage("اكتب اسم الفئة أولاً.");
       return;
     }
 
-    if (
-      name.length >
-      120
-    ) {
-      setFormMessage(
-        "اسم الفئة طويل جداً."
-      );
+    if (name.length > 120) {
+      setFormMessage("اسم الفئة طويل جداً.");
       return;
     }
 
-    setCategorySaving(
-      true
-    );
+    setCategorySaving(true);
 
     try {
-      const {
-        data,
-        error,
-      } =
-        await supabase
-          .from(
-            "categories"
-          )
-          .insert({
-            company_id:
-              companyId,
-            name,
-          })
-          .select(
-            "id,name"
-          )
-          .single();
+      const { data, error } = await supabase
+        .from("categories")
+        .insert({
+          company_id: companyId,
+          name,
+        })
+        .select("id,name")
+        .single();
 
       if (error) {
-        setFormMessage(
-          friendlyError(
-            error,
-            "category"
-          )
-        );
+        setFormMessage(friendlyError(error, "category"));
         return;
       }
 
-      const row =
-        data as Category;
+      const row = data as Category;
 
-      setCategories(
-        (current) =>
-          [
-            ...current,
-            row,
-          ].sort(
-            (a, b) =>
-              a.name.localeCompare(
-                b.name,
-                "ar"
-              )
-          )
+      setCategories((current) =>
+        [...current, row].sort((a, b) => a.name.localeCompare(b.name, "ar")),
       );
 
-      setForm(
-        (current) => ({
-          ...current,
-          category_id:
-            row.id,
-        })
-      );
+      setForm((current) => ({
+        ...current,
+        category_id: row.id,
+      }));
 
       setNewCategory("");
       setFormMessage("");
     } finally {
-      setCategorySaving(
-        false
-      );
+      setCategorySaving(false);
     }
   }
 
-  async function save(
-    event: FormEvent
-  ) {
+  async function save(event: FormEvent) {
     event.preventDefault();
     setFormMessage("");
 
-    if (
-      editing &&
-      !canUpdate
-    ) {
-      setFormMessage(
-        "ما عندك صلاحية تعديل الصنف."
-      );
+    if (editing && !canUpdate) {
+      setFormMessage("ما عندك صلاحية تعديل الصنف.");
       return;
     }
 
-    if (
-      !editing &&
-      !canCreate
-    ) {
-      setFormMessage(
-        "ما عندك صلاحية إضافة صنف."
-      );
+    if (!editing && !canCreate) {
+      setFormMessage("ما عندك صلاحية إضافة صنف.");
       return;
     }
 
-    const name =
-      form.name.trim();
+    const name = form.name.trim();
 
     if (!name) {
-      setFormMessage(
-        "اسم الصنف مطلوب."
-      );
+      setFormMessage("اسم الصنف مطلوب.");
       return;
     }
 
-    if (
-      name.length > 200
-    ) {
-      setFormMessage(
-        "اسم الصنف طويل جداً."
-      );
+    if (name.length > 200) {
+      setFormMessage("اسم الصنف طويل جداً.");
       return;
     }
 
-    const unit =
-      form.unit.trim();
+    const unit = form.unit.trim();
 
     if (!unit) {
-      setFormMessage(
-        "وحدة القياس مطلوبة."
-      );
+      setFormMessage("وحدة القياس مطلوبة.");
       return;
     }
 
-    const salePrice =
-      form.sale_price.trim() ===
-      ""
-        ? null
-        : Number(
-            form.sale_price
-          );
+    const salePrice = form.sale_price.trim() === "" ? null : Number(form.sale_price);
 
     const minimumSalePrice =
-      form.minimum_sale_price.trim() ===
-      ""
-        ? null
-        : Number(
-            form.minimum_sale_price
-          );
+      form.minimum_sale_price.trim() === "" ? null : Number(form.minimum_sale_price);
 
-    if (
-      salePrice !== null &&
-      (
-        !Number.isFinite(
-          salePrice
-        ) ||
-        salePrice < 0
-      )
-    ) {
-      setFormMessage(
-        "سعر البيع غير صحيح."
-      );
+    if (salePrice !== null && (!Number.isFinite(salePrice) || salePrice < 0)) {
+      setFormMessage("سعر البيع غير صحيح.");
       return;
     }
 
-    if (
-      minimumSalePrice !==
-        null &&
-      (
-        !Number.isFinite(
-          minimumSalePrice
-        ) ||
-        minimumSalePrice <
-          0
-      )
-    ) {
-      setFormMessage(
-        "أقل سعر بيع غير صحيح."
-      );
+    if (minimumSalePrice !== null && (!Number.isFinite(minimumSalePrice) || minimumSalePrice < 0)) {
+      setFormMessage("أقل سعر بيع غير صحيح.");
       return;
     }
 
-    if (
-      salePrice !== null &&
-      minimumSalePrice !==
-        null &&
-      minimumSalePrice >
-        salePrice
-    ) {
-      setFormMessage(
-        "أقل سعر بيع لا يمكن أن يكون أكبر من سعر البيع."
-      );
+    if (salePrice !== null && minimumSalePrice !== null && minimumSalePrice > salePrice) {
+      setFormMessage("أقل سعر بيع لا يمكن أن يكون أكبر من سعر البيع.");
       return;
     }
 
-    if (
-      !validHttpUrl(
-        form.image_url
-      )
-    ) {
-      setFormMessage(
-        "رابط صورة المنتج غير صحيح. استخدم رابط http أو https."
-      );
+    if (!validHttpUrl(form.image_url)) {
+      setFormMessage("رابط صورة المنتج غير صحيح. استخدم رابط http أو https.");
       return;
     }
 
-    const supplierPrices:
-      Array<{
-        supplier_id: string;
-        purchase_price: number;
-        available: boolean;
-        notes:
-          | string
-          | null;
-      }> = [];
+    const supplierPrices: Array<{
+      supplier_id: string;
+      purchase_price: number;
+      available: boolean;
+      notes: string | null;
+    }> = [];
 
     if (canUpdate) {
-      for (
-        const supplier of
-          suppliers.filter(
-            (row) =>
-              row.active
-          )
-      ) {
-        const raw =
-          priceForm[
-            supplier.id
-          ]?.trim();
+      for (const supplier of suppliers.filter((row) => row.active)) {
+        const raw = priceForm[supplier.id]?.trim();
 
         if (!raw) {
           continue;
         }
 
-        const value =
-          Number(raw);
+        const value = Number(raw);
 
-        if (
-          !Number.isFinite(
-            value
-          ) ||
-          value < 0
-        ) {
-          setFormMessage(
-            `سعر شراء ${supplier.name} غير صحيح.`
-          );
+        if (!Number.isFinite(value) || value < 0) {
+          setFormMessage(`سعر شراء ${supplier.name} غير صحيح.`);
           return;
         }
 
         supplierPrices.push({
-          supplier_id:
-            supplier.id,
+          supplier_id: supplier.id,
 
-          purchase_price:
-            value,
+          purchase_price: value,
 
-          available:
-            available[
-              supplier.id
-            ] !== false,
+          available: available[supplier.id] !== false,
 
-          notes:
-            priceNotes[
-              supplier.id
-            ]?.trim() ||
-            null,
+          notes: priceNotes[supplier.id]?.trim() || null,
         });
       }
     }
@@ -1051,71 +545,41 @@ export function ProductsClient({
     setSaving(true);
 
     try {
-      const {
-        error,
-      } =
-        await supabase.rpc(
-          "save_product_with_supplier_prices",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("save_product_with_supplier_prices", {
+        target_company: companyId,
 
-            target_product:
-              editing?.id ??
-              null,
+        target_product: editing?.id ?? null,
 
-            product_name:
-              name,
+        product_name: name,
 
-            product_sku:
-              form.sku.trim() ||
-              null,
+        product_sku: form.sku.trim() || null,
 
-            product_brand:
-              form.brand.trim() ||
-              null,
+        product_brand: form.brand.trim() || null,
 
-            target_category:
-              form.category_id ||
-              null,
+        target_category: form.category_id || null,
 
-            product_unit:
-              unit,
+        product_unit: unit,
 
-            product_sale_price:
-              salePrice,
+        product_sale_price: salePrice,
 
-            product_minimum_sale_price:
-              minimumSalePrice,
+        product_minimum_sale_price: minimumSalePrice,
+        product_reorder_level: form.reorder_level.trim() === "" ? null : Number(form.reorder_level),
 
-            product_image_url:
-              form.image_url.trim() ||
-              null,
+        product_image_url: form.image_url.trim() || null,
 
-            product_active:
-              editing?.active ??
-              true,
+        product_active: editing?.active ?? true,
 
-            supplier_prices_payload:
-              supplierPrices,
-          }
-        );
+        supplier_prices_payload: supplierPrices,
+      });
 
       if (error) {
-        setFormMessage(
-          friendlyError(
-            error,
-            "save"
-          )
-        );
+        setFormMessage(friendlyError(error, "save"));
         return;
       }
 
       setOpen(false);
       setEditing(null);
-      setForm(
-        emptyForm()
-      );
+      setForm(emptyForm());
       setPageMessage("");
       router.refresh();
     } finally {
@@ -1123,72 +587,50 @@ export function ProductsClient({
     }
   }
 
-  async function toggleArchive(
-    product: Product
-  ) {
+  async function toggleArchive(product: Product) {
     if (!canArchive) {
       return;
     }
 
-    const nextActive =
-      !product.active;
+    const nextActive = !product.active;
 
-    const confirmed =
-      window.confirm(
-        nextActive
-          ? `إعادة تفعيل ${product.name}؟`
-          : `أرشفة ${product.name}؟ لن يتم حذف تاريخ الصنف أو الحركات المرتبطة به.`
-      );
+    const confirmed = window.confirm(
+      nextActive
+        ? `إعادة تفعيل ${product.name}؟`
+        : `أرشفة ${product.name}؟ لن يتم حذف تاريخ الصنف أو الحركات المرتبطة به.`,
+    );
 
     if (!confirmed) {
       return;
     }
 
-    setBusyId(
-      product.id
-    );
+    setBusyId(product.id);
 
     setPageMessage("");
 
     try {
-      const { error } =
-        await supabase.rpc(
-          "set_product_active",
-          {
-            target_company:
-              companyId,
+      const { error } = await supabase.rpc("set_product_active", {
+        target_company: companyId,
 
-            target_product:
-              product.id,
+        target_product: product.id,
 
-            target_active:
-              nextActive,
-          }
-        );
+        target_active: nextActive,
+      });
 
       if (error) {
-        setPageMessage(
-          friendlyError(
-            error,
-            "archive"
-          )
-        );
+        setPageMessage(friendlyError(error, "archive"));
         return;
       }
 
-      setProducts(
-        (current) =>
-          current.map(
-            (row) =>
-              row.id ===
-              product.id
-                ? {
-                    ...row,
-                    active:
-                      nextActive,
-                  }
-                : row
-          )
+      setProducts((current) =>
+        current.map((row) =>
+          row.id === product.id
+            ? {
+                ...row,
+                active: nextActive,
+              }
+            : row,
+        ),
       );
 
       router.refresh();
@@ -1201,30 +643,16 @@ export function ProductsClient({
     <div className="page">
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">
-            الكتالوج
-          </span>
+          <span className="eyebrow">الكتالوج</span>
 
-          <h2>
-            الأصناف والأسعار
-          </h2>
+          <h2>الأصناف والأسعار</h2>
 
-          <p className="muted">
-            إدارة الأصناف، أسعار البيع ومصادر الشراء.
-          </p>
+          <p className="muted">إدارة الأصناف، أسعار البيع ومصادر الشراء.</p>
         </div>
 
         {canCreate ? (
-          <button
-            type="button"
-            className="primaryButton"
-            onClick={
-              startAdd
-            }
-          >
-            <Icons.plus
-              size={14}
-            />
+          <button type="button" className="primaryButton" onClick={startAdd}>
+            <Icons.plus size={14} />
             إضافة صنف
           </button>
         ) : null}
@@ -1244,36 +672,13 @@ export function ProductsClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini
-          title="كل الأصناف"
-          value={
-            stats?.all ??
-            "—"
-          }
-        />
+        <Mini title="كل الأصناف" value={stats?.all ?? "—"} />
 
-        <Mini
-          title="نشطة"
-          value={
-            stats?.active ??
-            "—"
-          }
-        />
+        <Mini title="نشطة" value={stats?.active ?? "—"} />
 
-        <Mini
-          title="مؤرشفة"
-          value={
-            stats?.archived ??
-            "—"
-          }
-        />
+        <Mini title="مؤرشفة" value={stats?.archived ?? "—"} />
 
-        <Mini
-          title="المعروض حالياً"
-          value={
-            totalCount
-          }
-        />
+        <Mini title="المعروض حالياً" value={totalCount} />
       </section>
 
       <section
@@ -1283,34 +688,17 @@ export function ProductsClient({
         }}
       >
         <div className="filters">
-          <form
-            className="searchBox"
-            onSubmit={
-              submitSearch
-            }
-          >
-            <Icons.search
-              size={16}
-            />
+          <form className="searchBox" onSubmit={submitSearch}>
+            <Icons.search size={16} />
 
             <input
               value={search}
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event.target
-                    .value
-                )
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="ابحث بالاسم، SKU أو الماركة..."
               aria-label="بحث في الأصناف"
             />
 
-            <button
-              type="submit"
-              className="softButton"
-            >
+            <button type="submit" className="softButton">
               بحث
             </button>
           </form>
@@ -1318,113 +706,56 @@ export function ProductsClient({
           <select
             value={status}
             aria-label="حالة الصنف"
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value as ProductFilter;
+            onChange={(event) => {
+              const value = event.target.value as ProductFilter;
 
-              setStatus(
-                value
-              );
+              setStatus(value);
 
-              navigate(
-                search,
-                value,
-                category,
-                1
-              );
+              navigate(search, value, category, 1);
             }}
           >
-            <option value="all">
-              كل الحالات
-            </option>
+            <option value="all">كل الحالات</option>
 
-            <option value="active">
-              نشط
-            </option>
+            <option value="active">نشط</option>
 
-            <option value="archived">
-              مؤرشف
-            </option>
+            <option value="archived">مؤرشف</option>
           </select>
 
           <select
             value={category}
             aria-label="فئة الصنف"
-            onChange={(
-              event
-            ) => {
-              const value =
-                event.target
-                  .value;
+            onChange={(event) => {
+              const value = event.target.value;
 
-              setCategory(
-                value
-              );
+              setCategory(value);
 
-              navigate(
-                search,
-                status,
-                value,
-                1
-              );
+              navigate(search, status, value, 1);
             }}
           >
-            <option value="">
-              كل الفئات
-            </option>
+            <option value="">كل الفئات</option>
 
-            {categories.map(
-              (row) => (
-                <option
-                  key={
-                    row.id
-                  }
-                  value={
-                    row.id
-                  }
-                >
-                  {row.name}
-                </option>
-              )
-            )}
+            {categories.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
           </select>
 
           <div className="resultCount">
-            {totalCount === 0
-              ? "0 نتيجة"
-              : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+            {totalCount === 0 ? "0 نتيجة" : `${visibleFrom}–${visibleTo} من ${totalCount}`}
           </div>
         </div>
 
         {!products.length ? (
           <div className="empty">
-            <Icons.box
-              size={29}
-            />
+            <Icons.box size={29} />
 
-            <h3>
-              لا توجد أصناف
-            </h3>
+            <h3>لا توجد أصناف</h3>
 
-            <p>
-              غيّر البحث أو التصفية وحاول مرة ثانية.
-            </p>
+            <p>غيّر البحث أو التصفية وحاول مرة ثانية.</p>
 
-            {canCreate &&
-            !searchQuery &&
-            statusFilter ===
-              "all" &&
-            !categoryFilter ? (
-              <button
-                type="button"
-                className="primaryButton"
-                onClick={
-                  startAdd
-                }
-              >
+            {canCreate && !searchQuery && statusFilter === "all" && !categoryFilter ? (
+              <button type="button" className="primaryButton" onClick={startAdd}>
                 إضافة أول صنف
               </button>
             ) : null}
@@ -1434,207 +765,114 @@ export function ProductsClient({
             <table className="dataTable">
               <thead>
                 <tr>
-                  <th>
-                    الصنف
-                  </th>
-                  <th>
-                    الفئة
-                  </th>
-                  <th>
-                    الوحدة
-                  </th>
-                  <th>
-                    سعر البيع
-                  </th>
+                  <th>الصنف</th>
+                  <th>الفئة</th>
+                  <th>الوحدة</th>
+                  <th>سعر البيع</th>
 
-                  {canViewCost ? (
-                    <th>
-                      أرخص شراء
-                    </th>
-                  ) : null}
+                  {canViewCost ? <th>أرخص شراء</th> : null}
 
-                  <th>
-                    الحالة
-                  </th>
+                  <th>الحالة</th>
 
-                  <th>
-                    إجراءات
-                  </th>
+                  <th>إجراءات</th>
                 </tr>
               </thead>
 
               <tbody>
-                {products.map(
-                  (product) => {
-                    const cheap =
-                      cheapest(
-                        product
-                      );
+                {products.map((product) => {
+                  const cheap = cheapest(product);
 
-                    return (
-                      <tr
-                        key={
-                          product.id
-                        }
-                      >
-                        <td>
-                          <div className="merchant">
-                            <div className="merchantLogo">
-                              {product.image_url ? (
-                                <img
-                                  className="productThumb"
-                                  src={product.image_url}
-                                  alt=""
-                                  loading="lazy"
-                                />
-                              ) : (
-                                product.name.charAt(0)
-                              )}
-                            </div>
-
-                            <div>
-                              <strong>
-                                {
-                                  product.name
-                                }
-                              </strong>
-
-                              <span>
-                                {[
-                                  product.sku,
-                                  product.brand,
-                                ]
-                                  .filter(
-                                    Boolean
-                                  )
-                                  .join(
-                                    " • "
-                                  ) ||
-                                  "بدون كود أو ماركة"}
-                              </span>
-                            </div>
+                  return (
+                    <tr key={product.id}>
+                      <td>
+                        <div className="merchant">
+                          <div className="merchantLogo">
+                            {product.image_url ? (
+                              <img
+                                className="productThumb"
+                                src={product.image_url}
+                                alt=""
+                                loading="lazy"
+                              />
+                            ) : (
+                              product.name.charAt(0)
+                            )}
                           </div>
-                        </td>
 
+                          <div>
+                            <strong>{product.name}</strong>
+
+                            <span>
+                              {[product.sku, product.brand].filter(Boolean).join(" • ") ||
+                                "بدون كود أو ماركة"}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td>
+                        {product.category_id ? categoryNames.get(product.category_id) || "—" : "—"}
+                      </td>
+
+                      <td>{product.unit}</td>
+
+                      <td>
+                        {product.sale_price == null
+                          ? "—"
+                          : `${Number(product.sale_price).toFixed(2)} ${currency}`}
+                      </td>
+
+                      {canViewCost ? (
                         <td>
-                          {product.category_id
-                            ? categoryNames.get(
-                                product.category_id
-                              ) ||
-                              "—"
-                            : "—"}
+                          {cheap ? `${Number(cheap.purchase_price).toFixed(2)} ${currency}` : "—"}
+
+                          {cheap ? (
+                            <div className="muted">
+                              {supplierNames.get(cheap.supplier_id) || "مورد"}
+                            </div>
+                          ) : null}
                         </td>
+                      ) : null}
 
-                        <td>
-                          {
-                            product.unit
-                          }
-                        </td>
+                      <td>
+                        <span className={`chip ${product.active ? "green" : "gray"}`}>
+                          {product.active ? "نشط" : "مؤرشف"}
+                        </span>
+                      </td>
 
-                        <td>
-                          {product.sale_price ==
-                          null
-                            ? "—"
-                            : `${Number(
-                                product.sale_price
-                              ).toFixed(
-                                2
-                              )} ${currency}`}
-                        </td>
+                      <td>
+                        <div className="rowActions">
+                          <Link className="softButton" href={`/products/${product.id}`}>
+                            فتح
+                          </Link>
 
-                        {canViewCost ? (
-                          <td>
-                            {cheap
-                              ? `${Number(
-                                  cheap.purchase_price
-                                ).toFixed(
-                                  2
-                                )} ${currency}`
-                              : "—"}
-
-                            {cheap ? (
-                              <div className="muted">
-                                {supplierNames.get(
-                                  cheap.supplier_id
-                                ) ||
-                                  "مورد"}
-                              </div>
-                            ) : null}
-                          </td>
-                        ) : null}
-
-                        <td>
-                          <span
-                            className={`chip ${
-                              product.active
-                                ? "green"
-                                : "gray"
-                            }`}
-                          >
-                            {product.active
-                              ? "نشط"
-                              : "مؤرشف"}
-                          </span>
-                        </td>
-
-                        <td>
-                          <div className="rowActions">
-                            <Link
+                          {canUpdate ? (
+                            <button
+                              type="button"
                               className="softButton"
-                              href={`/products/${product.id}`}
+                              aria-label={`تعديل ${product.name}`}
+                              title="تعديل"
+                              onClick={() => startEdit(product)}
                             >
-                              فتح
-                            </Link>
+                              <Icons.edit size={13} />
+                            </button>
+                          ) : null}
 
-                            {canUpdate ? (
-                              <button
-                                type="button"
-                                className="softButton"
-                                aria-label={`تعديل ${product.name}`}
-                                title="تعديل"
-                                onClick={() =>
-                                  startEdit(
-                                    product
-                                  )
-                                }
-                              >
-                                <Icons.edit
-                                  size={
-                                    13
-                                  }
-                                />
-                              </button>
-                            ) : null}
-
-                            {canArchive ? (
-                              <button
-                                type="button"
-                                className={
-                                  product.active
-                                    ? "dangerButton"
-                                    : "softButton"
-                                }
-                                disabled={
-                                  busyId ===
-                                  product.id
-                                }
-                                onClick={() =>
-                                  toggleArchive(
-                                    product
-                                  )
-                                }
-                              >
-                                {product.active
-                                  ? "أرشفة"
-                                  : "تفعيل"}
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
+                          {canArchive ? (
+                            <button
+                              type="button"
+                              className={product.active ? "dangerButton" : "softButton"}
+                              disabled={busyId === product.id}
+                              onClick={() => toggleArchive(product)}
+                            >
+                              {product.active ? "أرشفة" : "تفعيل"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1644,54 +882,31 @@ export function ProductsClient({
           <div
             className="rowActions"
             style={{
-              justifyContent:
-                "center",
+              justifyContent: "center",
               padding: 16,
             }}
           >
             <button
               type="button"
               className="softButton"
-              disabled={
-                page <= 1
-              }
+              disabled={page <= 1}
               onClick={() =>
-                navigate(
-                  searchQuery,
-                  statusFilter,
-                  categoryFilter,
-                  Math.max(
-                    1,
-                    page - 1
-                  )
-                )
+                navigate(searchQuery, statusFilter, categoryFilter, Math.max(1, page - 1))
               }
             >
               السابق
             </button>
 
             <span className="muted">
-              صفحة {page} من{" "}
-              {pageCount}
+              صفحة {page} من {pageCount}
             </span>
 
             <button
               type="button"
               className="softButton"
-              disabled={
-                page >=
-                pageCount
-              }
+              disabled={page >= pageCount}
               onClick={() =>
-                navigate(
-                  searchQuery,
-                  statusFilter,
-                  categoryFilter,
-                  Math.min(
-                    pageCount,
-                    page + 1
-                  )
-                )
+                navigate(searchQuery, statusFilter, categoryFilter, Math.min(pageCount, page + 1))
               }
             >
               التالي
@@ -1703,14 +918,8 @@ export function ProductsClient({
       {open ? (
         <div
           className="modalOverlay"
-          onMouseDown={(
-            event
-          ) => {
-            if (
-              event.target ===
-                event.currentTarget &&
-              !saving
-            ) {
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) {
               setOpen(false);
             }
           }}
@@ -1723,197 +932,106 @@ export function ProductsClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">
-                  {editing
-                    ? "تعديل الصنف"
-                    : "صنف جديد"}
-                </span>
+                <span className="eyebrow">{editing ? "تعديل الصنف" : "صنف جديد"}</span>
 
-                <h2 id="product-modal-title">
-                  {editing
-                    ? editing.name
-                    : "إضافة صنف"}
-                </h2>
+                <h2 id="product-modal-title">{editing ? editing.name : "إضافة صنف"}</h2>
               </div>
 
               <button
                 type="button"
                 className="closeButton"
                 aria-label="إغلاق"
-                disabled={
-                  saving
-                }
-                onClick={() =>
-                  setOpen(
-                    false
-                  )
-                }
+                disabled={saving}
+                onClick={() => setOpen(false)}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={save}
-            >
+            <form onSubmit={save}>
               <div className="formGrid">
                 <Field
                   label="اسم الصنف *"
-                  value={
-                    form.name
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        name: value,
-                      })
-                    )
+                  value={form.name}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: value,
+                    }))
                   }
                 />
 
                 <Field
                   label="SKU / الكود"
-                  value={
-                    form.sku
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        sku: value,
-                      })
-                    )
+                  value={form.sku}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      sku: value,
+                    }))
                   }
                 />
 
                 <Field
                   label="الماركة"
-                  value={
-                    form.brand
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        brand:
-                          value,
-                      })
-                    )
+                  value={form.brand}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      brand: value,
+                    }))
                   }
                 />
 
                 <Field
                   label="الوحدة"
-                  value={
-                    form.unit
-                  }
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        unit: value,
-                      })
-                    )
+                  value={form.unit}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      unit: value,
+                    }))
                   }
                 />
 
                 <label className="field">
-                  <span>
-                    الفئة
-                  </span>
+                  <span>الفئة</span>
 
                   <select
-                    value={
-                      form.category_id
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          category_id:
-                            event
-                              .target
-                              .value,
-                        })
-                      )
+                    value={form.category_id}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        category_id: event.target.value,
+                      }))
                     }
                   >
-                    <option value="">
-                      بدون فئة
-                    </option>
+                    <option value="">بدون فئة</option>
 
-                    {categories.map(
-                      (row) => (
-                        <option
-                          key={
-                            row.id
-                          }
-                          value={
-                            row.id
-                          }
-                        >
-                          {
-                            row.name
-                          }
-                        </option>
-                      )
-                    )}
+                    {categories.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 {canCreate ? (
                   <div className="field">
-                    <span>
-                      فئة جديدة
-                    </span>
+                    <span>فئة جديدة</span>
 
                     <div className="rowActions">
                       <input
-                        value={
-                          newCategory
-                        }
+                        value={newCategory}
                         placeholder="اسم الفئة"
-                        onChange={(
-                          event
-                        ) =>
-                          setNewCategory(
-                            event
-                              .target
-                              .value
-                          )
-                        }
+                        onChange={(event) => setNewCategory(event.target.value)}
                       />
 
                       <button
                         type="button"
                         className="softButton"
-                        disabled={
-                          categorySaving
-                        }
-                        onClick={() =>
-                          void addCategory()
-                        }
+                        disabled={categorySaving}
+                        onClick={() => void addCategory()}
                       >
                         إضافة
                       </button>
@@ -1922,92 +1040,71 @@ export function ProductsClient({
                 ) : null}
 
                 <label className="field">
-                  <span>
-                    سعر البيع
-                  </span>
+                  <span>سعر البيع</span>
 
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={
-                      form.sale_price
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          sale_price:
-                            event
-                              .target
-                              .value,
-                        })
-                      )
+                    value={form.sale_price}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        sale_price: event.target.value,
+                      }))
                     }
                   />
                 </label>
 
                 <label className="field">
-                  <span>
-                    أقل سعر بيع
-                  </span>
+                  <span>أقل سعر بيع</span>
 
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={
-                      form.minimum_sale_price
+                    value={form.minimum_sale_price}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        minimum_sale_price: event.target.value,
+                      }))
                     }
-                    onChange={(
-                      event
-                    ) =>
-                      setForm(
-                        (
-                          current
-                        ) => ({
-                          ...current,
-                          minimum_sale_price:
-                            event
-                              .target
-                              .value,
-                        })
-                      )
+                  />
+                </label>
+
+                <label className="field">
+                  <span>نبّهني إذا المخزون نزل لـ</span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="مثلًا 10 (اختياري)"
+                    value={form.reorder_level}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        reorder_level: event.target.value,
+                      }))
                     }
                   />
                 </label>
 
                 <Field
                   label="رابط صورة المنتج"
-                  value={
-                    form.image_url
-                  }
+                  value={form.image_url}
                   full
-                  onChange={(
-                    value
-                  ) =>
-                    setForm(
-                      (
-                        current
-                      ) => ({
-                        ...current,
-                        image_url:
-                          value,
-                      })
-                    )
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      image_url: value,
+                    }))
                   }
                 />
               </div>
 
-              {canUpdate &&
-              suppliers.some(
-                (row) =>
-                  row.active
-              ) ? (
+              {canUpdate && suppliers.some((row) => row.active) ? (
                 <div
                   style={{
                     marginTop: 20,
@@ -2015,125 +1112,63 @@ export function ProductsClient({
                 >
                   <div className="panelHeader">
                     <div>
-                      <h3>
-                        أسعار الموردين
-                      </h3>
+                      <h3>أسعار الموردين</h3>
 
-                      <p>
-                        الأسعار الفارغة لن تُحفظ كمصدر شراء نشط.
-                      </p>
+                      <p>الأسعار الفارغة لن تُحفظ كمصدر شراء نشط.</p>
                     </div>
                   </div>
 
                   <div className="quickList">
                     {suppliers
-                      .filter(
-                        (row) =>
-                          row.active
-                      )
-                      .map(
-                        (
-                          supplier
-                        ) => (
-                          <div
-                            className="quickItem"
-                            key={
-                              supplier.id
-                            }
-                          >
-                            <div>
-                              <strong>
-                                {
-                                  supplier.name
-                                }
-                              </strong>
+                      .filter((row) => row.active)
+                      .map((supplier) => (
+                        <div className="quickItem" key={supplier.id}>
+                          <div>
+                            <strong>{supplier.name}</strong>
 
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="سعر الشراء"
-                                value={
-                                  priceForm[
-                                    supplier.id
-                                  ] ??
-                                  ""
-                                }
-                                onChange={(
-                                  event
-                                ) =>
-                                  setPriceForm(
-                                    (
-                                      current
-                                    ) => ({
-                                      ...current,
-                                      [supplier.id]:
-                                        event
-                                          .target
-                                          .value,
-                                    })
-                                  )
-                                }
-                              />
-                            </div>
-
-                            <div>
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    available[
-                                      supplier.id
-                                    ] !==
-                                    false
-                                  }
-                                  onChange={(
-                                    event
-                                  ) =>
-                                    setAvailable(
-                                      (
-                                        current
-                                      ) => ({
-                                        ...current,
-                                        [supplier.id]:
-                                          event
-                                            .target
-                                            .checked,
-                                      })
-                                    )
-                                  }
-                                />
-                                متوفر
-                              </label>
-
-                              <input
-                                value={
-                                  priceNotes[
-                                    supplier.id
-                                  ] ??
-                                  ""
-                                }
-                                placeholder="ملاحظة"
-                                onChange={(
-                                  event
-                                ) =>
-                                  setPriceNotes(
-                                    (
-                                      current
-                                    ) => ({
-                                      ...current,
-                                      [supplier.id]:
-                                        event
-                                          .target
-                                          .value,
-                                    })
-                                  )
-                                }
-                              />
-                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="سعر الشراء"
+                              value={priceForm[supplier.id] ?? ""}
+                              onChange={(event) =>
+                                setPriceForm((current) => ({
+                                  ...current,
+                                  [supplier.id]: event.target.value,
+                                }))
+                              }
+                            />
                           </div>
-                        )
-                      )}
+
+                          <div>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={available[supplier.id] !== false}
+                                onChange={(event) =>
+                                  setAvailable((current) => ({
+                                    ...current,
+                                    [supplier.id]: event.target.checked,
+                                  }))
+                                }
+                              />
+                              متوفر
+                            </label>
+
+                            <input
+                              value={priceNotes[supplier.id] ?? ""}
+                              placeholder="ملاحظة"
+                              onChange={(event) =>
+                                setPriceNotes((current) => ({
+                                  ...current,
+                                  [supplier.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
               ) : null}
@@ -2155,29 +1190,14 @@ export function ProductsClient({
                 <button
                   type="button"
                   className="softButton"
-                  disabled={
-                    saving
-                  }
-                  onClick={() =>
-                    setOpen(
-                      false
-                    )
-                  }
+                  disabled={saving}
+                  onClick={() => setOpen(false)}
                 >
                   إلغاء
                 </button>
 
-                <button
-                  className="primaryButton"
-                  disabled={
-                    saving
-                  }
-                >
-                  {saving
-                    ? "جارٍ الحفظ..."
-                    : editing
-                      ? "حفظ التعديلات"
-                      : "إضافة الصنف"}
+                <button className="primaryButton" disabled={saving}>
+                  {saving ? "جارٍ الحفظ..." : editing ? "حفظ التعديلات" : "إضافة الصنف"}
                 </button>
               </div>
             </form>
@@ -2196,52 +1216,24 @@ function Field({
 }: {
   label: string;
   value: string;
-  onChange:
-    (value: string) => void;
+  onChange: (value: string) => void;
   full?: boolean;
 }) {
   return (
-    <label
-      className={`field ${
-        full ? "full" : ""
-      }`}
-    >
-      <span>
-        {label}
-      </span>
+    <label className={`field ${full ? "full" : ""}`}>
+      <span>{label}</span>
 
-      <input
-        value={value}
-        onChange={(
-          event
-        ) =>
-          onChange(
-            event.target.value
-          )
-        }
-      />
+      <input value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
-function Mini({
-  title,
-  value,
-}: {
-  title: string;
-  value:
-    | number
-    | string;
-}) {
+function Mini({ title, value }: { title: string; value: number | string }) {
   return (
     <div className="statCard">
-      <div className="statLabel">
-        {title}
-      </div>
+      <div className="statLabel">{title}</div>
 
-      <div className="statValue">
-        {value}
-      </div>
+      <div className="statValue">{value}</div>
     </div>
   );
 }

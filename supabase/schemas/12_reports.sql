@@ -10,6 +10,108 @@ set check_function_bodies = off;
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- لوحة المالك: المصاري بالصناديق، ربح الشهر، الديون، والتنبيهات. كل قسم حسب الصلاحية.
+create or replace function public.get_owner_overview(target_company uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_today date := (now() at time zone 'Asia/Damascus')::date;
+  v_month_start date := date_trunc('month', (now() at time zone 'Asia/Damascus')::date)::date;
+  v_result jsonb := '{}'::jsonb;
+  v_revenue numeric;
+  v_expense numeric;
+begin
+  if not public.is_company_member(target_company) then
+    raise exception 'Not allowed';
+  end if;
+
+  if public.has_any_permission(target_company, array['finance.cashbox_view','finance.cashbox_write']) then
+    v_result := v_result || jsonb_build_object('cash', coalesce((
+      select jsonb_agg(jsonb_build_object('currency', x.currency, 'balance', round(x.balance, 2)) order by x.currency)
+      from (
+        select upper(cb.currency) as currency,
+               sum(case when ct.direction = 'in' then ct.amount else -ct.amount end) as balance
+        from public.cashboxes cb
+        join public.cash_transactions ct on ct.cashbox_id = cb.id
+        where cb.company_id = target_company
+        group by upper(cb.currency)
+      ) x
+    ), '[]'::jsonb));
+  end if;
+
+  if public.has_any_permission(target_company, array['reports.profit','reports.finance']) then
+    select
+      coalesce(sum(case when a.account_type = 'revenue' then jl.base_credit - jl.base_debit end), 0),
+      coalesce(sum(case when a.account_type = 'expense' then jl.base_debit - jl.base_credit end), 0)
+    into v_revenue, v_expense
+    from public.journal_lines jl
+    join public.journal_entries je on je.id = jl.journal_entry_id
+    join public.finance_accounts a on a.id = jl.account_id
+    where je.company_id = target_company
+      and je.entry_date between v_month_start and v_today;
+
+    v_result := v_result || jsonb_build_object(
+      'month_revenue', round(v_revenue, 2),
+      'month_profit', round(v_revenue - v_expense, 2)
+    );
+  end if;
+
+  if public.has_any_permission(target_company, array['traders.view_balance','reports.finance','payments.sales_view']) then
+    v_result := v_result || (
+      select jsonb_build_object(
+        'receivables', round(coalesce(sum(public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date)), 0), 2),
+        'overdue_receivables', round(coalesce(sum(public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date)) filter (where si.due_date < v_today), 0), 2),
+        'overdue_invoices', count(*) filter (where si.due_date < v_today)
+      )
+      from public.sales_invoices si
+      where si.company_id = target_company and si.status = 'posted' and si.balance_due > 0
+    );
+  end if;
+
+  if public.has_any_permission(target_company, array['suppliers.view_finance','reports.finance','purchases.view']) then
+    v_result := v_result || (
+      select jsonb_build_object(
+        'payables', round(coalesce(sum(public.finance_to_base(target_company, pi.currency, pi.balance_due, pi.invoice_date)), 0), 2),
+        'overdue_payables', round(coalesce(sum(public.finance_to_base(target_company, pi.currency, pi.balance_due, pi.invoice_date)) filter (where pi.due_date < v_today), 0), 2)
+      )
+      from public.purchase_invoices pi
+      where pi.company_id = target_company and pi.status = 'posted' and pi.balance_due > 0
+    );
+  end if;
+
+  v_result := v_result || jsonb_build_object('alerts', jsonb_build_object(
+    'low_stock', case when public.has_any_permission(target_company, array['inventory.view','products.view']) then (
+      select count(*) from (
+        select p.id
+        from public.products p
+        left join public.inventory_stock s on s.product_id = p.id and s.company_id = target_company
+        where p.company_id = target_company and p.active and p.reorder_level is not null
+        group by p.id, p.reorder_level
+        having coalesce(sum(s.on_hand), 0) <= p.reorder_level
+      ) low
+    ) end,
+    'pending_approvals', case when public.has_any_permission(target_company, array['approvals.view','approvals.resolve']) then (
+      select count(*) from public.approval_requests
+      where company_id = target_company and status = 'pending'
+    ) end,
+    'loans_to_disburse', case when public.has_permission(target_company, 'payroll.view') then (
+      select count(*) from public.employee_loans el
+      where el.company_id = target_company and el.status = 'active'
+        and not exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = el.id)
+    ) end,
+    'ready_to_deliver', case when public.has_any_permission(target_company, array['deliveries.view','deliveries.update']) then (
+      select count(*) from public.sales_orders
+      where company_id = target_company and status = 'ready'
+    ) end
+  ));
+
+  return v_result;
+end;
+$function$;
+
 create or replace function public.get_dashboard_summary(target_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql

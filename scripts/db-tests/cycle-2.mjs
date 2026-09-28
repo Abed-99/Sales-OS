@@ -115,6 +115,7 @@ const soi = (await admin.from("sales_order_items").select("id").eq("order_id", o
 must("توصيل", await u.rpc("create_order_delivery", { target_company: company, target_order: orderId, items_payload: [{ sales_order_item_id: soi, quantity: 10 }] }));
 must("تسليم", await u.rpc("complete_order_delivery", { target_company: company, target_order: orderId, target_notes: null }));
 check("ديون الزبون", await byKey("accounts_receivable"), 100);
+check("الزبون صار «عميل» بعد أول فاتورة", (await admin.from("traders").select("status").eq("id", trader).single()).data.status === "customer" ? 1 : 0, 1);
 
 log("\n   عرض سعر تحت الكلفة (5×3$، الكلفة 4$) من موظف مبيعات");
 const repEmail = `rep${Date.now()}@test.local`;
@@ -287,6 +288,13 @@ else {
   const { data: allSi } = await admin.from("sales_invoices").select("total").eq("company_id", company).eq("status", "posted");
   const { data: allSr } = await admin.from("sales_returns").select("total").eq("company_id", company).eq("status", "posted");
   check("تقرير المبيعات الشهري = الفواتير − المرتجعات", sm.data.reduce((t, r) => t + Number(r.net_sales), 0), allSi.reduce((t, r) => t + Number(r.total), 0) - allSr.reduce((t, r) => t + Number(r.total), 0));
+}
+const ov = await u.rpc("get_owner_overview", { target_company: company });
+if (ov.error) { failures++; log("   ❌ لوحة المالك: " + ov.error.message); }
+else {
+  check("لوحة المالك: ديون الزبائن = الحسابات", ov.data.receivables, await byKey("accounts_receivable"));
+  check("لوحة المالك: ديون الموردين = الحسابات", ov.data.payables, -(await byKey("accounts_payable")));
+  check("لوحة المالك: صندوق الدولار", ov.data.cash.find((c) => c.currency === "USD")?.balance ?? 0, await byCode("1110"));
 }
 const cs = await u.rpc("get_cashbox_summary", { target_company: company, target_date: today });
 if (cs.error) { failures++; log("   ❌ ملخص الصناديق: " + cs.error.message); }
