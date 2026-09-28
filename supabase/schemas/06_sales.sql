@@ -26,9 +26,11 @@ create table public.sales_orders (
   cancelled_at timestamp with time zone,
   cancelled_by uuid references auth.users(id) on delete set null,
   cancellation_reason text,
+  order_number text,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
+  constraint sales_orders_company_order_number_key unique (company_id, order_number),
   constraint sales_orders_payment_status_check check ((payment_status = any (array['unpaid'::text, 'partial'::text, 'paid'::text, 'credit'::text]))),
   constraint sales_orders_status_check check ((status = any (array['draft'::text, 'new'::text, 'to_purchase'::text, 'purchasing'::text, 'ready'::text, 'out_for_delivery'::text, 'delivered'::text, 'cancelled'::text])))
 );
@@ -3924,6 +3926,56 @@ begin
 end;
 $function$;
 
+create or replace function public.next_sales_order_number(target_company uuid, target_date date)
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_year integer := extract(year from coalesce(target_date, current_date))::integer;
+  v_value integer;
+begin
+  insert into public.document_sequences(company_id, document_type, sequence_year, next_value)
+  values(target_company, 'sales_order', v_year, 1)
+  on conflict(company_id, document_type, sequence_year) do nothing;
+
+  select next_value
+  into v_value
+  from public.document_sequences
+  where company_id = target_company
+    and document_type = 'sales_order'
+    and sequence_year = v_year
+  for update;
+
+  update public.document_sequences
+  set next_value = next_value + 1
+  where company_id = target_company
+    and document_type = 'sales_order'
+    and sequence_year = v_year;
+
+  return 'SO-' || v_year::text || '-' || lpad(v_value::text, 6, '0');
+end;
+$function$;
+
+create or replace function public.assign_sales_order_number()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  -- كل طلبية بتاخد رقم مقروء (SO-2026-000001) بدل ما تنعرض بجزء من الـ UUID.
+  if new.order_number is null then
+    new.order_number := public.next_sales_order_number(
+      new.company_id,
+      (coalesce(new.ordered_at, now()) at time zone 'Asia/Damascus')::date
+    );
+  end if;
+  return new;
+end;
+$function$;
+
 create or replace function public.next_sales_quote_number(target_company uuid, target_date date)
  RETURNS text
  LANGUAGE plpgsql
@@ -5524,6 +5576,7 @@ create view public.inventory_summary as
 -- المشغّلات (Triggers)
 -- ----------------------------------------------------------------------
 
+create trigger sales_orders_assign_number before insert on public.sales_orders for each row execute function public.assign_sales_order_number();
 create trigger audit_customer_payment_allocations after insert or delete or update on public.customer_payment_allocations for each row execute function public.write_audit_log();
 
 create trigger customer_payment_allocation_changed_trigger after insert or delete or update on public.customer_payment_allocations for each row execute function public.customer_payment_allocation_changed();
@@ -5646,6 +5699,8 @@ revoke execute on function public.next_customer_payment_number(uuid,date) from a
 revoke execute on function public.next_delivery_number(uuid,date) from authenticated;
 revoke execute on function public.next_sales_invoice_number(uuid,date) from authenticated;
 revoke execute on function public.next_sales_quote_number(uuid,date) from authenticated;
+revoke execute on function public.next_sales_order_number(uuid,date) from authenticated;
+revoke execute on function public.assign_sales_order_number() from authenticated;
 revoke execute on function public.recalc_sales_invoice_payment(uuid) from authenticated;
 revoke execute on function public.recalc_sales_order(uuid) from authenticated;
 revoke execute on function public.recalc_sales_order_payment(uuid) from authenticated;

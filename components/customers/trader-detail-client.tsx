@@ -37,6 +37,7 @@ export type TraderVisitRow = {
 
 export type TraderOrderRow = {
   id: string;
+  order_number: string | null;
   status: string;
   total: number;
   created_at: string;
@@ -470,7 +471,7 @@ export function TraderDetailClient({
                       </div>
 
                       <div>
-                        <strong>طلب {order.id.slice(0, 8)}</strong>
+                        <strong>{order.order_number ?? `طلب ${order.id.slice(0, 8)}`}</strong>
 
                         <span>
                           {orderStatusLabels[order.status] || "غير معروف"}

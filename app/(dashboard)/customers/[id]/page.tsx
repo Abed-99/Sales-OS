@@ -149,7 +149,7 @@ export default async function CustomerDetailPage({
   if (canViewOrders) {
     const result = await supabase
       .from("sales_orders")
-      .select("id,status,total,created_at", {
+      .select("id,order_number,status,total,created_at", {
         count: "exact",
       })
       .eq("company_id", context.companyId)

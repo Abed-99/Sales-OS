@@ -12,6 +12,7 @@ import { Icons } from "@/components/icons";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasPermission } from "@/lib/permissions";
+import { normalizeAnyPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 
 const validStatuses = new Set([
@@ -25,52 +26,78 @@ const validStatuses = new Set([
   "cancelled",
 ]);
 
-function firstParam(
-  value:
-    | string
-    | string[]
-    | undefined
-) {
-  return Array.isArray(value)
-    ? value[0] ?? ""
-    : value ?? "";
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
-function cleanSearch(
-  value: string
-) {
+function cleanSearch(value: string) {
   return value
-    .replace(
-      /[%_(),"'\\]/g,
-      " "
-    )
+    .replace(/[%_(),"'\\]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 100);
 }
 
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** "1,500" أو "1500.5" → رقم، وإلا null. */
+function searchAmount(term: string) {
+  const value = Number(term.replace(/[\s,]/g, ""));
+  return term && Number.isFinite(value) ? value : null;
+}
+
+/** زبائن اسمهم أو منطقتهم أو رقمهم فيه كلمة البحث. */
+async function traderIdsMatching(supabase: ServerClient, companyId: string, term: string) {
+  const pattern = `%${term}%`;
+  const conditions = [
+    `name.ilike.${pattern}`,
+    `contact_name.ilike.${pattern}`,
+    `area.ilike.${pattern}`,
+    `phone.ilike.${pattern}`,
+    `whatsapp.ilike.${pattern}`,
+  ];
+  const phone = normalizeAnyPhone(term);
+  if (phone) conditions.push(`phone.eq.${phone}`, `whatsapp.eq.${phone}`);
+  const { data } = await supabase
+    .from("traders")
+    .select("id")
+    .eq("company_id", companyId)
+    .or(conditions.join(","))
+    .limit(200);
+  return (data ?? []).map((row) => row.id as string);
+}
+
+/** طلبيات فيها صنف اسمه أو كوده أو ماركته فيها كلمة البحث. */
+async function orderIdsWithProduct(supabase: ServerClient, companyId: string, term: string) {
+  const pattern = `%${term}%`;
+  const { data: products } = await supabase
+    .from("products")
+    .select("id")
+    .eq("company_id", companyId)
+    .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
+    .limit(200);
+  const productIds = (products ?? []).map((row) => row.id as string);
+  if (!productIds.length) return [];
+  const { data: items } = await supabase
+    .from("sales_order_items")
+    .select("order_id")
+    .in("product_id", productIds)
+    .limit(500);
+  return [...new Set((items ?? []).map((row) => row.order_id as string))];
+}
+
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<
-    Record<
-      string,
-      string | string[] | undefined
-    >
-  >;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const context =
-    await getCurrentContext();
+  const context = await getCurrentContext();
 
-  const params =
-    await searchParams;
+  const params = await searchParams;
 
-  const canView =
-    hasPermission(
-      context.permissions,
-      "orders.view",
-      context.isOwner
-    );
+  const canView = hasPermission(context.permissions, "orders.view", context.isOwner);
 
   if (!canView) {
     return (
@@ -78,25 +105,17 @@ export default async function OrdersPage({
         <Topbar
           title="المبيعات"
           subtitle="الطلبات، الفواتير والتحصيل من العملاء"
-          companyName={
-            context.companyName
-          }
+          companyName={context.companyName}
         />
 
         <div className="page">
           <section className="panel panelPad">
             <div className="empty">
-              <Icons.shield
-                size={32}
-              />
+              <Icons.shield size={32} />
 
-              <h3>
-                لا تملك صلاحية عرض الطلبات
-              </h3>
+              <h3>لا تملك صلاحية عرض الطلبات</h3>
 
-              <p>
-                تواصل مع مالك الشركة أو مدير الصلاحيات إذا كنت تحتاج إلى الوصول لهذه الصفحة.
-              </p>
+              <p>تواصل مع مالك الشركة أو مدير الصلاحيات إذا كنت تحتاج إلى الوصول لهذه الصفحة.</p>
             </div>
           </section>
         </div>
@@ -104,83 +123,38 @@ export default async function OrdersPage({
     );
   }
 
-  const canCreate =
-    hasPermission(
-      context.permissions,
-      "orders.create",
-      context.isOwner
-    );
+  const canCreate = hasPermission(context.permissions, "orders.create", context.isOwner);
 
-  const canCancel =
-    hasPermission(
-      context.permissions,
-      "orders.cancel",
-      context.isOwner
-    );
+  const canCancel = hasPermission(context.permissions, "orders.cancel", context.isOwner);
 
-  const canCollect =
-    hasPermission(
-      context.permissions,
-      "payments.sales_create",
-      context.isOwner
-    );
+  const canCollect = hasPermission(context.permissions, "payments.sales_create", context.isOwner);
 
-  const canViewDeliveries =
-    hasPermission(
-      context.permissions,
-      "deliveries.view",
-      context.isOwner
-    );
+  const canViewDeliveries = hasPermission(context.permissions, "deliveries.view", context.isOwner);
 
-  const search =
-    cleanSearch(
-      firstParam(params.q)
-    );
+  const search = cleanSearch(firstParam(params.q));
 
-  const rawStatus =
-    firstParam(
-      params.status
-    );
+  const rawStatus = firstParam(params.status);
 
-  const statusFilter:
-    OrderFilter =
-      validStatuses.has(
-        rawStatus
-      )
-        ? (rawStatus as OrderFilter)
-        : "all";
+  const statusFilter: OrderFilter = validStatuses.has(rawStatus)
+    ? (rawStatus as OrderFilter)
+    : "all";
 
-  const requestedPage =
-    Math.max(
-      1,
-      Number.parseInt(
-        firstParam(
-          params.page
-        ),
-        10
-      ) || 1
-    );
+  const requestedPage = Math.max(1, Number.parseInt(firstParam(params.page), 10) || 1);
 
   const pageSize = 50;
 
-  const from =
-    (requestedPage - 1) *
-    pageSize;
+  const from = (requestedPage - 1) * pageSize;
 
-  const to =
-    from +
-    pageSize -
-    1;
+  const to = from + pageSize - 1;
 
-  const supabase =
-    await createClient();
+  const supabase = await createClient();
 
-  let ordersQuery =
-    supabase
-      .from("sales_orders")
-      .select(
-        `
+  let ordersQuery = supabase
+    .from("sales_orders")
+    .select(
+      `
           id,
+          order_number,
           trader_id,
           status,
           payment_status,
@@ -209,267 +183,144 @@ export default async function OrdersPage({
             )
           )
         `,
-        {
-          count: "exact",
-        }
-      )
-      .eq(
-        "company_id",
-        context.companyId
-      )
-      .order(
-        "created_at",
-        {
-          ascending: false,
-        }
-      )
-      .range(
-        from,
-        to
-      );
+      {
+        count: "exact",
+      },
+    )
+    .eq("company_id", context.companyId)
+    .order("created_at", {
+      ascending: false,
+    })
+    .range(from, to);
 
-  if (
-    statusFilter !==
-    "all"
-  ) {
-    ordersQuery =
-      ordersQuery.eq(
-        "status",
-        statusFilter
-      );
+  if (statusFilter !== "all") {
+    ordersQuery = ordersQuery.eq("status", statusFilter);
   }
 
-  if (search) {
-    ordersQuery =
-      ordersQuery.ilike(
-        "traders.name",
-        `%${search}%`
-      );
-  }
+  // رابط لطلبية محددة (من صفحة الزبون أو عرض السعر): منعرضها هي بس، حتى لو كانت قديمة.
+  const focusOrder = firstParam(params.order);
+  const focusedOrderId = UUID.test(focusOrder) ? focusOrder : null;
 
-  const [
-    ordersResult,
-    summaryResult,
-  ] =
-    await Promise.all([
-      ordersQuery,
-
-      supabase.rpc(
-        "get_orders_summary",
-        {
-          target_company:
-            context.companyId,
-        }
-      ),
+  if (focusedOrderId) {
+    ordersQuery = ordersQuery.eq("id", focusedOrderId);
+  } else if (search) {
+    // البحث بكل شي: رقم الطلبية، الزبون (اسم، منطقة، هاتف)، الصنف، المبلغ، الملاحظات.
+    const pattern = `%${search}%`;
+    const [traderIds, productOrderIds] = await Promise.all([
+      traderIdsMatching(supabase, context.companyId, search),
+      orderIdsWithProduct(supabase, context.companyId, search),
     ]);
+    const amount = searchAmount(search);
+    const conditions = [`order_number.ilike.${pattern}`, `notes.ilike.${pattern}`];
+    if (traderIds.length) conditions.push(`trader_id.in.(${traderIds.join(",")})`);
+    if (productOrderIds.length) conditions.push(`id.in.(${productOrderIds.join(",")})`);
+    if (amount != null) conditions.push(`total.eq.${amount}`);
+    ordersQuery = ordersQuery.or(conditions.join(","));
+  }
 
-  let initialError:
-    string | null =
-      ordersResult.error
-        ? "تعذر تحميل الطلبات. حاول تحديث الصفحة."
-        : null;
+  const [ordersResult, summaryResult] = await Promise.all([
+    ordersQuery,
 
-  let stats:
-    OrderStats | null =
-      null;
+    supabase.rpc("get_orders_summary", {
+      target_company: context.companyId,
+    }),
+  ]);
 
-  if (
-    !summaryResult.error
-  ) {
-    const raw =
-      Array.isArray(
-        summaryResult.data
-      )
-        ? summaryResult
-            .data[0]
-        : summaryResult.data;
+  let initialError: string | null = ordersResult.error
+    ? "تعذر تحميل الطلبات. حاول تحديث الصفحة."
+    : null;
+
+  let stats: OrderStats | null = null;
+
+  if (!summaryResult.error) {
+    const raw = Array.isArray(summaryResult.data) ? summaryResult.data[0] : summaryResult.data;
 
     if (raw) {
-      const row =
-        raw as Record<
-          string,
-          unknown
-        >;
+      const row = raw as Record<string, unknown>;
 
       stats = {
-        total:
-          Number(
-            row.total_count ??
-              0
-          ),
+        total: Number(row.total_count ?? 0),
 
-        active:
-          Number(
-            row.active_count ??
-              0
-          ),
+        active: Number(row.active_count ?? 0),
 
-        new:
-          Number(
-            row.new_count ??
-              0
-          ),
+        new: Number(row.new_count ?? 0),
 
-        ready:
-          Number(
-            row.ready_delivery_count ??
-              0
-          ),
+        ready: Number(row.ready_delivery_count ?? 0),
 
-        totalValue:
-          Number(
-            row.total_active_value ??
-              0
-          ),
+        totalValue: Number(row.total_active_value ?? 0),
       };
     }
   }
 
-  const orders =
-    (ordersResult.data ??
-      []) as unknown as OrderRow[];
+  const orders = (ordersResult.data ?? []) as unknown as OrderRow[];
 
-  let traders:
-    OrderTrader[] = [];
+  let traders: OrderTrader[] = [];
 
-  let products:
-    OrderProduct[] = [];
+  let products: OrderProduct[] = [];
 
   if (canCreate) {
-    const [
-      tradersResult,
-      productsResult,
-    ] =
-      await Promise.all([
-        supabase
-          .from("traders")
-          .select(
-            "id,name,area,status"
-          )
-          .eq(
-            "company_id",
-            context.companyId
-          )
-          .neq(
-            "status",
-            "inactive"
-          )
-          .order("name"),
+    const [tradersResult, productsResult] = await Promise.all([
+      supabase
+        .from("traders")
+        .select("id,name,area,status")
+        .eq("company_id", context.companyId)
+        .neq("status", "inactive")
+        .order("name"),
 
-        supabase
-          .from("products")
-          .select(
-            "id,name,sku,sale_price,minimum_sale_price,unit,active"
-          )
-          .eq(
-            "company_id",
-            context.companyId
-          )
-          .eq(
-            "active",
-            true
-          )
-          .order("name"),
-      ]);
+      supabase
+        .from("products")
+        .select("id,name,sku,sale_price,minimum_sale_price,unit,active")
+        .eq("company_id", context.companyId)
+        .eq("active", true)
+        .order("name"),
+    ]);
 
-    if (
-      tradersResult.error ||
-      productsResult.error
-    ) {
-      initialError ??=
-        "تعذر تحميل بيانات إنشاء الطلبية.";
+    if (tradersResult.error || productsResult.error) {
+      initialError ??= "تعذر تحميل بيانات إنشاء الطلبية.";
     } else {
-      traders =
-        (tradersResult.data ??
-          []) as OrderTrader[];
+      traders = (tradersResult.data ?? []) as OrderTrader[];
 
-      products =
-        (productsResult.data ??
-          []) as OrderProduct[];
+      products = (productsResult.data ?? []) as OrderProduct[];
     }
   }
 
-  let invoices:
-    OrderSalesInvoice[] = [];
+  let invoices: OrderSalesInvoice[] = [];
 
-  let cashboxes:
-    OrderCashbox[] = [];
+  let cashboxes: OrderCashbox[] = [];
 
-  const orderIds =
-    orders.map(
-      (order) =>
-        order.id
-    );
+  const orderIds = orders.map((order) => order.id);
 
   if (canCollect) {
-    const cashboxResult =
-      await supabase
-        .from("cashboxes")
-        .select(
-          "id,name,currency,active"
-        )
-        .eq(
-          "company_id",
-          context.companyId
-        )
-        .eq(
-          "active",
-          true
-        )
-        .order(
-          "created_at"
-        );
+    const cashboxResult = await supabase
+      .from("cashboxes")
+      .select("id,name,currency,active")
+      .eq("company_id", context.companyId)
+      .eq("active", true)
+      .order("created_at");
 
-    if (
-      cashboxResult.error
-    ) {
-      initialError ??=
-        "تعذر تحميل صناديق القبض.";
+    if (cashboxResult.error) {
+      initialError ??= "تعذر تحميل صناديق القبض.";
     } else {
-      cashboxes =
-        (cashboxResult.data ??
-          []) as OrderCashbox[];
+      cashboxes = (cashboxResult.data ?? []) as OrderCashbox[];
     }
 
-    if (
-      orderIds.length
-    ) {
-      const invoiceResult =
-        await supabase
-          .from(
-            "sales_invoices"
-          )
-          .select(
-            "id,order_id,trader_id,invoice_number,invoice_date,currency,total,paid_total,balance_due,payment_status,status"
-          )
-          .eq(
-            "company_id",
-            context.companyId
-          )
-          .eq(
-            "status",
-            "posted"
-          )
-          .in(
-            "order_id",
-            orderIds
-          )
-          .order(
-            "invoice_date",
-            {
-              ascending: true,
-            }
-          );
+    if (orderIds.length) {
+      const invoiceResult = await supabase
+        .from("sales_invoices")
+        .select(
+          "id,order_id,trader_id,invoice_number,invoice_date,currency,total,paid_total,balance_due,payment_status,status",
+        )
+        .eq("company_id", context.companyId)
+        .eq("status", "posted")
+        .in("order_id", orderIds)
+        .order("invoice_date", {
+          ascending: true,
+        });
 
-      if (
-        invoiceResult.error
-      ) {
-        initialError ??=
-          "تعذر تحميل فواتير الطلبات.";
+      if (invoiceResult.error) {
+        initialError ??= "تعذر تحميل فواتير الطلبات.";
       } else {
-        invoices =
-          (invoiceResult.data ??
-            []) as OrderSalesInvoice[];
+        invoices = (invoiceResult.data ?? []) as OrderSalesInvoice[];
       }
     }
   }
@@ -479,67 +330,39 @@ export default async function OrdersPage({
       <Topbar
         title="المبيعات"
         subtitle="الطلبات، الفواتير والتحصيل من العملاء"
-        companyName={
-          context.companyName
-        }
+        companyName={context.companyName}
       />
 
       <OrdersClient
-        companyId={
-          context.companyId
-        }
-        currency={
-          context.currency
-        }
-        initialOrders={
-          orders
-        }
-        traders={
-          traders
-        }
-        products={
-          products
-        }
-        invoices={
-          invoices
-        }
-        cashboxes={
-          cashboxes
-        }
-        initialStats={
-          stats
-        }
-        initialError={
-          initialError
-        }
-        totalCount={
-          ordersResult.count ??
-          0
-        }
-        page={
-          requestedPage
-        }
-        pageSize={
-          pageSize
-        }
-        searchQuery={
-          search
-        }
-        statusFilter={
-          statusFilter
-        }
-        canCreate={
-          canCreate
-        }
-        canCancel={
-          canCancel
-        }
-        canCollect={
-          canCollect
-        }
-        canViewDeliveries={
-          canViewDeliveries
-        }
+        companyId={context.companyId}
+        currency={context.currency}
+        initialOrders={orders}
+        traders={traders}
+        products={products}
+        invoices={invoices}
+        cashboxes={cashboxes}
+        initialStats={stats}
+        initialError={initialError}
+        totalCount={ordersResult.count ?? 0}
+        page={requestedPage}
+        pageSize={pageSize}
+        searchQuery={search}
+        statusFilter={statusFilter}
+        focusedOrderId={focusedOrderId}
+        canCreate={canCreate}
+        canCancel={canCancel}
+        canCollect={canCollect}
+        canViewDeliveries={canViewDeliveries}
+        canCancelInvoice={hasPermission(
+          context.permissions,
+          "sales_invoices.cancel",
+          context.isOwner,
+        )}
+        canReversePayment={hasPermission(
+          context.permissions,
+          "payments.sales_reverse",
+          context.isOwner,
+        )}
       />
     </>
   );
