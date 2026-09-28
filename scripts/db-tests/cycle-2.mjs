@@ -215,6 +215,21 @@ const history = await u.rpc("get_returns_history", { target_company: company, ta
 if (history.error) { failures++; log("   ❌ سجل المرتجعات: " + history.error.message); }
 else check("سجل المرتجعات باسم الصنف", history.data.total_count > 0 ? 1 : 0, 1);
 
+// ---------------------------------------------------------------- K. price levels + cartons
+log("\nK️⃣  مستويات الأسعار والكرتونة");
+const lvl = must("مستوى جملة", await u.from("price_levels").insert({ company_id: company, name: "جملة" }).select("id").single())?.id;
+must("كرتونة الكبل 24 + سعر جملة 8$", await u.rpc("save_product_packaging_and_prices", { target_company: company, target_product: cable, product_pack_size: 24, product_pack_unit: "كرتونة", level_prices: [{ price_level_id: lvl, price: 8 }] }));
+const tp0 = await u.rpc("get_trader_product_prices", { target_company: company, target_trader: trader, target_products: [cable] });
+check("زبون بدون مستوى: السعر العادي", tp0.data?.[0]?.price, 10);
+must("الزبون صار جملة", await u.from("traders").update({ price_level_id: lvl }).eq("id", trader));
+const tp1 = await u.rpc("get_trader_product_prices", { target_company: company, target_trader: trader, target_products: [cable] });
+check("زبون جملة: سعر الجملة", tp1.data?.[0]?.price, 8);
+mustFail("موظف المبيعات ما بيغيّر مستوى سعر زبون", await salesRep.from("traders").update({ price_level_id: null }).eq("id", trader).select("id").single());
+// كرتونة (24) بـ 100$ = القطعة 4.1667 → مجموع السطر لازم يطلع 100 بالضبط
+const cq = must("عرض كرتونة بـ100$", await u.rpc("create_sales_quote", { target_company: company, target_trader: trader, target_valid_until: null, target_notes: null, items_payload: [{ product_id: cable, quantity: 24, sale_unit_price: 4.1667 }] }));
+const cqId = typeof cq === "string" ? cq : cq?.quote_id ?? cq?.id;
+check("مجموع كرتونة بـ100$ = 100", (await admin.from("sales_quotes").select("total").eq("id", cqId).single()).data.total, 100);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

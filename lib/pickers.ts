@@ -46,6 +46,8 @@ export type ProductPick = {
   unit: string | null;
   sale_price: number | null;
   active?: boolean;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 export async function searchProducts(
@@ -56,7 +58,7 @@ export async function searchProducts(
   const like = pattern(term);
   const { data } = await supabase
     .from("products")
-    .select("id,name,sku,unit,sale_price,active")
+    .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit")
     .eq("company_id", companyId)
     .eq("active", true)
     .or(`name.ilike.${like},sku.ilike.${like},brand.ilike.${like}`)

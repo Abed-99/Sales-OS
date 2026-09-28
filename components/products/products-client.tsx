@@ -18,9 +18,18 @@ export type Product = {
   sale_price: number | null;
   minimum_sale_price: number | null;
   reorder_level?: number | null;
+  pack_size?: number | null;
+  pack_unit?: string | null;
   image_url: string | null;
   active: boolean;
   created_at: string;
+};
+
+export type PriceLevel = {
+  id: string;
+  name: string;
+  active: boolean;
+  sort_order?: number;
 };
 
 export type Category = {
@@ -61,6 +70,9 @@ type ProductForm = {
   sale_price: string;
   minimum_sale_price: string;
   reorder_level: string;
+  pack_size: string;
+  pack_unit: string;
+  level_prices: Record<string, string>;
   image_url: string;
 };
 
@@ -74,6 +86,9 @@ function emptyForm(): ProductForm {
     sale_price: "",
     minimum_sale_price: "",
     reorder_level: "",
+    pack_size: "",
+    pack_unit: "كرتونة",
+    level_prices: {},
     image_url: "",
   };
 }
@@ -138,6 +153,7 @@ export function ProductsClient({
   initialProducts,
   initialCategories,
   suppliers,
+  priceLevels = [],
   initialPrices,
   initialError,
   stats,
@@ -157,6 +173,7 @@ export function ProductsClient({
   initialProducts: Product[];
   initialCategories: Category[];
   suppliers: Supplier[];
+  priceLevels?: PriceLevel[];
   initialPrices: SupplierPrice[];
   initialError: string | null;
   stats: Stats | null;
@@ -172,6 +189,10 @@ export function ProductsClient({
   canViewCost: boolean;
 }) {
   const [supabase] = useState(() => createClient());
+
+  const [levelsOpen, setLevelsOpen] = useState(false);
+  const [newLevelName, setNewLevelName] = useState("");
+  const [levelMessage, setLevelMessage] = useState("");
 
   const router = useRouter();
 
@@ -369,8 +390,30 @@ export function ProductsClient({
         product.minimum_sale_price == null ? "" : String(product.minimum_sale_price),
       reorder_level: product.reorder_level == null ? "" : String(product.reorder_level),
 
+      pack_size: product.pack_size == null ? "" : String(product.pack_size),
+
+      pack_unit: product.pack_unit ?? "كرتونة",
+
+      level_prices: {},
+
       image_url: product.image_url ?? "",
     });
+
+    // أسعار المستويات بتنجاب لحظة التعديل.
+    if (priceLevels.length) {
+      void supabase
+        .from("product_level_prices")
+        .select("price_level_id,price")
+        .eq("product_id", product.id)
+        .then(({ data }) =>
+          setForm((current) => ({
+            ...current,
+            level_prices: Object.fromEntries(
+              (data ?? []).map((row) => [row.price_level_id, String(row.price)]),
+            ),
+          })),
+        );
+    }
 
     const nextPrices: Record<string, string> = {};
 
@@ -545,7 +588,7 @@ export function ProductsClient({
     setSaving(true);
 
     try {
-      const { error } = await supabase.rpc("save_product_with_supplier_prices", {
+      const { data: savedId, error } = await supabase.rpc("save_product_with_supplier_prices", {
         target_company: companyId,
 
         target_product: editing?.id ?? null,
@@ -574,6 +617,23 @@ export function ProductsClient({
 
       if (error) {
         setFormMessage(friendlyError(error, "save"));
+        return;
+      }
+
+      const packSize = Number(form.pack_size);
+      const { error: extrasError } = await supabase.rpc("save_product_packaging_and_prices", {
+        target_company: companyId,
+        target_product: (savedId as string | null) ?? editing?.id,
+        product_pack_size: Number.isFinite(packSize) && packSize > 1 ? packSize : null,
+        product_pack_unit: form.pack_unit.trim() || null,
+        level_prices: priceLevels.map((level) => ({
+          price_level_id: level.id,
+          price: form.level_prices[level.id]?.trim() || null,
+        })),
+      });
+
+      if (extrasError) {
+        setFormMessage("انحفظ الصنف، بس ما انحفظت الكرتونة أو أسعار المستويات. جرّب مرة تانية.");
         return;
       }
 
@@ -650,13 +710,113 @@ export function ProductsClient({
           <p className="muted">إدارة الأصناف، أسعار البيع ومصادر الشراء.</p>
         </div>
 
-        {canCreate ? (
-          <button type="button" className="primaryButton" onClick={startAdd}>
-            <Icons.plus size={14} />
-            إضافة صنف
-          </button>
-        ) : null}
+        <div className="rowActions">
+          {canUpdate ? (
+            <button type="button" className="softButton" onClick={() => setLevelsOpen(true)}>
+              مستويات الأسعار
+            </button>
+          ) : null}
+
+          {canCreate ? (
+            <button type="button" className="primaryButton" onClick={startAdd}>
+              <Icons.plus size={14} />
+              إضافة صنف
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {levelsOpen ? (
+        <div className="modalOverlay">
+          <section className="modal" role="dialog" aria-modal="true">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">الأسعار</span>
+                <h2>مستويات الأسعار</h2>
+                <p className="muted">
+                  مثلًا: جملة، نص جملة، مفرق. بتعطي كل زبون مستوى، وبتحط لكل صنف سعر بكل مستوى.
+                </p>
+              </div>
+              <button type="button" className="closeButton" onClick={() => setLevelsOpen(false)}>
+                ×
+              </button>
+            </div>
+
+            <div className="quickList">
+              {priceLevels.map((level) => (
+                <div className="quickItem" key={level.id}>
+                  <div>
+                    <strong>{level.name}</strong>
+                    <span>{level.active ? "شغّال" : "موقوف"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={async () => {
+                      const name = window.prompt("الاسم الجديد", level.name)?.trim();
+                      if (!name) return;
+                      const { error } = await supabase
+                        .from("price_levels")
+                        .update({ name })
+                        .eq("id", level.id);
+                      if (error)
+                        setLevelMessage("ما قدرنا نغيّر الاسم (يمكن في مستوى بنفس الاسم).");
+                      else router.refresh();
+                    }}
+                  >
+                    تعديل الاسم
+                  </button>
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={async () => {
+                      await supabase
+                        .from("price_levels")
+                        .update({ active: !level.active })
+                        .eq("id", level.id);
+                      router.refresh();
+                    }}
+                  >
+                    {level.active ? "إيقاف" : "تفعيل"}
+                  </button>
+                </div>
+              ))}
+              {!priceLevels.length ? <p className="muted">ما في مستويات لسا.</p> : null}
+            </div>
+
+            <form
+              className="rowActions"
+              style={{ marginTop: 14 }}
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const name = newLevelName.trim();
+                if (!name) return;
+                const { error } = await supabase.from("price_levels").insert({
+                  company_id: companyId,
+                  name,
+                  sort_order: priceLevels.length,
+                });
+                if (error) {
+                  setLevelMessage("ما قدرنا نضيف المستوى (يمكن في واحد بنفس الاسم).");
+                  return;
+                }
+                setNewLevelName("");
+                setLevelMessage("");
+                router.refresh();
+              }}
+            >
+              <input
+                style={{ flex: 1, padding: 10, borderRadius: 11, background: "#06110e", color: "white", border: "1px solid var(--line)" }}
+                placeholder="اسم المستوى الجديد، مثلًا: جملة"
+                value={newLevelName}
+                onChange={(event) => setNewLevelName(event.target.value)}
+              />
+              <button className="primaryButton">إضافة</button>
+            </form>
+            {levelMessage ? <div className="toastError">{levelMessage}</div> : null}
+          </section>
+        </div>
+      ) : null}
 
       {pageMessage ? (
         <div
@@ -1090,6 +1250,62 @@ export function ProductsClient({
                     }
                   />
                 </label>
+
+                <label className="field">
+                  <span>
+                    كم {form.unit || "قطعة"} بالـ{form.pack_unit || "كرتونة"}؟
+                  </span>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="مثلًا 24 (فاضي إذا ما في كرتونة)"
+                    value={form.pack_size}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, pack_size: event.target.value }))
+                    }
+                  />
+                </label>
+
+                <label className="field">
+                  <span>اسم العبوة</span>
+
+                  <input
+                    value={form.pack_unit}
+                    placeholder="كرتونة، علبة، ربطة..."
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, pack_unit: event.target.value }))
+                    }
+                  />
+                </label>
+
+                {priceLevels
+                  .filter((level) => level.active)
+                  .map((level) => (
+                    <label className="field" key={level.id}>
+                      <span>سعر {level.name}</span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={
+                          form.sale_price ? `العادي: ${form.sale_price}` : "نفس السعر العادي"
+                        }
+                        value={form.level_prices[level.id] ?? ""}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            level_prices: {
+                              ...current.level_prices,
+                              [level.id]: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
 
                 <Field
                   label="رابط صورة المنتج"

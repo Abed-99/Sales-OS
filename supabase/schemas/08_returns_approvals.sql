@@ -49,7 +49,7 @@ create table public.sales_return_items (
   description text not null,
   unit text,
   quantity numeric(14,3) not null,
-  unit_price numeric(18,2) not null,
+  unit_price numeric(18,4) not null,
   line_total numeric(18,2) not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_return_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -95,7 +95,7 @@ create table public.purchase_return_items (
   product_id uuid not null references public.products(id) on delete restrict,
   description text,
   quantity numeric(14,3) not null,
-  unit_cost numeric(18,2) not null,
+  unit_cost numeric(18,4) not null,
   inventory_cost numeric(18,2) not null,
   line_total numeric(18,2) not null,
   created_at timestamp with time zone default now() not null,
@@ -251,7 +251,7 @@ declare
   v_description text;
 
   v_invoice_qty numeric(14,3);
-  v_unit_cost numeric(18,2);
+  v_unit_cost numeric(18,4);
   v_original_line_total numeric(18,2);
 
   v_qty numeric(14,3);
@@ -870,7 +870,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_total numeric(18,2) := 0;
 begin
   v_trader := (target_payload->>'trader_id')::uuid;
@@ -945,7 +945,7 @@ declare
   v_description text;
   v_unit text;
   v_invoice_qty numeric(14,3);
-  v_unit_price numeric(18,2);
+  v_unit_price numeric(18,4);
   v_qty numeric(14,3);
 
   v_returned numeric(14,3);

@@ -44,7 +44,7 @@ create table public.sales_order_items (
   order_id uuid not null references public.sales_orders(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete restrict,
   quantity numeric(14,3) not null,
-  sale_unit_price numeric(14,2) not null,
+  sale_unit_price numeric(18,4) not null,
   line_total numeric(14,2) default 0 not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_order_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -83,7 +83,7 @@ create table public.sales_quote_items (
   quote_id uuid not null references public.sales_quotes(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete restrict,
   quantity numeric(18,3) not null,
-  sale_unit_price numeric(18,2) not null,
+  sale_unit_price numeric(18,4) not null,
   line_total numeric(18,2) default 0 not null,
   minimum_sale_price_snapshot numeric(18,2),
   reference_cost_snapshot numeric(18,4),
@@ -196,7 +196,7 @@ create table public.sales_invoice_items (
   description text not null,
   unit text,
   quantity numeric(14,3) not null,
-  unit_price numeric(14,2) not null,
+  unit_price numeric(18,4) not null,
   line_total numeric(14,2) not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_invoice_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -1664,7 +1664,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(14,3);
-  v_price numeric(14,2);
+  v_price numeric(18,4);
   v_min_price numeric(14,2);
   v_total numeric(14,2) := 0;
 begin
@@ -1849,7 +1849,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_minimum numeric(18,2);
   v_cost numeric(18,4);
   v_threshold numeric(18,4);
@@ -2189,7 +2189,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_minimum numeric(18,2);
   v_cost numeric(18,4);
   v_total numeric(18,2) := 0;

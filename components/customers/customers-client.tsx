@@ -27,6 +27,7 @@ export type Trader = {
   whatsapp_marketing_opt_in: boolean;
   credit_limit: number | null;
   payment_terms_days: number;
+  price_level_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -61,6 +62,7 @@ function emptyForm() {
     optin: false,
     credit_limit: "",
     payment_terms_days: "0",
+    price_level_id: "",
   };
 }
 
@@ -129,6 +131,7 @@ export function CustomersClient({
   canViewMap,
   canViewBalance,
   canManageCredit,
+  priceLevels = [],
 }: {
   companyId: string;
   currency: string;
@@ -146,6 +149,7 @@ export function CustomersClient({
   canViewMap: boolean;
   canViewBalance: boolean;
   canManageCredit: boolean;
+  priceLevels?: { id: string; name: string; active: boolean }[];
 }) {
   const [supabase] = useState(() => createClient());
 
@@ -280,6 +284,7 @@ export function CustomersClient({
       credit_limit: trader.credit_limit == null ? "" : String(trader.credit_limit),
 
       payment_terms_days: String(trader.payment_terms_days ?? 0),
+      price_level_id: trader.price_level_id ?? "",
     });
 
     setFormMessage("");
@@ -421,6 +426,8 @@ export function CustomersClient({
       payload.credit_limit = creditLimit;
 
       payload.payment_terms_days = paymentTerms;
+
+      payload.price_level_id = form.price_level_id || null;
     }
 
     setSaving(true);
@@ -963,6 +970,31 @@ export function CustomersClient({
 
                       <small className="helpText">0 يعني الدفع مستحق بنفس اليوم.</small>
                     </label>
+
+                    {priceLevels.length ? (
+                      <label className="field">
+                        <span>مستوى السعر</span>
+
+                        <select
+                          value={form.price_level_id}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              price_level_id: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">السعر العادي</option>
+                          {priceLevels
+                            .filter((level) => level.active || level.id === form.price_level_id)
+                            .map((level) => (
+                              <option key={level.id} value={level.id}>
+                                {level.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    ) : null}
                   </>
                 ) : null}
 

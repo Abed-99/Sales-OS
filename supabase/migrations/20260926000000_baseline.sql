@@ -1217,6 +1217,9 @@ create table public.products (
   sale_price numeric(14,2),
   minimum_sale_price numeric(14,2),
   reorder_level numeric(14,3),
+  -- كم قطعة بالكرتونة (أو العلبة). المخزون دايمًا بالوحدة الأساسية.
+  pack_size numeric(14,3) check (pack_size is null or pack_size > 1),
+  pack_unit text,
   image_url text,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
@@ -1243,6 +1246,7 @@ create table public.traders (
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   credit_limit numeric(14,2),
+  price_level_id uuid,
   payment_terms_days integer default 0 not null,
   whatsapp_marketing_opt_in boolean default false not null,
   whatsapp_opt_in_at timestamp with time zone,
@@ -1294,7 +1298,7 @@ create table public.supplier_prices (
   company_id uuid not null references public.companies(id) on delete cascade,
   supplier_id uuid not null references public.suppliers(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete cascade,
-  purchase_price numeric(14,2) not null,
+  purchase_price numeric(18,4) not null,
   available boolean default true not null,
   notes text,
   last_checked_at timestamp with time zone default now() not null,
@@ -1309,7 +1313,7 @@ create table public.supplier_price_history (
   company_id uuid not null references public.companies(id) on delete cascade,
   supplier_id uuid not null references public.suppliers(id) on delete restrict,
   product_id uuid not null references public.products(id) on delete restrict,
-  purchase_price numeric(14,2) not null,
+  purchase_price numeric(18,4) not null,
   available boolean default true not null,
   notes text,
   effective_at timestamp with time zone default now() not null,
@@ -1326,6 +1330,112 @@ create index supplier_price_history_supplier_idx on public.supplier_price_histor
 -- ----------------------------------------------------------------------
 -- الدوال
 -- ----------------------------------------------------------------------
+
+-- مستويات الأسعار (جملة، نص جملة، مفرق...). كل زبون إلو مستوى، وكل صنف إلو سعر بكل مستوى.
+create table public.price_levels (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  name text not null,
+  sort_order integer default 0 not null,
+  active boolean default true not null,
+  created_at timestamp with time zone default now() not null,
+  constraint price_levels_company_name_key unique (company_id, name)
+);
+
+create table public.product_level_prices (
+  company_id uuid not null references public.companies(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete cascade,
+  price_level_id uuid not null references public.price_levels(id) on delete cascade,
+  price numeric(14,2) not null check (price >= 0),
+  updated_at timestamp with time zone default now() not null,
+  primary key (product_id, price_level_id)
+);
+
+create index product_level_prices_level_idx on public.product_level_prices using btree (price_level_id);
+
+alter table public.traders
+  add constraint traders_price_level_fk foreign key (price_level_id) references public.price_levels(id) on delete set null;
+
+alter table public.price_levels enable row level security;
+alter table public.product_level_prices enable row level security;
+
+create policy price_levels_read on public.price_levels
+  for select to authenticated
+  using (public.is_company_member(company_id));
+create policy price_levels_write on public.price_levels
+  for all to authenticated
+  using (public.has_permission(company_id, 'products.update'::text))
+  with check (public.has_permission(company_id, 'products.update'::text));
+create policy product_level_prices_read on public.product_level_prices
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['products.view'::text, 'orders.view'::text, 'orders.create'::text, 'purchases.view'::text]));
+
+-- سعر الصنف لزبون معيّن: سعر مستواه إذا موجود، وإلا سعر البيع العادي.
+create or replace function public.get_trader_product_prices(target_company uuid, target_trader uuid, target_products uuid[])
+ RETURNS TABLE(product_id uuid, price numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select p.id, coalesce(lp.price, p.sale_price)
+  from public.products p
+  left join public.traders t on t.id = target_trader and t.company_id = target_company
+  left join public.product_level_prices lp on lp.product_id = p.id and lp.price_level_id = t.price_level_id
+  where p.company_id = target_company
+    and p.id = any(target_products)
+    and public.has_any_permission(target_company, array['orders.create','orders.view','products.view']);
+$function$;
+
+-- الكرتونة وأسعار المستويات للصنف (بعد حفظ الصنف الأساسي).
+create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_item jsonb;
+  v_price numeric;
+begin
+  if not public.has_any_permission(target_company, array['products.update','products.create']) then
+    raise exception 'Not allowed';
+  end if;
+
+  update public.products
+  set pack_size = case when coalesce(product_pack_size, 0) > 1 then product_pack_size end,
+      pack_unit = case when coalesce(product_pack_size, 0) > 1
+                       then coalesce(nullif(trim(product_pack_unit), ''), 'كرتونة') end,
+      updated_at = now()
+  where id = target_product and company_id = target_company;
+
+  if not found then
+    raise exception 'Product not found';
+  end if;
+
+  for v_item in select value from jsonb_array_elements(coalesce(level_prices, '[]'::jsonb)) loop
+    v_price := nullif(v_item->>'price', '')::numeric;
+
+    if not exists (
+      select 1 from public.price_levels
+      where id = (v_item->>'price_level_id')::uuid and company_id = target_company
+    ) then
+      raise exception 'Invalid price level';
+    end if;
+
+    if v_price is null then
+      delete from public.product_level_prices
+      where product_id = target_product and price_level_id = (v_item->>'price_level_id')::uuid;
+    elsif v_price < 0 then
+      raise exception 'Price cannot be negative';
+    else
+      insert into public.product_level_prices(company_id, product_id, price_level_id, price)
+      values (target_company, target_product, (v_item->>'price_level_id')::uuid, round(v_price, 2))
+      on conflict (product_id, price_level_id)
+      do update set price = excluded.price, updated_at = now();
+    end if;
+  end loop;
+end;
+$function$;
 
 create or replace function public.archive_trader(target_company uuid, target_trader uuid)
  RETURNS void
@@ -1521,12 +1631,14 @@ begin
 
   if (
     tg_op = 'INSERT'
-    and (new.credit_limit is not null or new.payment_terms_days <> 0)
+    and (new.credit_limit is not null or new.payment_terms_days <> 0 or new.price_level_id is not null)
   ) or (
     tg_op = 'UPDATE'
     and (
       new.credit_limit is distinct from old.credit_limit
       or new.payment_terms_days is distinct from old.payment_terms_days
+      -- مستوى السعر كمان: المندوب ما بيعطي حدا سعر جملة لحالو.
+      or new.price_level_id is distinct from old.price_level_id
     )
   ) then
     if not public.has_permission(new.company_id, 'traders.manage_credit') then
@@ -1965,7 +2077,7 @@ create trigger trader_visits_company_guard before insert or update of company_id
 create trigger audit_traders after insert or delete or update on public.traders for each row execute function public.write_audit_log();
 
 create trigger traders_archive_permission_guard before insert or update on public.traders for each row execute function public.enforce_trader_archive_permission();
-create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days on public.traders for each row execute function public.enforce_trader_credit_permission();
+create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days, price_level_id on public.traders for each row execute function public.enforce_trader_credit_permission();
 
 create trigger traders_prevent_duplicate_contact before insert or update of phone, whatsapp on public.traders for each row execute function public.prevent_duplicate_trader_contact();
 
@@ -7787,7 +7899,7 @@ create table public.sales_order_items (
   order_id uuid not null references public.sales_orders(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete restrict,
   quantity numeric(14,3) not null,
-  sale_unit_price numeric(14,2) not null,
+  sale_unit_price numeric(18,4) not null,
   line_total numeric(14,2) default 0 not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_order_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -7826,7 +7938,7 @@ create table public.sales_quote_items (
   quote_id uuid not null references public.sales_quotes(id) on delete cascade,
   product_id uuid not null references public.products(id) on delete restrict,
   quantity numeric(18,3) not null,
-  sale_unit_price numeric(18,2) not null,
+  sale_unit_price numeric(18,4) not null,
   line_total numeric(18,2) default 0 not null,
   minimum_sale_price_snapshot numeric(18,2),
   reference_cost_snapshot numeric(18,4),
@@ -7939,7 +8051,7 @@ create table public.sales_invoice_items (
   description text not null,
   unit text,
   quantity numeric(14,3) not null,
-  unit_price numeric(14,2) not null,
+  unit_price numeric(18,4) not null,
   line_total numeric(14,2) not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_invoice_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -9407,7 +9519,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(14,3);
-  v_price numeric(14,2);
+  v_price numeric(18,4);
   v_min_price numeric(14,2);
   v_total numeric(14,2) := 0;
 begin
@@ -9592,7 +9704,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_minimum numeric(18,2);
   v_cost numeric(18,4);
   v_threshold numeric(18,4);
@@ -9932,7 +10044,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_minimum numeric(18,2);
   v_cost numeric(18,4);
   v_total numeric(18,2) := 0;
@@ -13541,7 +13653,7 @@ create table public.purchase_invoice_items (
   product_id uuid not null references public.products(id) on delete restrict,
   description text,
   quantity numeric(14,3) not null,
-  unit_cost numeric(14,2) not null,
+  unit_cost numeric(18,4) not null,
   discount_amount numeric(14,2) default 0 not null,
   tax_amount numeric(14,2) default 0 not null,
   line_total numeric(14,2) not null,
@@ -13877,7 +13989,7 @@ declare
   v_item_id uuid;
   v_product uuid;
   v_quantity numeric(14,3);
-  v_unit_cost numeric(14,2);
+  v_unit_cost numeric(18,4);
   v_discount numeric(14,2);
   v_tax numeric(14,2);
   v_line_total numeric(14,2);
@@ -16579,7 +16691,7 @@ create table public.sales_return_items (
   description text not null,
   unit text,
   quantity numeric(14,3) not null,
-  unit_price numeric(18,2) not null,
+  unit_price numeric(18,4) not null,
   line_total numeric(18,2) not null,
   created_at timestamp with time zone default now() not null,
   constraint sales_return_items_line_total_check check ((line_total >= (0)::numeric)),
@@ -16625,7 +16737,7 @@ create table public.purchase_return_items (
   product_id uuid not null references public.products(id) on delete restrict,
   description text,
   quantity numeric(14,3) not null,
-  unit_cost numeric(18,2) not null,
+  unit_cost numeric(18,4) not null,
   inventory_cost numeric(18,2) not null,
   line_total numeric(18,2) not null,
   created_at timestamp with time zone default now() not null,
@@ -16781,7 +16893,7 @@ declare
   v_description text;
 
   v_invoice_qty numeric(14,3);
-  v_unit_cost numeric(18,2);
+  v_unit_cost numeric(18,4);
   v_original_line_total numeric(18,2);
 
   v_qty numeric(14,3);
@@ -17400,7 +17512,7 @@ declare
   v_item jsonb;
   v_product uuid;
   v_quantity numeric(18,3);
-  v_price numeric(18,2);
+  v_price numeric(18,4);
   v_total numeric(18,2) := 0;
 begin
   v_trader := (target_payload->>'trader_id')::uuid;
@@ -17475,7 +17587,7 @@ declare
   v_description text;
   v_unit text;
   v_invoice_qty numeric(14,3);
-  v_unit_price numeric(18,2);
+  v_unit_price numeric(18,4);
   v_qty numeric(14,3);
 
   v_returned numeric(14,3);

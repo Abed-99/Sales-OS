@@ -1576,3 +1576,6 @@ body{
 .pickerOption[aria-selected="true"] strong { color: #43d4aa; }
 .pickerEmpty { padding: 10px; font-size: 11px; color: #6f8980; text-align: center; }
 .dataTable .picker input { padding: 8px 10px; border-radius: 9px; }
+.unitToggle { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.unitToggle .softButton { padding: 6px 9px; font-size: 11px; white-space: nowrap; }
+.unitToggle small, .unitTag { font-size: 10px; white-space: nowrap; }

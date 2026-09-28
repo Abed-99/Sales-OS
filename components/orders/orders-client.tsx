@@ -9,6 +9,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { OrderDetails } from "@/components/orders/order-details";
 import { SearchPicker } from "@/components/search-picker";
+import { UnitToggle } from "@/components/unit-toggle";
+import {
+  convertPrice,
+  toBasePrice,
+  toBaseQuantity,
+  traderPrices,
+  type UnitMode,
+} from "@/lib/units";
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
@@ -43,6 +51,8 @@ export type OrderProduct = {
   minimum_sale_price: number | null;
   unit: string;
   active: boolean;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 export type OrderSalesInvoice = {
@@ -116,6 +126,10 @@ type ItemDraft = {
   product_id: string;
   quantity: string;
   sale_unit_price: string;
+  mode?: UnitMode;
+  unit?: string | null;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 type CollectionState = {
@@ -521,8 +535,59 @@ export function OrdersClient({
               ...item,
               product_id: productId,
               sale_unit_price: product?.sale_price != null ? String(product.sale_price) : "",
+              mode: "base" as UnitMode,
+              unit: product?.unit ?? null,
+              pack_size: product?.pack_size ?? null,
+              pack_unit: product?.pack_unit ?? null,
             }
           : item,
+      ),
+    );
+
+    if (trader && productId) {
+      void applyTraderPrices(
+        trader,
+        items.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, product_id: productId } : item,
+        ),
+        index,
+      );
+    }
+  }
+
+  // السطر بيتسعّر حسب مستوى سعر الزبون (جملة/مفرق...) إذا إلو مستوى.
+  async function applyTraderPrices(traderId: string, lines: ItemDraft[], onlyIndex?: number) {
+    const ids = lines
+      .filter(
+        (line, lineIndex) =>
+          line.product_id && (onlyIndex === undefined || lineIndex === onlyIndex),
+      )
+      .map((line) => line.product_id);
+    const prices = await traderPrices(supabase, companyId, traderId, ids);
+    if (!prices.size) return;
+    setItems((current) =>
+      current.map((line, lineIndex) => {
+        if (onlyIndex !== undefined && lineIndex !== onlyIndex) return line;
+        const base = prices.get(line.product_id);
+        if (base == null) return line;
+        return {
+          ...line,
+          sale_unit_price: convertPrice(String(base), "base", line.mode ?? "base", line.pack_size),
+        };
+      }),
+    );
+  }
+
+  function changeUnit(index: number, mode: UnitMode) {
+    setItems((current) =>
+      current.map((line, lineIndex) =>
+        lineIndex === index
+          ? {
+              ...line,
+              mode,
+              sale_unit_price: convertPrice(line.sale_unit_price, line.mode, mode, line.pack_size),
+            }
+          : line,
       ),
     );
   }
@@ -580,10 +645,11 @@ export function OrdersClient({
       return;
     }
 
+    // الكرتونة بتتحوّل لقطع قبل الحفظ (المخزون والفواتير بالقطعة).
     const payload = items.map((item) => ({
       product_id: item.product_id,
-      quantity: Number(item.quantity),
-      sale_unit_price: Number(item.sale_unit_price),
+      quantity: toBaseQuantity(Number(item.quantity), item.mode, item.pack_size),
+      sale_unit_price: toBasePrice(Number(item.sale_unit_price), item.mode, item.pack_size),
     }));
 
     setSaving(true);
@@ -1347,7 +1413,10 @@ export function OrdersClient({
                   placeholder="اكتب اسم العميل أو رقمو..."
                   options={traderOptions}
                   onSearch={findTraders}
-                  onChange={(id) => setTrader(id)}
+                  onChange={(id) => {
+                    setTrader(id);
+                    if (id) void applyTraderPrices(id, items);
+                  }}
                 />
               </label>
 
@@ -1374,6 +1443,15 @@ export function OrdersClient({
                           quantity: event.target.value,
                         })
                       }
+                    />
+
+                    <UnitToggle
+                      mode={item.mode}
+                      unit={item.unit}
+                      packUnit={item.pack_unit}
+                      packSize={item.pack_size}
+                      quantity={item.quantity}
+                      onChange={(mode) => changeUnit(index, mode)}
                     />
 
                     <input

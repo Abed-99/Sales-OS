@@ -59,7 +59,7 @@ create table public.purchase_invoice_items (
   product_id uuid not null references public.products(id) on delete restrict,
   description text,
   quantity numeric(14,3) not null,
-  unit_cost numeric(14,2) not null,
+  unit_cost numeric(18,4) not null,
   discount_amount numeric(14,2) default 0 not null,
   tax_amount numeric(14,2) default 0 not null,
   line_total numeric(14,2) not null,
@@ -395,7 +395,7 @@ declare
   v_item_id uuid;
   v_product uuid;
   v_quantity numeric(14,3);
-  v_unit_cost numeric(14,2);
+  v_unit_cost numeric(18,4);
   v_discount numeric(14,2);
   v_tax numeric(14,2);
   v_line_total numeric(14,2);

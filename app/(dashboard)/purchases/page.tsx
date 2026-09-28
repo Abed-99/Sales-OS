@@ -414,7 +414,7 @@ export default async function PurchasesPage({
         supabase
           .from("products")
           .select(
-            "id,name,sku,unit,active"
+            "id,name,sku,unit,active,pack_size,pack_unit"
           )
           .eq(
             "company_id",

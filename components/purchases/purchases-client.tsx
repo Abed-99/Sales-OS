@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
+import { UnitToggle } from "@/components/unit-toggle";
+import { convertPrice, toBasePrice, toBaseQuantity, type UnitMode } from "@/lib/units";
 import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
@@ -34,6 +36,8 @@ export type ProductOption = {
   sku: string | null;
   unit: string;
   active: boolean;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 export type SupplierPriceOption = {
@@ -131,6 +135,10 @@ type DraftLine = {
   maxQuantity: number | null;
   traderName: string | null;
   productName?: string | null;
+  mode?: UnitMode;
+  unit?: string | null;
+  packSize?: number | null;
+  packUnit?: string | null;
 };
 
 type InvoiceDetailLine = {
@@ -347,9 +355,11 @@ export function PurchasesClient({
         productOption({
           id: row.id,
           name: row.name,
-          sku: (row as { sku?: string | null }).sku ?? null,
-          unit: (row as { unit?: string | null }).unit ?? null,
+          sku: row.sku ?? null,
+          unit: row.unit ?? null,
           sale_price: null,
+          pack_size: row.pack_size ?? null,
+          pack_unit: row.pack_unit ?? null,
         }),
       ),
     [products],
@@ -748,13 +758,23 @@ export function PurchasesClient({
     );
   }
 
-  function chooseProduct(line: DraftLine, productId: string, productName?: string) {
+  function chooseProduct(
+    line: DraftLine,
+    productId: string,
+    productName?: string,
+    picked?: { unit?: string | null; pack_size?: number | null; pack_unit?: string | null },
+  ) {
     const price = supplierId ? priceMap.get(`${supplierId}:${productId}`) : null;
+    const product = products.find((row) => row.id === productId) ?? picked;
 
     updateLine(line.key, {
       productId,
       productName: productName ?? null,
       unitCost: price != null ? String(price) : "",
+      mode: "base",
+      unit: product?.unit ?? null,
+      packSize: product?.pack_size ?? null,
+      packUnit: product?.pack_unit ?? null,
     });
   }
 
@@ -831,9 +851,10 @@ export function PurchasesClient({
     const payload = lines.map((line) => ({
       product_id: line.productId,
 
-      quantity: Number(line.quantity),
+      // الكرتونة بتتحوّل لقطع (المخزون بالقطعة).
+      quantity: toBaseQuantity(Number(line.quantity), line.mode, line.packSize),
 
-      unit_cost: Number(line.unitCost),
+      unit_cost: toBasePrice(Number(line.unitCost), line.mode, line.packSize),
 
       discount_amount: Number(line.discountAmount || 0),
 
@@ -2122,7 +2143,20 @@ export function PurchasesClient({
                                     placeholder="اسم الصنف أو كودو..."
                                     options={productOptions}
                                     onSearch={findProducts}
-                                    onChange={(id, option) => chooseProduct(line, id, option?.label)}
+                                    onChange={(id, option) =>
+                                      chooseProduct(
+                                        line,
+                                        id,
+                                        option?.label,
+                                        option?.data as
+                                          | {
+                                              unit?: string | null;
+                                              pack_size?: number | null;
+                                              pack_unit?: string | null;
+                                            }
+                                          | undefined,
+                                      )
+                                    }
                                   />
                                 )}
                               </td>
@@ -2139,6 +2173,27 @@ export function PurchasesClient({
                                     })
                                   }
                                 />
+
+                                {line.salesOrderItemId ? null : (
+                                  <UnitToggle
+                                    mode={line.mode}
+                                    unit={line.unit}
+                                    packUnit={line.packUnit}
+                                    packSize={line.packSize}
+                                    quantity={line.quantity}
+                                    onChange={(mode) =>
+                                      updateLine(line.key, {
+                                        mode,
+                                        unitCost: convertPrice(
+                                          line.unitCost,
+                                          line.mode,
+                                          mode,
+                                          line.packSize,
+                                        ),
+                                      })
+                                    }
+                                  />
+                                )}
                               </td>
 
                               <td>

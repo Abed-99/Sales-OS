@@ -7,6 +7,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
+import { UnitToggle } from "@/components/unit-toggle";
+import {
+  convertPrice,
+  toBasePrice,
+  toBaseQuantity,
+  traderPrices,
+  type UnitMode,
+} from "@/lib/units";
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
@@ -28,6 +36,8 @@ export type QuoteProduct = {
   sale_price: number | null;
   unit: string;
   active: boolean;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 export type QuoteItem = {
@@ -79,6 +89,10 @@ type DraftItem = {
   product_id: string;
   quantity: string;
   sale_unit_price: string;
+  mode?: UnitMode;
+  unit?: string | null;
+  pack_size?: number | null;
+  pack_unit?: string | null;
 };
 
 type Notice = {
@@ -451,8 +465,59 @@ export function QuotesClient({
               product_id: productId,
 
               sale_unit_price: product?.sale_price != null ? String(product.sale_price) : "",
+              mode: "base" as UnitMode,
+              unit: product?.unit ?? null,
+              pack_size: product?.pack_size ?? null,
+              pack_unit: product?.pack_unit ?? null,
             }
           : item,
+      ),
+    );
+
+    if (trader && productId) {
+      void applyTraderPrices(
+        trader,
+        items.map((item, itemIndex) =>
+          itemIndex === index ? { ...item, product_id: productId } : item,
+        ),
+        index,
+      );
+    }
+  }
+
+  // السطر بيتسعّر حسب مستوى سعر الزبون (جملة/مفرق...) إذا إلو مستوى.
+  async function applyTraderPrices(traderId: string, lines: DraftItem[], onlyIndex?: number) {
+    const ids = lines
+      .filter(
+        (line, lineIndex) =>
+          line.product_id && (onlyIndex === undefined || lineIndex === onlyIndex),
+      )
+      .map((line) => line.product_id);
+    const prices = await traderPrices(supabase, companyId, traderId, ids);
+    if (!prices.size) return;
+    setItems((current) =>
+      current.map((line, lineIndex) => {
+        if (onlyIndex !== undefined && lineIndex !== onlyIndex) return line;
+        const base = prices.get(line.product_id);
+        if (base == null) return line;
+        return {
+          ...line,
+          sale_unit_price: convertPrice(String(base), "base", line.mode ?? "base", line.pack_size),
+        };
+      }),
+    );
+  }
+
+  function changeUnit(index: number, mode: UnitMode) {
+    setItems((current) =>
+      current.map((line, lineIndex) =>
+        lineIndex === index
+          ? {
+              ...line,
+              mode,
+              sale_unit_price: convertPrice(line.sale_unit_price, line.mode, mode, line.pack_size),
+            }
+          : line,
       ),
     );
   }
@@ -533,9 +598,9 @@ export function QuotesClient({
         items_payload: items.map((item) => ({
           product_id: item.product_id,
 
-          quantity: Number(Number(item.quantity).toFixed(3)),
+          quantity: toBaseQuantity(Number(item.quantity), item.mode, item.pack_size),
 
-          sale_unit_price: Number(Number(item.sale_unit_price).toFixed(2)),
+          sale_unit_price: toBasePrice(Number(item.sale_unit_price), item.mode, item.pack_size),
         })),
       });
 
@@ -1064,7 +1129,10 @@ export function QuotesClient({
                     placeholder="اكتب اسم العميل أو رقمو..."
                     options={traderOptions}
                     onSearch={findTraders}
-                    onChange={(id) => setTrader(id)}
+                    onChange={(id) => {
+                      setTrader(id);
+                      if (id) void applyTraderPrices(id, items);
+                    }}
                   />
                 </label>
 
@@ -1148,6 +1216,15 @@ export function QuotesClient({
                                 style={{
                                   width: 105,
                                 }}
+                              />
+
+                              <UnitToggle
+                                mode={item.mode}
+                                unit={item.unit}
+                                packUnit={item.pack_unit}
+                                packSize={item.pack_size}
+                                quantity={item.quantity}
+                                onChange={(mode) => changeUnit(index, mode)}
                               />
                             </td>
 
@@ -1315,7 +1392,11 @@ export function QuotesClient({
                         <div className="muted">{item.sku || item.unit || ""}</div>
                       </td>
 
-                      <td>{new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(numberValue(item.quantity))}</td>
+                      <td>
+                        {new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(
+                          numberValue(item.quantity),
+                        )}
+                      </td>
 
                       <td>{money(item.sale_unit_price, selected.currency)}</td>
 

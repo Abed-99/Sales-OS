@@ -162,7 +162,7 @@ export default async function QuotesPage({
 
       supabase
         .from("products")
-        .select("id,name,sku,sale_price,unit,active")
+        .select("id,name,sku,sale_price,unit,active,pack_size,pack_unit")
         .eq("company_id", context.companyId)
         .eq("active", true)
         .order("name")
