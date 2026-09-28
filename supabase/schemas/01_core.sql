@@ -614,6 +614,27 @@ AS $function$
   );
 $function$;
 
+-- أسماء أعضاء الفريق (لعرض "مين طلب/مين وافق" بالصفحات). كل عضو بالشركة بيشوف أسماء زملاءه بس.
+create or replace function public.get_company_member_names(target_company uuid)
+ RETURNS TABLE(user_id uuid, name text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select
+    cm.user_id,
+    coalesce(
+      nullif(trim(p.full_name), ''),
+      nullif(trim(u.raw_user_meta_data ->> 'full_name'), ''),
+      split_part(u.email, '@', 1)
+    )
+  from public.company_members cm
+  join auth.users u on u.id = cm.user_id
+  left join public.profiles p on p.id = cm.user_id
+  where cm.company_id = target_company
+    and public.is_company_member(target_company);
+$function$;
+
 create or replace function public.is_company_owner(target_company uuid)
  RETURNS boolean
  LANGUAGE sql
