@@ -1,0 +1,66 @@
+# نسخة احتياطية يومية لقاعدة البيانات (Supabase) — مشفّرة، ومحفوظة 90 يوم بـ GitHub Actions.
+# بدها سرّين بـ Settings → Secrets and variables → Actions:
+#   SUPABASE_DB_URL    رابط الاتصال بقاعدة البيانات (Supabase → Connect → Session pooler)
+#   BACKUP_PASSPHRASE  كلمة سر التشفير (احفظها عندك؛ بدونها النسخة ما بتنفتح)
+# الاسترجاع مشروح بـ docs/backup.md
+name: نسخة احتياطية يومية
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 00:00 UTC = 03:00 بتوقيت دمشق
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: تثبيت أدوات PostgreSQL 17
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: أخذ النسخة
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL}" ] || [ -z "${PASSPHRASE}" ]; then
+            echo "::error::لازم تحط السرّين SUPABASE_DB_URL و BACKUP_PASSPHRASE بإعدادات المستودع."
+            exit 1
+          fi
+          PG=/usr/lib/postgresql/17/bin
+          STAMP=$(TZ=Asia/Damascus date +%Y-%m-%d_%H%M)
+          mkdir -p out
+
+          # 1) كل جداول وبيانات النظام (مخطط public).
+          $PG/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -Fc -f "out/public_${STAMP}.dump"
+          # 2) حسابات الدخول (المستخدمين) — بيانات بس.
+          $PG/pg_dump "$DB_URL" --data-only --table=auth.users --table=auth.identities --no-owner -Fc -f "out/auth_${STAMP}.dump"
+          # 3) سجلّات صور الأصناف (الملفات نفسها بمخزن Supabase).
+          $PG/pg_dump "$DB_URL" --data-only --table=storage.buckets --table=storage.objects --no-owner -Fc -f "out/storage_${STAMP}.dump"
+
+          # تأكد إنو النسخ سليمة وبتنقرا.
+          for f in out/*.dump; do $PG/pg_restore --list "$f" > /dev/null; done
+
+          tar -czf "sales-os-backup_${STAMP}.tar.gz" -C out .
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASSPHRASE" \
+              --symmetric --cipher-algo AES256 -o "sales-os-backup_${STAMP}.tar.gz.gpg" "sales-os-backup_${STAMP}.tar.gz"
+          rm -rf out "sales-os-backup_${STAMP}.tar.gz"
+          ls -lh sales-os-backup_*.gpg
+          echo "STAMP=${STAMP}" >> "$GITHUB_ENV"
+
+      - name: حفظ النسخة (90 يوم)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sales-os-backup-${{ env.STAMP }}
+          path: sales-os-backup_*.gpg
+          retention-days: 90
+          if-no-files-found: error
