@@ -273,6 +273,18 @@ mustFail("بيع سريع تحت الكلفة بدون رمز", await salesRep.r
 mustFail("بيع سريع لكمية مش موجودة", await salesRep.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: cable, quantity: 99999, sale_unit_price: 10 }], target_cashbox: usdBox, target_paid_amount: 0, target_cash_amount: 0 }));
 check("الرفض ما ترك طلبيات معلّقة", (await admin.from("sales_orders").select("id", { count: "exact", head: true }).eq("company_id", company).eq("status", "to_purchase")).count, 0);
 
+// ---------------------------------------------------------------- O. purchase order
+log("\nO️⃣  أمر الشراء ← فاتورة شراء");
+const apBeforePo = -(await byKey("accounts_payable"));
+const po = must("أمر شراء 20 لمبة × 1$", await u.rpc("create_purchase_order", { target_company: company, target_supplier: supplier, target_expected_date: null, target_notes: null, items_payload: [{ product_id: bulb, quantity: 20, unit_cost: 1 }] }));
+check("أمر الشراء ما أثّر عالحسابات", -(await byKey("accounts_payable")) - apBeforePo, 0);
+must("انبعت للمورد", await u.rpc("set_purchase_order_status", { target_company: company, target_order: po, target_status: "sent" }));
+const poInv = must("وصلت الفاتورة → تحويل", await u.rpc("convert_purchase_order", { target_company: company, target_order: po, target_supplier_invoice_number: "NB-PO", target_invoice_date: today }));
+check("فاتورة الشراء 20$", (await admin.from("purchase_invoices").select("total").eq("id", poInv).single()).data?.total, 20);
+check("ديون المورد زادت 20", -(await byKey("accounts_payable")) - apBeforePo, 20);
+mustFail("تحويلو مرة تانية", await u.rpc("convert_purchase_order", { target_company: company, target_order: po, target_supplier_invoice_number: null, target_invoice_date: today }));
+must("إلغاء الفاتورة التجريبية", await u.rpc("cancel_purchase_invoice", { target_company: company, target_invoice: poInv, target_reason: "تجربة" }));
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

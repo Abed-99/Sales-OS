@@ -14162,6 +14162,53 @@ alter table public.cash_transactions
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------
+-- أوامر الشراء: طلب للمورد قبل ما توصل الفاتورة. ما بيأثر عالمخزون ولا عالحسابات.
+-- ----------------------------------------------------------------------
+create table public.purchase_orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  po_number text not null,
+  supplier_id uuid not null references public.suppliers(id) on delete restrict,
+  order_date date default ((now() at time zone 'Asia/Damascus'::text))::date not null,
+  expected_date date,
+  status text default 'draft'::text not null,
+  currency text not null,
+  total numeric(14,2) default 0 not null,
+  notes text,
+  converted_invoice_id uuid references public.purchase_invoices(id) on delete set null,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null,
+  constraint purchase_orders_number_key unique (company_id, po_number),
+  constraint purchase_orders_status_check check (status in ('draft','sent','confirmed','converted','cancelled'))
+);
+
+create table public.purchase_order_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  purchase_order_id uuid not null references public.purchase_orders(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete restrict,
+  quantity numeric(14,3) not null check (quantity > 0),
+  unit_cost numeric(18,4) not null check (unit_cost >= 0),
+  line_total numeric(14,2) not null,
+  notes text,
+  created_at timestamp with time zone default now() not null
+);
+
+create index purchase_orders_company_idx on public.purchase_orders using btree (company_id, order_date desc);
+create index purchase_order_items_po_idx on public.purchase_order_items using btree (purchase_order_id);
+
+alter table public.purchase_orders enable row level security;
+alter table public.purchase_order_items enable row level security;
+
+create policy purchase_orders_read on public.purchase_orders
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['purchases.view'::text, 'purchase_invoices.view'::text]));
+create policy purchase_order_items_read on public.purchase_order_items
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['purchases.view'::text, 'purchase_invoices.view'::text]));
+
 create or replace function public.apply_supplier_payment_terms()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -14352,6 +14399,175 @@ begin
       );
 
   end loop;
+end;
+$function$;
+
+create or replace function public.create_purchase_order(target_company uuid, target_supplier uuid, target_expected_date date, target_notes text, items_payload jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_id uuid;
+  v_year integer := extract(year from (now() at time zone 'Asia/Damascus'))::integer;
+  v_value bigint;
+  v_item jsonb;
+  v_qty numeric;
+  v_cost numeric;
+  v_total numeric := 0;
+begin
+  if not public.has_any_permission(target_company, array['purchases.create','purchase_invoices.create']) then
+    raise exception 'Not allowed';
+  end if;
+
+  if not exists (select 1 from public.suppliers where id = target_supplier and company_id = target_company and active) then
+    raise exception 'Invalid supplier';
+  end if;
+
+  if items_payload is null or jsonb_typeof(items_payload) <> 'array' or jsonb_array_length(items_payload) = 0 then
+    raise exception 'Purchase order requires items';
+  end if;
+
+  insert into public.document_sequences(company_id, document_type, sequence_year, next_value)
+  values (target_company, 'purchase_order', v_year, 1)
+  on conflict (company_id, document_type, sequence_year) do nothing;
+
+  update public.document_sequences
+  set next_value = next_value + 1
+  where company_id = target_company and document_type = 'purchase_order' and sequence_year = v_year
+  returning next_value - 1 into v_value;
+
+  insert into public.purchase_orders(company_id, po_number, supplier_id, expected_date, currency, notes)
+  values (
+    target_company,
+    'PO-' || v_year::text || '-' || lpad(v_value::text, 6, '0'),
+    target_supplier,
+    target_expected_date,
+    (select default_currency from public.companies where id = target_company),
+    nullif(trim(target_notes), '')
+  )
+  returning id into v_id;
+
+  for v_item in select value from jsonb_array_elements(items_payload) loop
+    v_qty := (v_item->>'quantity')::numeric;
+    v_cost := coalesce((v_item->>'unit_cost')::numeric, 0);
+
+    if v_qty is null or v_qty <= 0 or v_cost < 0 then
+      raise exception 'Invalid purchase order item';
+    end if;
+
+    if not exists (
+      select 1 from public.products
+      where id = (v_item->>'product_id')::uuid and company_id = target_company
+    ) then
+      raise exception 'Invalid purchase order item';
+    end if;
+
+    insert into public.purchase_order_items(company_id, purchase_order_id, product_id, quantity, unit_cost, line_total, notes)
+    values (
+      target_company, v_id, (v_item->>'product_id')::uuid, round(v_qty, 3), round(v_cost, 4),
+      round(v_qty * v_cost, 2), nullif(trim(v_item->>'notes'), '')
+    );
+
+    v_total := v_total + round(v_qty * v_cost, 2);
+  end loop;
+
+  update public.purchase_orders set total = round(v_total, 2) where id = v_id;
+  return v_id;
+end;
+$function$;
+
+create or replace function public.set_purchase_order_status(target_company uuid, target_order uuid, target_status text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_status text;
+begin
+  if not public.has_any_permission(target_company, array['purchases.create','purchases.update','purchase_invoices.create']) then
+    raise exception 'Not allowed';
+  end if;
+
+  if target_status not in ('draft', 'sent', 'confirmed', 'cancelled') then
+    raise exception 'Invalid purchase order status';
+  end if;
+
+  select status into v_status
+  from public.purchase_orders
+  where id = target_order and company_id = target_company
+  for update;
+
+  if v_status is null then
+    raise exception 'Purchase order not found';
+  end if;
+
+  if v_status in ('converted', 'cancelled') then
+    raise exception 'Purchase order is closed';
+  end if;
+
+  update public.purchase_orders
+  set status = target_status, updated_at = now()
+  where id = target_order;
+end;
+$function$;
+
+-- وصلت فاتورة المورد: أمر الشراء بيتحوّل لفاتورة شراء بنفس الأصناف (الكميات والأسعار ممكن تتعدّل).
+create or replace function public.convert_purchase_order(target_company uuid, target_order uuid, target_supplier_invoice_number text, target_invoice_date date, items_payload jsonb DEFAULT NULL::jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_po public.purchase_orders%rowtype;
+  v_items jsonb;
+  v_invoice uuid;
+begin
+  select * into v_po
+  from public.purchase_orders
+  where id = target_order and company_id = target_company
+  for update;
+
+  if v_po.id is null then
+    raise exception 'Purchase order not found';
+  end if;
+
+  if v_po.status in ('converted', 'cancelled') then
+    raise exception 'Purchase order is closed';
+  end if;
+
+  v_items := coalesce(items_payload, (
+    select jsonb_agg(jsonb_build_object(
+      'product_id', i.product_id,
+      'quantity', i.quantity,
+      'unit_cost', i.unit_cost,
+      'discount_amount', 0,
+      'tax_amount', 0,
+      'notes', i.notes,
+      'allocations', '[]'::jsonb
+    ) order by i.created_at)
+    from public.purchase_order_items i
+    where i.purchase_order_id = v_po.id
+  ));
+
+  v_invoice := public.create_purchase_invoice(
+    target_company,
+    v_po.supplier_id,
+    target_supplier_invoice_number,
+    coalesce(target_invoice_date, (now() at time zone 'Asia/Damascus')::date),
+    null,
+    'من أمر الشراء ' || v_po.po_number,
+    v_items
+  );
+
+  update public.purchase_orders
+  set status = 'converted', converted_invoice_id = v_invoice, updated_at = now()
+  where id = v_po.id;
+
+  return v_invoice;
 end;
 $function$;
 

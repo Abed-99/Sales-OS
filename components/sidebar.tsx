@@ -28,6 +28,12 @@ const nav: readonly NavItem[] = [
   { href: "/quick-sale", label: "بيع سريع", icon: Icons.cart, permission: "sales.quick_sale" },
   { href: "/quotes", label: "عروض الأسعار", icon: Icons.money, permission: "orders.view" },
   { href: "/purchases", label: "المشتريات", icon: Icons.store, permission: "purchases.view" },
+  {
+    href: "/purchase-orders",
+    label: "أوامر الشراء",
+    icon: Icons.store,
+    permission: "purchases.view",
+  },
   { href: "/customers", label: "العملاء", icon: Icons.users, permission: "traders.view" },
   { href: "/suppliers", label: "الموردون", icon: Icons.store, permission: "suppliers.view" },
   { href: "/products", label: "الأصناف", icon: Icons.box, permission: "products.view" },
