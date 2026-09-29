@@ -42,6 +42,7 @@ AS $function$
       when 'partner_distribution' then 'توزيع أرباح'
       when 'asset_purchase' then 'شراء أصل'
       when 'asset_sale' then 'بيع أصل'
+      when 'import_cost' then 'مصروف استيراد'
     end,
     target_type
   );

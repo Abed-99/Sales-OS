@@ -1865,6 +1865,8 @@ function sourceLabel(source: string | null) {
     employee_loan_disbursement: "صرف سلفة موظف",
     fixed_asset: "شراء أصل",
     asset_disposal: "بيع أو شطب أصل",
+    import_cost: "مصروف استيراد",
+    import_shipment: "توزيع مصاريف استيراد",
     asset_depreciation: "إهلاك أصول",
     partner_transaction: "حركة شريك",
     goods_receipt: "استلام بضاعة",

@@ -34,6 +34,7 @@ const nav: readonly NavItem[] = [
     icon: Icons.store,
     permission: "purchases.view",
   },
+  { href: "/imports", label: "الاستيراد", icon: Icons.truck, permission: "purchases.view" },
   { href: "/customers", label: "العملاء", icon: Icons.users, permission: "traders.view" },
   { href: "/suppliers", label: "الموردون", icon: Icons.store, permission: "suppliers.view" },
   { href: "/products", label: "الأصناف", icon: Icons.box, permission: "products.view" },

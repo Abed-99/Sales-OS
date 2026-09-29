@@ -84,6 +84,7 @@ const movementLabels: Record<string, string> = {
   payroll_payment: "دفع راتب",
   asset_purchase: "شراء أصل",
   asset_sale: "بيع أصل",
+  import_cost: "مصروف استيراد",
   employee_advance: "سلفة موظف",
   employee_loan: "قرض موظف",
   partner_distribution: "توزيع شريك",

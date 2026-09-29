@@ -326,6 +326,31 @@ check("المرتجع رجّع الضريبة", -(await byKey("tax_payable")), 0
 check("الفاتورة صارت صفر", (await admin.from("sales_invoices").select("balance_due").eq("id", taxInv.id).single()).data.balance_due, 0);
 must("طفّينا الضريبة", await u.from("companies").update({ tax_enabled: false }).eq("id", company));
 
+// ---------------------------------------------------------------- S. import shipment + landed cost
+log("\nS️⃣  الاستيراد: كونتينر + مصاريف + توزيع");
+const gen = (await u.from("products").insert({ company_id: company, name: "مولد 5KVA", sale_price: 200 }).select("id").single()).data.id;
+const lamp = (await u.from("products").insert({ company_id: company, name: "لمبة ليد مستوردة", sale_price: 3 }).select("id").single()).data.id;
+const ship = must("كونتينر جديد", await u.rpc("save_import_shipment", { target_company: company, target_shipment: null, target_container: "MSKU1234567", target_origin: "الصين", target_shipped_on: today, target_expected_on: null, target_arrived_on: null, target_status: "shipped", target_notes: null }));
+const shipInv = must("فاتورة المصنع 10 مولد × 100 + 100 لمبة × 1", await u.rpc("create_purchase_invoice", { target_company: company, target_supplier: supplier, target_supplier_invoice_number: "CN-1", target_invoice_date: today, target_due_date: null, target_notes: null, items_payload: [{ product_id: gen, quantity: 10, unit_cost: 100 }, { product_id: lamp, quantity: 100, unit_cost: 1 }] }));
+const shipInvId = typeof shipInv === "string" ? shipInv : shipInv?.invoice_id ?? shipInv?.id;
+must("ربط الفاتورة بالكونتينر", await u.rpc("link_invoice_to_shipment", { target_company: company, target_invoice: shipInvId, target_shipment: ship }));
+must("شحن بحري 55$", await u.rpc("add_shipment_cost", { target_company: company, target_shipment: ship, target_type: "freight", target_amount: 55, target_cashbox: usdBox, target_date: today, target_notes: null }));
+must("إيداع 715000 ليرة بصندوق الليرة", await u.rpc("record_cash_movement", { target_company: company, target_cashbox: sypBox, movement_type: "adjustment_in", movement_amount: 715000, movement_notes: null }));
+must("جمارك 715000 ليرة (55$)", await u.rpc("add_shipment_cost", { target_company: company, target_shipment: ship, target_type: "customs", target_amount: 715000, target_cashbox: sypBox, target_date: today, target_notes: null }));
+check("المصاريف بانتظار التوزيع", await byKey("import_costs_pending"), 110);
+mustFail("إقفال قبل الاستلام", await u.rpc("close_import_shipment", { target_company: company, target_shipment: ship }));
+const shipItems = (await admin.from("purchase_invoice_items").select("id,quantity").eq("invoice_id", shipInvId)).data;
+must("استلام الكونتينر", await u.rpc("receive_purchase_invoice", { target_company: company, target_invoice: shipInvId, target_warehouse: wh1, target_receipt_date: today, target_notes: null, items_payload: shipItems.map((i) => ({ purchase_invoice_item_id: i.id, quantity: i.quantity })) }));
+must("بعنا مولدين قبل التوزيع", await u.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: gen, quantity: 2, sale_unit_price: 200 }], target_cashbox: usdBox, target_paid_amount: 400, target_cash_amount: 400 }));
+const cogsBeforeClose = await byKey("cogs");
+const closeRes = must("توزيع المصاريف وإقفال الكونتينر", await u.rpc("close_import_shipment", { target_company: company, target_shipment: ship }));
+check("بانتظار التوزيع رجع صفر", await byKey("import_costs_pending"), 0);
+check("حصة المولدين المباعين راحت لكلفة المبيعات", (await byKey("cogs")) - cogsBeforeClose, 20);
+const genStock = (await admin.from("inventory_stock").select("average_cost").eq("product_id", gen).single()).data;
+check("كلفة المولد الواصلة 110$", genStock.average_cost, 110);
+const lampStock = (await admin.from("inventory_stock").select("average_cost").eq("product_id", lamp).single()).data;
+check("كلفة اللمبة الواصلة 1.10$", lampStock.average_cost, 1.1);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));
@@ -369,7 +394,7 @@ check("رواتب مستحقة", -(await byKey("payroll_payable")), 0);
 log("\nH️⃣  أصل ثابت + إهلاك");
 must("سيارة 1200$ عمرها 12 شهر", await u.rpc("create_fixed_asset", { target_company: company, target_name: "سيارة توصيل", target_category: "vehicles", target_description: null, target_purchase_date: start, target_in_service_date: start, target_currency: "USD", target_purchase_cost: 1200, target_salvage_value: 0, target_useful_life_months: 12, target_notes: null, target_cashbox: usdBox }));
 check("الأصول الثابتة", await byKey("fixed_assets"), 1200);
-check("الصندوق دفع حق السيارة (1740 + 30 بيع سريع − 100 سلفة − 250 راتب − 1200)", await byCode("1110"), 1740 + 30 - 100 - 250 - 1200);
+check("الصندوق دفع حق السيارة (1740 + 30 بيع سريع − 55 شحن + 400 مولدين − 100 سلفة − 250 راتب − 1200)", await byCode("1110"), 1740 + 30 - 55 + 400 - 100 - 250 - 1200);
 must("إهلاك الشهر", await u.rpc("post_asset_depreciation_month", { target_company: company, target_year: Y, target_month: M }));
 check("مصروف الإهلاك", await byKey("depreciation_expense"), 100);
 await u.rpc("post_asset_depreciation_month", { target_company: company, target_year: Y, target_month: M });
