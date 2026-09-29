@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { Icons } from "@/components/icons";
+import {
+  OutboxPanel,
+  WhatsAppSettingsPanel,
+  type OutboxMessage,
+} from "@/components/whatsapp/outbox-panel";
 
 export type DebtorRow = {
   id: string;
@@ -43,15 +48,29 @@ function openChat(phone: string | null, text: string) {
 }
 
 export function WhatsAppClient({
+  companyId,
   companyName,
   debtors,
   optIns,
+  pending,
+  recent,
+  settings,
+  templates,
+  defaults,
+  canManageSettings,
 }: {
+  companyId: string;
   companyName: string;
   debtors: DebtorRow[];
   optIns: OptInRow[];
+  pending: OutboxMessage[];
+  recent: OutboxMessage[];
+  settings: Parameters<typeof WhatsAppSettingsPanel>[0]["settings"];
+  templates: Record<string, string>;
+  defaults: Record<string, string>;
+  canManageSettings: boolean;
 }) {
-  const [tab, setTab] = useState<"debts" | "campaign">(debtors.length ? "debts" : "campaign");
+  const [tab, setTab] = useState<"outbox" | "debts" | "campaign" | "settings">("outbox");
   const [template, setTemplate] = useState(
     `مرحبا {الاسم}، عنا عروض جديدة على البضاعة الكهربائية هالأسبوع. تواصل معنا للتفاصيل.\n${companyName}`,
   );
@@ -79,6 +98,13 @@ export function WhatsAppClient({
       <div className="rowActions" style={{ marginBottom: 14 }}>
         <button
           type="button"
+          className={tab === "outbox" ? "primaryButton" : "softButton"}
+          onClick={() => setTab("outbox")}
+        >
+          📬 رسائل جاهزة ({pending.length})
+        </button>
+        <button
+          type="button"
           className={tab === "debts" ? "primaryButton" : "softButton"}
           onClick={() => setTab("debts")}
         >
@@ -91,9 +117,27 @@ export function WhatsAppClient({
         >
           حملة ({optIns.length} موافق)
         </button>
+        {canManageSettings ? (
+          <button
+            type="button"
+            className={tab === "settings" ? "primaryButton" : "softButton"}
+            onClick={() => setTab("settings")}
+          >
+            ⚙️ إعدادات الرسائل
+          </button>
+        ) : null}
       </div>
 
-      {tab === "debts" ? (
+      {tab === "outbox" ? (
+        <OutboxPanel companyId={companyId} pending={pending} recent={recent} />
+      ) : tab === "settings" ? (
+        <WhatsAppSettingsPanel
+          companyId={companyId}
+          settings={settings}
+          templates={templates}
+          defaults={defaults}
+        />
+      ) : tab === "debts" ? (
         <section className="panel">
           <div className="panelHeader panelPad">
             <div>

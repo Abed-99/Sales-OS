@@ -90,7 +90,12 @@ const nav: readonly NavItem[] = [
       "reports.team",
     ],
   },
-  { href: "/whatsapp", label: "مركز واتساب", icon: Icons.whatsapp, permission: "whatsapp.view" },
+  {
+    href: "/whatsapp",
+    label: "واتساب",
+    icon: Icons.whatsapp,
+    anyPermissions: ["traders.view", "orders.view"],
+  },
   { href: "/owner", label: "إدارة الفريق", icon: Icons.shield, ownerOnly: true },
   {
     href: "/returns",
@@ -136,6 +141,7 @@ export function Sidebar({
   permissions,
   companyId,
   memberships,
+  waPending = 0,
 }: {
   userName: string;
   email: string;
@@ -144,6 +150,7 @@ export function Sidebar({
   permissions: string[];
   companyId: string;
   memberships: Membership[];
+  waPending?: number;
 }) {
   const path = usePathname();
   const visibleNav = nav.filter((item) => canSeeNavItem(item, permissions, isOwner));
@@ -165,6 +172,11 @@ export function Sidebar({
             <Link key={href} href={href} className={`navItem ${active ? "active" : ""}`}>
               <Icon size={18} />
               <span>{label}</span>
+              {href === "/whatsapp" && waPending > 0 ? (
+                <span className="navBadge" title="رسائل جاهزة للإرسال">
+                  {waPending}
+                </span>
+              ) : null}
             </Link>
           );
         })}

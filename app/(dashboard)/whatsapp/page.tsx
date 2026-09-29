@@ -5,7 +5,8 @@ import {
 } from "@/components/whatsapp/whatsapp-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasAnyPermission } from "@/lib/permissions";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
+import type { OutboxMessage } from "@/components/whatsapp/outbox-panel";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function WhatsAppPage() {
@@ -34,7 +35,9 @@ export default async function WhatsAppPage() {
   );
 
   const supabase = await createClient();
-  const [invoices, optIns] = await Promise.all([
+  await supabase.rpc("refresh_whatsapp_outbox", { target_company: context.companyId });
+
+  const [invoices, optIns, pendingResult, recentResult, companyResult] = await Promise.all([
     canSeeBalances
       ? supabase
           .from("sales_invoices")
@@ -52,7 +55,39 @@ export default async function WhatsAppPage() {
       .neq("status", "inactive")
       .order("name")
       .limit(1000),
+    supabase
+      .from("whatsapp_outbox")
+      .select(
+        "id,kind,trader_id,phone,message,document_type,document_id,status,created_at,sent_at,traders(name,phone,whatsapp)",
+      )
+      .eq("company_id", context.companyId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(200),
+    supabase
+      .from("whatsapp_outbox")
+      .select(
+        "id,kind,trader_id,phone,message,document_type,document_id,status,created_at,sent_at,traders(name,phone,whatsapp)",
+      )
+      .eq("company_id", context.companyId)
+      .neq("status", "pending")
+      .order("sent_at", { ascending: false, nullsFirst: false })
+      .limit(20),
+    supabase
+      .from("companies")
+      .select("whatsapp_settings,whatsapp_templates")
+      .eq("id", context.companyId)
+      .maybeSingle(),
   ]);
+
+  const defaults = {
+    invoice: "مرحبا {الاسم}، هي فاتورتك رقم {الرقم} بقيمة {المبلغ}. شكرًا لتعاملك معنا 🌷 {الشركة}",
+    receipt: "مرحبا {الاسم}، استلمنا منك {المبلغ}، شكرًا إلك. رصيدك الحالي: {الباقي}. {الشركة}",
+    delivery: "مرحبا {الاسم}، طلبيتك رقم {الرقم} طلعت بالطريق إليك{السائق}. {الشركة}",
+    reminder:
+      "مرحبا {الاسم}، تذكير لطيف: عليك رصيد {الباقي}، منو {المبلغ} متأخر. منشكر تعاونك 🌷 {الشركة}",
+    statement: "مرحبا {الاسم}، هاد كشف حسابك لغاية {الشهر}. الرصيد: {الباقي}. {الشركة}",
+  };
 
   // ديون كل زبون (مجمّعة من فواتيره المفتوحة).
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
@@ -86,7 +121,26 @@ export default async function WhatsAppPage() {
         companyName={context.companyName}
       />
       <WhatsAppClient
+        companyId={context.companyId}
         companyName={context.companyName}
+        pending={(pendingResult.data ?? []) as unknown as OutboxMessage[]}
+        recent={(recentResult.data ?? []) as unknown as OutboxMessage[]}
+        settings={{
+          invoice: true,
+          receipt: true,
+          delivery: true,
+          reminder: true,
+          statement: true,
+          reminder_days: 7,
+          ...((companyResult.data?.whatsapp_settings ?? {}) as object),
+        }}
+        templates={(companyResult.data?.whatsapp_templates ?? {}) as Record<string, string>}
+        defaults={defaults}
+        canManageSettings={hasPermission(
+          context.permissions,
+          "settings.manage_company",
+          context.isOwner,
+        )}
         debtors={[...debtors.values()].sort(
           (a, b) => b.overdue - a.overdue || b.balance - a.balance,
         )}

@@ -95,9 +95,9 @@ const moreNav: readonly NavItem[] = [
   },
   {
     href: "/whatsapp",
-    label: "WhatsApp Center",
+    label: "واتساب",
     icon: Icons.whatsapp,
-    permission: "whatsapp.view",
+    anyPermissions: ["traders.view", "orders.view"],
   },
   { href: "/owner", label: "الفريق", icon: Icons.shield, ownerOnly: true },
   {
@@ -126,7 +126,15 @@ function canSee(item: NavItem, permissions: readonly string[], isOwner: boolean)
   return false;
 }
 
-export function MobileNav({ permissions, isOwner }: { permissions: string[]; isOwner: boolean }) {
+export function MobileNav({
+  permissions,
+  isOwner,
+  waPending = 0,
+}: {
+  permissions: string[];
+  isOwner: boolean;
+  waPending?: number;
+}) {
   const path = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -168,6 +176,9 @@ export function MobileNav({ permissions, isOwner }: { permissions: string[]; isO
                   >
                     <Icon size={21} />
                     <span>{label}</span>
+                    {href === "/whatsapp" && waPending > 0 ? (
+                      <span className="navBadge">{waPending}</span>
+                    ) : null}
                   </Link>
                 );
               })}
@@ -194,6 +205,7 @@ export function MobileNav({ permissions, isOwner }: { permissions: string[]; isO
         >
           <Icons.dots size={19} />
           <span>المزيد</span>
+          {waPending > 0 ? <span className="navBadge navBadgeFloat">{waPending}</span> : null}
         </button>
       </nav>
     </>

@@ -351,6 +351,20 @@ check("كلفة المولد الواصلة 110$", genStock.average_cost, 110);
 const lampStock = (await admin.from("inventory_stock").select("average_cost").eq("product_id", lamp).single()).data;
 check("كلفة اللمبة الواصلة 1.10$", lampStock.average_cost, 1.1);
 
+// ---------------------------------------------------------------- T. WhatsApp outbox
+log("\nT️⃣  صندوق رسائل واتساب الجاهزة");
+const { data: outbox } = await admin.from("whatsapp_outbox").select("kind,message,document_type,trader_id,status").eq("company_id", company);
+check("انجهّزت رسائل فواتير", outbox.filter((m) => m.kind === "invoice" && m.trader_id === trader).length > 0 ? 1 : 0, 1);
+check("انجهّزت إيصالات قبض", outbox.filter((m) => m.kind === "receipt").length > 0 ? 1 : 0, 1);
+check("رسالة الفاتورة فيها اسم الزبون", outbox.find((m) => m.kind === "invoice" && m.trader_id === trader)?.message.includes("محل السلام") ? 1 : 0, 1);
+check("زبون البيع السريع ما إلو رسائل", outbox.filter((m) => m.message.includes("زبون نقدي")).length, 0);
+const refreshed = must("تجهيز الكشوف والتذكير", await u.rpc("refresh_whatsapp_outbox", { target_company: company }));
+check("انجهّز كشف حساب شهري", (await admin.from("whatsapp_outbox").select("id", { count: "exact", head: true }).eq("company_id", company).eq("kind", "statement")).count > 0 ? 1 : 0, 1);
+check("التجهيز التاني ما بيكرر", (await u.rpc("refresh_whatsapp_outbox", { target_company: company })).data, 0);
+const oneMsg = (await admin.from("whatsapp_outbox").select("id").eq("company_id", company).eq("status", "pending").limit(1).single()).data.id;
+must("انبعتت", await salesRep.rpc("mark_whatsapp_outbox", { target_company: company, target_message: oneMsg, target_status: "sent", target_text: null }));
+check("انعلّمت انبعتت", (await admin.from("whatsapp_outbox").select("status").eq("id", oneMsg).single()).data.status === "sent" ? 1 : 0, 1);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

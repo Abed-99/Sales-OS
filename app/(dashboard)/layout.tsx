@@ -2,12 +2,10 @@
 import { Sidebar } from "@/components/sidebar";
 
 import { getCurrentContext } from "@/lib/current-context";
+import { hasAnyPermission } from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const {
     userName,
     email,
@@ -20,6 +18,19 @@ export default async function DashboardLayout({
     memberships,
   } = await getCurrentContext();
 
+  // عدد رسائل واتساب الجاهزة للإرسال (مع تجهيز التذكير والكشوف الشهرية).
+  let waPending = 0;
+  if (hasAnyPermission(permissions, ["traders.view", "orders.view"], isOwner)) {
+    const supabase = await createClient();
+    await supabase.rpc("refresh_whatsapp_outbox", { target_company: companyId });
+    const { count } = await supabase
+      .from("whatsapp_outbox")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("status", "pending");
+    waPending = count ?? 0;
+  }
+
   return (
     <div className="appShell">
       <Sidebar
@@ -30,16 +41,12 @@ export default async function DashboardLayout({
         permissions={permissions}
         companyId={companyId}
         memberships={memberships}
+        waPending={waPending}
       />
 
-      <main className="mainShell">
-        {children}
-      </main>
+      <main className="mainShell">{children}</main>
 
-      <MobileNav
-        permissions={permissions}
-        isOwner={isOwner}
-      />
+      <MobileNav permissions={permissions} isOwner={isOwner} waPending={waPending} />
     </div>
   );
 }
