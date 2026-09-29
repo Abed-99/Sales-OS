@@ -1,58 +1,97 @@
-﻿import { Topbar } from "@/components/topbar";
+import {
+  WhatsAppClient,
+  type DebtorRow,
+  type OptInRow,
+} from "@/components/whatsapp/whatsapp-client";
+import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
+import { hasAnyPermission } from "@/lib/permissions";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function WhatsAppPage() {
-  const { companyName } = await getCurrentContext();
+  const context = await getCurrentContext();
+  const canView = hasAnyPermission(
+    context.permissions,
+    ["traders.view", "traders.view_balance"],
+    context.isOwner,
+  );
+
+  if (!canView) {
+    return (
+      <>
+        <Topbar title="مركز واتساب" subtitle="الرسائل والحملات" companyName={context.companyName} />
+        <div className="page">
+          <section className="panel panelPad">ما عندك صلاحية.</section>
+        </div>
+      </>
+    );
+  }
+
+  const canSeeBalances = hasAnyPermission(
+    context.permissions,
+    ["traders.view_balance", "reports.finance", "payments.sales_view"],
+    context.isOwner,
+  );
+
+  const supabase = await createClient();
+  const [invoices, optIns] = await Promise.all([
+    canSeeBalances
+      ? supabase
+          .from("sales_invoices")
+          .select("trader_id,balance_due,currency,due_date,traders!inner(id,name,phone,whatsapp)")
+          .eq("company_id", context.companyId)
+          .eq("status", "posted")
+          .gt("balance_due", 0)
+          .limit(1000)
+      : Promise.resolve({ data: [] as never[] }),
+    supabase
+      .from("traders")
+      .select("id,name,phone,whatsapp,area")
+      .eq("company_id", context.companyId)
+      .eq("whatsapp_marketing_opt_in", true)
+      .neq("status", "inactive")
+      .order("name")
+      .limit(1000),
+  ]);
+
+  // ديون كل زبون (مجمّعة من فواتيره المفتوحة).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
+  const debtors = new Map<string, DebtorRow>();
+  for (const row of (invoices.data ?? []) as unknown as {
+    trader_id: string;
+    balance_due: number;
+    currency: string;
+    due_date: string | null;
+    traders: { id: string; name: string; phone: string | null; whatsapp: string | null };
+  }[]) {
+    const trader = Array.isArray(row.traders) ? row.traders[0] : row.traders;
+    const current = debtors.get(row.trader_id) ?? {
+      id: row.trader_id,
+      name: trader?.name ?? "",
+      phone: trader?.whatsapp || trader?.phone || null,
+      balance: 0,
+      overdue: 0,
+      currency: row.currency,
+    };
+    current.balance += Number(row.balance_due);
+    if (row.due_date && row.due_date < today) current.overdue += Number(row.balance_due);
+    debtors.set(row.trader_id, current);
+  }
 
   return (
     <>
       <Topbar
         title="مركز واتساب"
-        subtitle="إدارة الرسائل والحملات والأتمتة"
-        companyName={companyName}
+        subtitle="تذكير الزبائن بالديون، كشوف الحساب، والحملات"
+        companyName={context.companyName}
       />
-
-      <div className="page">
-        <section className="heroStrip">
-          <span className="eyebrow">مركز واتساب</span>
-          <h2>مركز واتساب رح يكون جزء أساسي من النظام</h2>
-          <p>
-            هون رح نبني لاحقاً الرسائل، القوالب، الحملات، الجدولة،
-            الأتمتة، سجل الإرسال والاستقبال وربط WhatsApp Cloud API.
-          </p>
-        </section>
-
-        <section className="statsGrid">
-          <div className="statCard">
-            <div className="statLabel">حالة الربط</div>
-            <div className="statValue">غير مربوط</div>
-          </div>
-
-          <div className="statCard">
-            <div className="statLabel">الحملات</div>
-            <div className="statValue">0</div>
-          </div>
-
-          <div className="statCard">
-            <div className="statLabel">الرسائل</div>
-            <div className="statValue">0</div>
-          </div>
-
-          <div className="statCard">
-            <div className="statLabel">الأتمتة</div>
-            <div className="statValue">0</div>
-          </div>
-        </section>
-
-        <section className="panel panelPad" style={{ marginTop: 14 }}>
-          <div className="empty">
-            <h3>مركز واتساب قيد التطوير</h3>
-            <p>
-              منرجعله بعد ما نكمل أساس النظام، ومنبنيه بشكل احترافي من الصفر.
-            </p>
-          </div>
-        </section>
-      </div>
+      <WhatsAppClient
+        companyName={context.companyName}
+        debtors={[...debtors.values()].sort(
+          (a, b) => b.overdue - a.overdue || b.balance - a.balance,
+        )}
+        optIns={(optIns.data ?? []) as OptInRow[]}
+      />
     </>
   );
 }
