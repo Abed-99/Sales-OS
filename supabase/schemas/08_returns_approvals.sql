@@ -3294,7 +3294,7 @@ begin
   if not public.has_permission(
     target_company,
     'approvals.resolve'
-  ) then
+  ) and not public.use_owner_override(target_company, 'approve') then
     raise exception 'Not allowed';
   end if;
 
@@ -3534,7 +3534,7 @@ begin
   if not public.has_permission(
     target_company,
     'returns.reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_return') then
     raise exception 'Not allowed';
   end if;
 
@@ -3922,7 +3922,7 @@ begin
   if not public.has_permission(
     target_company,
     'returns.reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_return') then
     raise exception 'Not allowed';
   end if;
 

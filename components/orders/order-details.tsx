@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
+import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
 
 type Item = {
@@ -108,6 +109,7 @@ export function OrderDetails({
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [working, setWorking] = useState(false);
+  const ownerPin = useOwnerPin(supabase, companyId);
 
   const trader = one(order.traders);
 
@@ -184,18 +186,31 @@ export function OrderDetails({
     setWorking(true);
     setActionError("");
 
-    const result =
+    const run = () =>
       action.kind === "cancel-invoice"
-        ? await supabase.rpc("cancel_sales_invoice", {
+        ? supabase.rpc("cancel_sales_invoice", {
             target_company: companyId,
             target_invoice: action.id,
             target_reason: reason.trim(),
           })
-        : await supabase.rpc("reverse_customer_payment", {
+        : supabase.rpc("reverse_customer_payment", {
             target_company: companyId,
             target_payment: action.id,
             target_reason: reason.trim(),
           });
+
+    let result = await run();
+
+    // ما عندو صلاحية؟ المالك بيكتب رمزو قدامو وبتمشي لمرة وحدة.
+    if (result.error?.message.toLowerCase().includes("not allowed")) {
+      const unlocked = await ownerPin.ask(
+        action.kind === "cancel-invoice" ? "cancel_invoice" : "reverse_payment",
+        action.kind === "cancel-invoice"
+          ? "إلغاء فاتورة بدو صلاحية أو موافقة المالك."
+          : "عكس دفعة بدو صلاحية أو موافقة المالك.",
+      );
+      if (unlocked) result = await run();
+    }
 
     setWorking(false);
 
@@ -323,7 +338,7 @@ export function OrderDetails({
                         )}
                       </td>
                       <td>
-                        {canCancelInvoice && invoice.status === "posted" ? (
+                        {invoice.status === "posted" ? (
                           <button
                             type="button"
                             className="dangerButton"
@@ -392,7 +407,7 @@ export function OrderDetails({
                         )}
                       </td>
                       <td>
-                        {canReversePayment && row.payment.status === "posted" ? (
+                        {row.payment.status === "posted" ? (
                           <button
                             type="button"
                             className="dangerButton"
@@ -461,6 +476,7 @@ export function OrderDetails({
           </button>
         </div>
       </section>
+      {ownerPin.modal}
     </div>
   );
 }

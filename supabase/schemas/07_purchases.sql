@@ -233,7 +233,7 @@ begin
   if not public.has_permission(
     target_company,
     'purchase_invoices.cancel'
-  ) then
+  ) and not public.use_owner_override(target_company, 'cancel_invoice') then
     raise exception 'Not allowed';
   end if;
 

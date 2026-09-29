@@ -11,6 +11,7 @@ import { OrderDetails } from "@/components/orders/order-details";
 import { SearchPicker } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
+import { approveWithOwnerPin, useOwnerPin } from "@/components/owner-pin";
 import {
   convertPrice,
   toBasePrice,
@@ -323,6 +324,7 @@ export function OrdersClient({
   canReversePayment: boolean;
 }) {
   const [supabase] = useState(() => createClient());
+  const ownerPin = useOwnerPin(supabase, companyId);
 
   const traderOptions = useMemo(
     () => traders.map((row) => ({ id: row.id, label: row.name, hint: row.area })),
@@ -658,13 +660,35 @@ export function OrdersClient({
     setSaving(true);
 
     try {
-      const { data, error } = await supabase.rpc("create_sales_order_v2", {
-        target_company: companyId,
-        target_trader: trader,
-        target_notes: notes.trim() || null,
-        items_payload: payload,
-        target_source_quote: null,
-      });
+      const create = () =>
+        supabase.rpc("create_sales_order_v2", {
+          target_company: companyId,
+          target_trader: trader,
+          target_notes: notes.trim() || null,
+          items_payload: payload,
+          target_source_quote: null,
+        });
+
+      let { data, error } = await create();
+
+      // حد الدين أو أقل سعر: المالك بيكتب رمزو وبتنعاد المحاولة.
+      const raw = error?.message ?? "";
+      const blockedBy =
+        raw.includes("ائتمان") || raw.toLowerCase().includes("credit")
+          ? ("credit_limit" as const)
+          : raw.toLowerCase().includes("below allowed minimum")
+            ? ("below_min" as const)
+            : null;
+
+      if (blockedBy) {
+        const unlocked = await ownerPin.ask(
+          blockedBy,
+          blockedBy === "credit_limit"
+            ? "الطلبية بتتجاوز حد دين الزبون."
+            : "في صنف سعرو تحت أقل سعر مسموح.",
+        );
+        if (unlocked) ({ data, error } = await create());
+      }
 
       if (error) {
         setMessage(friendlyError(error, "create"));
@@ -681,9 +705,14 @@ export function OrdersClient({
       resetForm();
 
       if (result?.status === "pending_approval") {
+        const approved =
+          result.approval_id &&
+          (await approveWithOwnerPin(supabase, companyId, ownerPin.ask, result.approval_id));
         setNotice({
           type: "success",
-          text: "السعر يحتاج موافقة. تم إنشاء طلب الموافقة بنجاح ولم تُنشأ الطلبية بعد.",
+          text: approved
+            ? "تمت موافقة المالك وانعملت الطلبية."
+            : "السعر يحتاج موافقة. تم إنشاء طلب الموافقة بنجاح ولم تُنشأ الطلبية بعد.",
         });
       } else {
         setNotice({
@@ -1113,6 +1142,7 @@ export function OrdersClient({
 
   return (
     <div className="page">
+      {ownerPin.modal}
       <div className="pageTitle">
         <div>
           <span className="eyebrow">المبيعات</span>

@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
 
 export type ReturnsTab = "sales" | "purchases" | "history";
@@ -365,6 +366,8 @@ export function ReturnsClient({
   const [salesTarget, setSalesTarget] = useState<SalesReturnCandidate | null>(null);
 
   const [purchaseTarget, setPurchaseTarget] = useState<PurchaseReturnCandidate | null>(null);
+
+  const ownerPin = useOwnerPin(supabase, companyId);
 
   const [reverseTarget, setReverseTarget] = useState<ReturnHistoryRow | null>(null);
 
@@ -731,7 +734,7 @@ export function ReturnsClient({
   }
 
   function openReverse(row: ReturnHistoryRow) {
-    if (!canReverse || row.status !== "posted") {
+    if (row.status !== "posted") {
       return;
     }
 
@@ -745,7 +748,7 @@ export function ReturnsClient({
   async function saveReverse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!reverseTarget || !canReverse) {
+    if (!reverseTarget) {
       return;
     }
 
@@ -761,16 +764,24 @@ export function ReturnsClient({
     setReverseMessage("");
 
     try {
-      const { error } = await supabase.rpc(
-        reverseTarget.kind === "sales" ? "reverse_sales_return" : "reverse_purchase_return",
-        {
-          target_company: companyId,
+      const run = () =>
+        supabase.rpc(
+          reverseTarget.kind === "sales" ? "reverse_sales_return" : "reverse_purchase_return",
+          {
+            target_company: companyId,
+            target_return: reverseTarget.id,
+            target_reason: reason,
+          },
+        );
 
-          target_return: reverseTarget.id,
+      let { error } = await run();
 
-          target_reason: reason,
-        },
-      );
+      // بدون صلاحية العكس: المالك بيكتب رمزو قدام الموظف.
+      if (error?.message.toLowerCase().includes("not allowed") && !canReverse) {
+        if (await ownerPin.ask("reverse_return", "عكس مرتجع بدو صلاحية أو موافقة المالك.")) {
+          ({ error } = await run());
+        }
+      }
 
       if (error) {
         setReverseMessage(friendlyError(error, "reverse"));
@@ -793,9 +804,10 @@ export function ReturnsClient({
 
   return (
     <div className="page">
+      {ownerPin.modal}
       <div className="pageTitle">
         <div>
-          <span className="eyebrow">Returns Center</span>
+          <span className="eyebrow">المرتجعات</span>
 
           <h2>المرتجعات</h2>
 
@@ -1579,7 +1591,7 @@ function HistoryTable({
               </td>
 
               <td>
-                {canReverse && row.status === "posted" ? (
+                {row.status === "posted" ? (
                   <button
                     type="button"
                     className="dangerButton"

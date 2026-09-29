@@ -500,7 +500,7 @@ begin
   if not public.has_permission(
     target_company,
     'sales_invoices.cancel'
-  ) then
+  ) and not public.use_owner_override(target_company, 'cancel_invoice') then
     raise exception 'Not allowed';
   end if;
 
@@ -1788,6 +1788,7 @@ begin
          target_company,
          'orders.approve_discount'
        )
+       and not public.use_owner_override(target_company, 'below_min')
     then
       raise exception
         'Sale price is below allowed minimum';
@@ -2510,6 +2511,7 @@ begin
 
   if v_exposure >
      v_limit + 0.01
+     and not public.use_owner_override(new.company_id, 'credit_limit')
   then
     raise exception
       'تم تجاوز حد ائتمان العميل. الحد: %، الانكشاف بعد الطلب: %',
@@ -5206,7 +5208,7 @@ begin
   if not public.has_permission(
     target_company,
     'payments.sales_reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_payment') then
     raise exception 'Not allowed';
   end if;
 

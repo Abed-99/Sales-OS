@@ -221,6 +221,33 @@ on conflict (code) do update set
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------
+-- رمز المالك: المالك بيكتبو قدام الموظف ليمشّي عملية حساسة لمرة وحدة.
+-- ----------------------------------------------------------------------
+create table public.company_owner_pins (
+  company_id uuid primary key references public.companies(id) on delete cascade,
+  pin_hash text not null,
+  updated_at timestamp with time zone default now() not null
+);
+
+create table public.owner_overrides (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  action text not null,
+  succeeded boolean not null,
+  expires_at timestamp with time zone not null default (now() + interval '3 minutes'),
+  used_at timestamp with time zone,
+  created_at timestamp with time zone default now() not null,
+  constraint owner_overrides_action_check check (action in ('approve','below_min','credit_limit','cancel_invoice','reverse_payment','reverse_return'))
+);
+
+create index owner_overrides_lookup_idx on public.owner_overrides using btree (company_id, user_id, action, created_at desc);
+
+-- ما في سياسات قراءة: الجدولين بيتعاملوا معهن الدوال بس.
+alter table public.company_owner_pins enable row level security;
+alter table public.owner_overrides enable row level security;
+
 create or replace function public.assign_company_member_role(target_company uuid, target_user uuid, target_role uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -637,6 +664,114 @@ AS $function$
   left join public.profiles p on p.id = cm.user_id
   where cm.company_id = target_company
     and public.is_company_member(target_company);
+$function$;
+
+create or replace function public.set_owner_pin(target_company uuid, target_pin text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+begin
+  if not public.is_company_owner(target_company) then
+    raise exception 'Only the owner can set the approval code';
+  end if;
+
+  if target_pin is null or target_pin !~ '^[0-9]{4,8}$' then
+    raise exception 'Approval code must be 4 to 8 digits';
+  end if;
+
+  insert into public.company_owner_pins(company_id, pin_hash)
+  values (target_company, extensions.crypt(target_pin, extensions.gen_salt('bf')))
+  on conflict (company_id)
+  do update set pin_hash = excluded.pin_hash, updated_at = now();
+end;
+$function$;
+
+create or replace function public.has_owner_pin(target_company uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select public.is_company_member(target_company)
+     and exists (select 1 from public.company_owner_pins where company_id = target_company);
+$function$;
+
+-- الموظف بيكتب رمز المالك → بينفتح إذن لعملية وحدة من نوع معيّن، صالح 3 دقايق.
+create or replace function public.unlock_owner_override(target_company uuid, target_action text, target_pin text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+declare
+  v_hash text;
+  v_ok boolean;
+begin
+  if not public.is_company_member(target_company) then
+    raise exception 'Not allowed';
+  end if;
+
+  if (
+    select count(*) from public.owner_overrides
+    where company_id = target_company
+      and user_id = auth.uid()
+      and not succeeded
+      and created_at > now() - interval '10 minutes'
+  ) >= 5 then
+    raise exception 'Too many wrong approval codes';
+  end if;
+
+  select pin_hash into v_hash from public.company_owner_pins where company_id = target_company;
+
+  if v_hash is null then
+    raise exception 'Owner approval code is not set';
+  end if;
+
+  v_ok := extensions.crypt(coalesce(target_pin, ''), v_hash) = v_hash;
+
+  insert into public.owner_overrides(company_id, action, succeeded)
+  values (target_company, target_action, v_ok);
+
+  return v_ok;
+end;
+$function$;
+
+-- جوّا العملية الحساسة: إذا في إذن صالح منستعملو (مرة وحدة، بس بيضل ساري لآخر هالعملية).
+create or replace function public.use_owner_override(target_company uuid, target_action text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_id uuid;
+begin
+  if coalesce(current_setting('app.owner_override_' || target_action, true), '') = 'on' then
+    return true;
+  end if;
+
+  select id into v_id
+  from public.owner_overrides
+  where company_id = target_company
+    and user_id = auth.uid()
+    and action = target_action
+    and succeeded
+    and used_at is null
+    and expires_at > now()
+  order by created_at desc
+  limit 1
+  for update skip locked;
+
+  if v_id is null then
+    return false;
+  end if;
+
+  update public.owner_overrides set used_at = now() where id = v_id;
+  perform set_config('app.owner_override_' || target_action, 'on', true);
+  return true;
+end;
 $function$;
 
 create or replace function public.is_company_owner(target_company uuid)
@@ -1184,6 +1319,8 @@ create policy role_permissions_read on public.role_permissions
 
 revoke insert, update, delete on public.audit_logs from authenticated;
 revoke select, insert, update, delete on public.document_sequences from authenticated;
+
+revoke execute on function public.use_owner_override(uuid,text) from authenticated;
 
 -- ======================================================================
 -- الأصناف والزبائن والموردين
@@ -8424,7 +8561,7 @@ begin
   if not public.has_permission(
     target_company,
     'sales_invoices.cancel'
-  ) then
+  ) and not public.use_owner_override(target_company, 'cancel_invoice') then
     raise exception 'Not allowed';
   end if;
 
@@ -9712,6 +9849,7 @@ begin
          target_company,
          'orders.approve_discount'
        )
+       and not public.use_owner_override(target_company, 'below_min')
     then
       raise exception
         'Sale price is below allowed minimum';
@@ -10434,6 +10572,7 @@ begin
 
   if v_exposure >
      v_limit + 0.01
+     and not public.use_owner_override(new.company_id, 'credit_limit')
   then
     raise exception
       'تم تجاوز حد ائتمان العميل. الحد: %، الانكشاف بعد الطلب: %',
@@ -13130,7 +13269,7 @@ begin
   if not public.has_permission(
     target_company,
     'payments.sales_reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_payment') then
     raise exception 'Not allowed';
   end if;
 
@@ -13896,7 +14035,7 @@ begin
   if not public.has_permission(
     target_company,
     'purchase_invoices.cancel'
-  ) then
+  ) and not public.use_owner_override(target_company, 'cancel_invoice') then
     raise exception 'Not allowed';
   end if;
 
@@ -20005,7 +20144,7 @@ begin
   if not public.has_permission(
     target_company,
     'approvals.resolve'
-  ) then
+  ) and not public.use_owner_override(target_company, 'approve') then
     raise exception 'Not allowed';
   end if;
 
@@ -20245,7 +20384,7 @@ begin
   if not public.has_permission(
     target_company,
     'returns.reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_return') then
     raise exception 'Not allowed';
   end if;
 
@@ -20633,7 +20772,7 @@ begin
   if not public.has_permission(
     target_company,
     'returns.reverse'
-  ) then
+  ) and not public.use_owner_override(target_company, 'reverse_return') then
     raise exception 'Not allowed';
   end if;
 

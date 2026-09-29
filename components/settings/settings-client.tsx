@@ -22,6 +22,7 @@ export function SettingsClient({
   initialName,
   company,
   currencyLocked,
+  hasOwnerPin = false,
 }: {
   email: string;
   roleName: string;
@@ -30,12 +31,39 @@ export function SettingsClient({
   initialName: string;
   company: Company;
   currencyLocked: boolean;
+  hasOwnerPin?: boolean;
 }) {
   const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
   const [passwordOk, setPasswordOk] = useState(false);
+
+  const [ownerPin, setOwnerPin] = useState("");
+  const [pinMessage, setPinMessage] = useState("");
+  const [pinOk, setPinOk] = useState(false);
+
+  async function saveOwnerPin() {
+    setPinMessage("");
+    setPinOk(false);
+    if (!/^[0-9]{4,8}$/.test(ownerPin)) {
+      setPinMessage("الرمز لازم يكون من 4 لـ 8 أرقام.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await createClient().rpc("set_owner_pin", {
+      target_company: company.id,
+      target_pin: ownerPin,
+    });
+    setBusy(false);
+    if (error) {
+      setPinMessage("ما قدرنا نحفظ الرمز.");
+      return;
+    }
+    setOwnerPin("");
+    setPinOk(true);
+    setPinMessage("انحفظ رمز الموافقة.");
+  }
 
   async function changePassword() {
     setPasswordMessage("");
@@ -311,6 +339,49 @@ export function SettingsClient({
             </button>
           </div>
         </section>
+
+        {isOwner ? (
+          <section className="panel panelPad">
+            <div className="panelHeader">
+              <div>
+                <h2>رمز موافقة المالك</h2>
+                <p>
+                  رمز أرقام بتكتبو قدام الموظف ليمشّي عملية حساسة (بيع تحت الكلفة، تجاوز حد الدين،
+                  إلغاء فاتورة، عكس دفعة أو مرتجع) لمرة وحدة.
+                </p>
+              </div>
+            </div>
+
+            <div className="authForm">
+              <label className="field">
+                <span>{hasOwnerPin ? "رمز جديد (بيبدّل القديم)" : "الرمز"}</span>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  dir="ltr"
+                  maxLength={8}
+                  placeholder="4 لـ 8 أرقام"
+                  value={ownerPin}
+                  onChange={(event) => setOwnerPin(event.target.value.replace(/\D/g, ""))}
+                />
+              </label>
+
+              {pinMessage ? (
+                <div className={pinOk ? "toastSuccess" : "toastError"}>{pinMessage}</div>
+              ) : null}
+
+              <button
+                type="button"
+                className="softButton"
+                disabled={busy || ownerPin.length < 4}
+                onClick={() => void saveOwnerPin()}
+              >
+                حفظ الرمز
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <div className="settingsActions">
           {message && <div className={success ? "toastSuccess" : "toastError"}>{message}</div>}

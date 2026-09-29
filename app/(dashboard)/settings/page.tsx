@@ -37,6 +37,10 @@ export default async function SettingsPage() {
   ]);
 
   // بعد أول قيد محاسبي ما عاد فينا نغيّر العملة الأساسية.
+  const { data: hasPin } = await supabase.rpc("has_owner_pin", {
+    target_company: context.companyId,
+  });
+
   const { count: journalCount } = await supabase
     .from("journal_entries")
     .select("id", { count: "exact", head: true })
@@ -70,6 +74,7 @@ export default async function SettingsPage() {
         permissions={context.permissions}
         initialName={profile?.full_name || context.userName}
         currencyLocked={(journalCount ?? 0) > 0}
+        hasOwnerPin={Boolean(hasPin)}
         company={
           company || {
             id: context.companyId,

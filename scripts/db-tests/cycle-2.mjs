@@ -240,6 +240,25 @@ check("صندوق الليرة زاد 10$ بسعر 15000", (await byCode(sypAcc.
 must("طلّعناهن بنفس السعر", await u.rpc("record_cash_movement", { target_company: company, target_cashbox: sypBox, movement_type: "adjustment_out", movement_amount: 150000, movement_notes: null }));
 must("رجّعنا السعر 13000", await u.rpc("set_transaction_rate", { target_company: company, target_currency: "SYP", target_date: today, target_units_per_base: 13000 }));
 
+// ---------------------------------------------------------------- M. owner approval code
+log("\nM️⃣  رمز موافقة المالك");
+mustFail("الموظف ما بيقدر يحط رمز المالك", await salesRep.rpc("set_owner_pin", { target_company: company, target_pin: "1234" }));
+must("المالك حط الرمز", await u.rpc("set_owner_pin", { target_company: company, target_pin: "4821" }));
+const mq = must("الموظف عمل عرض تحت الكلفة", await salesRep.rpc("create_sales_quote", { target_company: company, target_trader: trader, target_valid_until: null, target_notes: null, items_payload: [{ product_id: bulb, quantity: 2, sale_unit_price: 0.1 }] }));
+const mqId = typeof mq === "string" ? mq : mq?.quote_id ?? mq?.id;
+await salesRep.rpc("set_sales_quote_status", { target_company: company, target_quote: mqId, target_status: "sent" });
+await salesRep.rpc("set_sales_quote_status", { target_company: company, target_quote: mqId, target_status: "accepted" });
+const mconv = (await salesRep.rpc("convert_sales_quote_to_order", { target_company: company, target_quote: mqId })).data;
+check("انطلبت موافقة", mconv?.status === "pending_approval" ? 1 : 0, 1);
+mustFail("بدون رمز: الموظف ما بيوافق لحالو", await salesRep.rpc("resolve_approval_request", { target_company: company, target_request: mconv.approval_id, target_decision: "approved", target_notes: null }));
+check("رمز غلط", (await salesRep.rpc("unlock_owner_override", { target_company: company, target_action: "approve", target_pin: "0000" })).data ? 1 : 0, 0);
+check("رمز صح", (await salesRep.rpc("unlock_owner_override", { target_company: company, target_action: "approve", target_pin: "4821" })).data ? 1 : 0, 1);
+must("انوافق بالرمز", await salesRep.rpc("resolve_approval_request", { target_company: company, target_request: mconv.approval_id, target_decision: "approved", target_notes: "بكلمة سر المالك" }));
+check("العرض صار طلبية", (await admin.from("sales_quotes").select("status").eq("id", mqId).single()).data.status === "converted" ? 1 : 0, 1);
+mustFail("نفس الرمز ما بيشتغل مرتين", await salesRep.rpc("resolve_approval_request", { target_company: company, target_request: mconv.approval_id, target_decision: "approved", target_notes: null }));
+const mOrder = (await admin.from("sales_quotes").select("converted_order_id").eq("id", mqId).single()).data.converted_order_id;
+must("إلغاء الطلبية التجريبية", await u.rpc("cancel_sales_order", { target_company: company, target_order: mOrder, target_reason: "تجربة" }));
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

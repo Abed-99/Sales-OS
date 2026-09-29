@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
+import { approveWithOwnerPin, useOwnerPin } from "@/components/owner-pin";
 import {
   convertPrice,
   toBasePrice,
@@ -317,6 +318,7 @@ export function QuotesClient({
   initialError: string | null;
 }) {
   const [supabase] = useState(() => createClient());
+  const ownerPin = useOwnerPin(supabase, companyId);
 
   const traderOptions = useMemo(
     () => traders.map((row) => ({ id: row.id, label: row.name, hint: row.area })),
@@ -755,9 +757,15 @@ export function QuotesClient({
       if (result?.status === "pending_approval") {
         setConvertTarget(null);
 
+        const approved =
+          result.approval_id &&
+          (await approveWithOwnerPin(supabase, companyId, ownerPin.ask, result.approval_id));
+
         setNotice({
           type: "success",
-          text: "السعر يحتاج موافقة. تم إنشاء طلب موافقة تلقائياً.",
+          text: approved
+            ? "تمت موافقة المالك وتحوّل العرض لطلبية."
+            : "السعر يحتاج موافقة. تم إنشاء طلب موافقة تلقائياً.",
         });
 
         router.refresh();
@@ -781,6 +789,7 @@ export function QuotesClient({
 
   return (
     <div className="page">
+      {ownerPin.modal}
       <div className="pageTitle">
         <div>
           <span className="eyebrow">عروض الأسعار</span>
