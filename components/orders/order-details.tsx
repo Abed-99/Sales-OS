@@ -109,6 +109,82 @@ export function OrderDetails({
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [working, setWorking] = useState(false);
+
+  // الأرقام التسلسلية للقطع المباعة بفاتورة (للأصناف اللي عليها تتبّع).
+  const [serialInvoice, setSerialInvoice] = useState<string | null>(null);
+  const [serialLines, setSerialLines] = useState<
+    { product_id: string; name: string; quantity: number; existing: string[]; text: string }[]
+  >([]);
+  const [serialMessage, setSerialMessage] = useState("");
+
+  async function openSerials(invoiceId: string) {
+    setSerialMessage("");
+    const [{ data: items }, { data: existing }] = await Promise.all([
+      supabase
+        .from("sales_invoice_items")
+        .select("product_id,quantity,products!inner(name,track_serials)")
+        .eq("invoice_id", invoiceId)
+        .eq("products.track_serials", true),
+      supabase
+        .from("product_serials")
+        .select("product_id,serial")
+        .eq("sales_invoice_id", invoiceId),
+    ]);
+    const byProduct = new Map<
+      string,
+      { product_id: string; name: string; quantity: number; existing: string[]; text: string }
+    >();
+    for (const row of (items ?? []) as unknown as {
+      product_id: string;
+      quantity: number;
+      products: { name: string } | { name: string }[];
+    }[]) {
+      const product = Array.isArray(row.products) ? row.products[0] : row.products;
+      const current = byProduct.get(row.product_id);
+      if (current) current.quantity += Number(row.quantity);
+      else
+        byProduct.set(row.product_id, {
+          product_id: row.product_id,
+          name: product?.name ?? "",
+          quantity: Number(row.quantity),
+          existing: [],
+          text: "",
+        });
+    }
+    for (const row of existing ?? []) byProduct.get(row.product_id)?.existing.push(row.serial);
+    setSerialLines([...byProduct.values()]);
+    setSerialInvoice(invoiceId);
+  }
+
+  async function saveSerials() {
+    if (!serialInvoice) return;
+    setSerialMessage("");
+    for (const line of serialLines) {
+      const serials = line.text
+        .split(/[\n,،]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!serials.length) continue;
+      const { error } = await supabase.rpc("record_invoice_serials", {
+        target_company: companyId,
+        target_invoice: serialInvoice,
+        target_product: line.product_id,
+        serials,
+      });
+      if (error) {
+        const text = error.message;
+        setSerialMessage(
+          text.includes("More serials")
+            ? `${line.name}: الأرقام أكتر من الكمية المباعة.`
+            : text.includes("already sold")
+              ? `${line.name}: ${text.replace("Serial already sold:", "الرقم مباع من قبل:")}`
+              : `${line.name}: ما قدرنا نسجّل الأرقام.`,
+        );
+        return;
+      }
+    }
+    setSerialInvoice(null);
+  }
   const ownerPin = useOwnerPin(supabase, companyId);
 
   const trader = one(order.traders);
@@ -350,6 +426,16 @@ export function OrderDetails({
                         {invoice.status === "posted" ? (
                           <button
                             type="button"
+                            className="softButton"
+                            style={{ marginInlineEnd: 6 }}
+                            onClick={() => void openSerials(invoice.id)}
+                          >
+                            أرقام تسلسلية
+                          </button>
+                        ) : null}
+                        {invoice.status === "posted" ? (
+                          <button
+                            type="button"
                             className="dangerButton"
                             onClick={() => {
                               setAction({
@@ -486,6 +572,60 @@ export function OrderDetails({
         </div>
       </section>
       {ownerPin.modal}
+
+      {serialInvoice ? (
+        <div className="modalOverlay" style={{ zIndex: 1250 }}>
+          <section className="modal" role="dialog" aria-modal="true">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">الضمان</span>
+                <h2>الأرقام التسلسلية للقطع المباعة</h2>
+                <p className="muted">اكتب كل رقم بسطر (أو امسحهن بالباركود).</p>
+              </div>
+              <button type="button" className="closeButton" onClick={() => setSerialInvoice(null)}>
+                ×
+              </button>
+            </div>
+            {!serialLines.length ? (
+              <p className="muted">ما في بهالفاتورة أصناف عليها تتبّع أرقام تسلسلية.</p>
+            ) : (
+              serialLines.map((line) => (
+                <label className="field" key={line.product_id} style={{ marginBottom: 10 }}>
+                  <span>
+                    {line.name} — مباع {line.quantity}، مسجّل {line.existing.length}
+                    {line.existing.length ? ` (${line.existing.join("، ")})` : ""}
+                  </span>
+                  <textarea
+                    rows={3}
+                    dir="ltr"
+                    value={line.text}
+                    onChange={(event) =>
+                      setSerialLines((current) =>
+                        current.map((row) =>
+                          row.product_id === line.product_id
+                            ? { ...row, text: event.target.value }
+                            : row,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+              ))
+            )}
+            {serialMessage ? <div className="toastError">{serialMessage}</div> : null}
+            <div className="modalActions">
+              <button type="button" className="softButton" onClick={() => setSerialInvoice(null)}>
+                إغلاق
+              </button>
+              {serialLines.length ? (
+                <button type="button" className="primaryButton" onClick={() => void saveSerials()}>
+                  حفظ الأرقام
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

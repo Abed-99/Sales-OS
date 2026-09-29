@@ -33,6 +33,9 @@ create table public.products (
   -- كم قطعة بالكرتونة (أو العلبة). المخزون دايمًا بالوحدة الأساسية.
   pack_size numeric(14,3) check (pack_size is null or pack_size > 1),
   pack_unit text,
+  -- الضمان: مدة بالأشهر، وإذا القطع بتتبّع بأرقام تسلسلية.
+  warranty_months integer check (warranty_months is null or (warranty_months > 0 and warranty_months <= 240)),
+  track_serials boolean default false not null,
   image_url text,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
@@ -207,7 +210,7 @@ AS $function$
 $function$;
 
 -- الكرتونة وأسعار المستويات للصنف (بعد حفظ الصنف الأساسي).
-create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb)
+create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb, product_warranty_months integer DEFAULT NULL::integer, product_track_serials boolean DEFAULT false)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -225,6 +228,8 @@ begin
   set pack_size = case when coalesce(product_pack_size, 0) > 1 then product_pack_size end,
       pack_unit = case when coalesce(product_pack_size, 0) > 1
                        then coalesce(nullif(trim(product_pack_unit), ''), 'كرتونة') end,
+      warranty_months = case when coalesce(product_warranty_months, 0) > 0 then product_warranty_months end,
+      track_serials = coalesce(product_track_serials, false),
       updated_at = now()
   where id = target_product and company_id = target_company;
 

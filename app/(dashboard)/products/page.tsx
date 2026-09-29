@@ -101,7 +101,7 @@ export default async function ProductsPage({
   let productsQuery = supabase
     .from("products")
     .select(
-      "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,reorder_level,pack_size,pack_unit,image_url,active,created_at",
+      "id,category_id,sku,name,brand,unit,sale_price,minimum_sale_price,reorder_level,pack_size,pack_unit,warranty_months,track_serials,image_url,active,created_at",
       {
         count: "exact",
       },

@@ -284,6 +284,54 @@ alter table public.cash_transactions
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------
+-- الأرقام التسلسلية والضمان
+-- ----------------------------------------------------------------------
+create table public.product_serials (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete restrict,
+  serial text not null,
+  status text default 'sold'::text not null,
+  sales_invoice_id uuid references public.sales_invoices(id) on delete set null,
+  trader_id uuid references public.traders(id) on delete set null,
+  sold_on date,
+  warranty_until date,
+  notes text,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at timestamp with time zone default now() not null,
+  constraint product_serials_unique unique (company_id, product_id, serial),
+  constraint product_serials_status_check check (status in ('sold','returned','replaced'))
+);
+
+create table public.warranty_claims (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  serial_id uuid not null references public.product_serials(id) on delete cascade,
+  claim_date date default ((now() at time zone 'Asia/Damascus'::text))::date not null,
+  issue text not null,
+  resolution text,
+  status text default 'open'::text not null,
+  in_warranty boolean not null,
+  created_by uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at timestamp with time zone default now() not null,
+  closed_at timestamp with time zone,
+  constraint warranty_claims_status_check check (status in ('open','repaired','replaced','rejected'))
+);
+
+create index product_serials_serial_idx on public.product_serials using btree (company_id, lower(serial));
+create index warranty_claims_company_idx on public.warranty_claims using btree (company_id, status, claim_date desc);
+
+alter table public.product_serials enable row level security;
+alter table public.warranty_claims enable row level security;
+
+create policy product_serials_read on public.product_serials
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['orders.view'::text, 'products.view'::text]));
+create policy warranty_claims_read on public.warranty_claims
+  for select to authenticated
+  using (public.has_any_permission(company_id, array['orders.view'::text, 'products.view'::text]));
+
 create or replace function public.apply_customer_credit_to_invoice(target_invoice uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -4048,6 +4096,161 @@ $function$;
 -- ----------------------------------------------------------------------
 -- البيع السريع: زبون بالمحل بياخد البضاعة وبيدفع. طلبية + تسليم + فاتورة + قبض بخطوة وحدة.
 -- ----------------------------------------------------------------------
+-- تسجيل أرقام القطع اللي انباعت عالفاتورة (بيحسب نهاية الضمان من تاريخ الفاتورة).
+create or replace function public.record_invoice_serials(target_company uuid, target_invoice uuid, target_product uuid, serials text[])
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_invoice public.sales_invoices%rowtype;
+  v_months integer;
+  v_sold numeric;
+  v_existing integer;
+  v_serial text;
+  v_count integer := 0;
+begin
+  if not public.has_any_permission(target_company, array['orders.update','deliveries.update','orders.create']) then
+    raise exception 'Not allowed';
+  end if;
+
+  select * into v_invoice
+  from public.sales_invoices
+  where id = target_invoice and company_id = target_company and status = 'posted';
+
+  if v_invoice.id is null then
+    raise exception 'Posted sales invoice not found';
+  end if;
+
+  select sum(quantity) into v_sold
+  from public.sales_invoice_items
+  where invoice_id = target_invoice and product_id = target_product;
+
+  if coalesce(v_sold, 0) = 0 then
+    raise exception 'Product is not on this invoice';
+  end if;
+
+  select warranty_months into v_months from public.products where id = target_product;
+
+  select count(*) into v_existing
+  from public.product_serials
+  where sales_invoice_id = target_invoice and product_id = target_product;
+
+  if v_existing + coalesce(array_length(serials, 1), 0) > v_sold then
+    raise exception 'More serials than sold quantity';
+  end if;
+
+  foreach v_serial in array coalesce(serials, array[]::text[]) loop
+    v_serial := upper(trim(v_serial));
+    continue when v_serial = '';
+
+    if exists (
+      select 1 from public.product_serials
+      where company_id = target_company and product_id = target_product
+        and upper(serial) = v_serial and status = 'sold'
+    ) then
+      raise exception 'Serial already sold: %', v_serial;
+    end if;
+
+    insert into public.product_serials(company_id, product_id, serial, status, sales_invoice_id, trader_id, sold_on, warranty_until)
+    values (
+      target_company, target_product, v_serial, 'sold', target_invoice, v_invoice.trader_id,
+      v_invoice.invoice_date,
+      case when v_months is not null then (v_invoice.invoice_date + make_interval(months => v_months))::date end
+    )
+    on conflict (company_id, product_id, serial)
+    do update set status = 'sold', sales_invoice_id = excluded.sales_invoice_id,
+                  trader_id = excluded.trader_id, sold_on = excluded.sold_on,
+                  warranty_until = excluded.warranty_until;
+
+    v_count := v_count + 1;
+  end loop;
+
+  return v_count;
+end;
+$function$;
+
+-- البحث برقم تسلسلي: مين اشترى وإيمتى وإذا لسا بالضمان، مع شكاوى الصيانة.
+create or replace function public.lookup_serial(target_company uuid, target_serial text)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', ps.id,
+    'serial', ps.serial,
+    'status', ps.status,
+    'product', p.name,
+    'trader', t.name,
+    'trader_phone', coalesce(t.whatsapp, t.phone),
+    'invoice_number', si.invoice_number,
+    'sold_on', ps.sold_on,
+    'warranty_until', ps.warranty_until,
+    'in_warranty', ps.warranty_until is not null and ps.warranty_until >= (now() at time zone 'Asia/Damascus')::date,
+    'claims', coalesce((
+      select jsonb_agg(jsonb_build_object('id', c.id, 'claim_date', c.claim_date, 'issue', c.issue,
+                                          'status', c.status, 'resolution', c.resolution) order by c.created_at desc)
+      from public.warranty_claims c where c.serial_id = ps.id
+    ), '[]'::jsonb)
+  )), '[]'::jsonb)
+  from public.product_serials ps
+  join public.products p on p.id = ps.product_id
+  left join public.traders t on t.id = ps.trader_id
+  left join public.sales_invoices si on si.id = ps.sales_invoice_id
+  where ps.company_id = target_company
+    and upper(ps.serial) = upper(trim(target_serial))
+    and public.has_any_permission(target_company, array['orders.view','products.view']);
+$function$;
+
+create or replace function public.save_warranty_claim(target_company uuid, target_serial_id uuid, target_claim uuid, target_issue text, target_status text, target_resolution text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_id uuid := target_claim;
+  v_until date;
+begin
+  if not public.has_any_permission(target_company, array['orders.update','orders.create']) then
+    raise exception 'Not allowed';
+  end if;
+
+  if v_id is null then
+    if nullif(trim(coalesce(target_issue, '')), '') is null then
+      raise exception 'Issue is required';
+    end if;
+
+    select warranty_until into v_until
+    from public.product_serials
+    where id = target_serial_id and company_id = target_company;
+
+    if not found then
+      raise exception 'Serial not found';
+    end if;
+
+    insert into public.warranty_claims(company_id, serial_id, issue, in_warranty)
+    values (target_company, target_serial_id, trim(target_issue),
+            v_until is not null and v_until >= (now() at time zone 'Asia/Damascus')::date)
+    returning id into v_id;
+  else
+    update public.warranty_claims
+    set status = coalesce(target_status, status),
+        resolution = coalesce(nullif(trim(target_resolution), ''), resolution),
+        closed_at = case when coalesce(target_status, status) <> 'open' then now() end
+    where id = v_id and company_id = target_company;
+
+    if not found then
+      raise exception 'Claim not found';
+    end if;
+  end if;
+
+  return v_id;
+end;
+$function$;
+
 create or replace function public.quick_sale(target_company uuid, target_trader uuid, items_payload jsonb, target_cashbox uuid, target_paid_amount numeric, target_cash_amount numeric, target_method text DEFAULT 'cash'::text, target_notes text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql

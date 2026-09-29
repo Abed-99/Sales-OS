@@ -20,6 +20,8 @@ export type Product = {
   reorder_level?: number | null;
   pack_size?: number | null;
   pack_unit?: string | null;
+  warranty_months?: number | null;
+  track_serials?: boolean;
   image_url: string | null;
   active: boolean;
   created_at: string;
@@ -73,6 +75,8 @@ type ProductForm = {
   pack_size: string;
   pack_unit: string;
   level_prices: Record<string, string>;
+  warranty_months: string;
+  track_serials: boolean;
   image_url: string;
 };
 
@@ -89,6 +93,8 @@ function emptyForm(): ProductForm {
     pack_size: "",
     pack_unit: "كرتونة",
     level_prices: {},
+    warranty_months: "",
+    track_serials: false,
     image_url: "",
   };
 }
@@ -396,6 +402,10 @@ export function ProductsClient({
 
       level_prices: {},
 
+      warranty_months: product.warranty_months == null ? "" : String(product.warranty_months),
+
+      track_serials: Boolean(product.track_serials),
+
       image_url: product.image_url ?? "",
     });
 
@@ -630,6 +640,9 @@ export function ProductsClient({
           price_level_id: level.id,
           price: form.level_prices[level.id]?.trim() || null,
         })),
+        product_warranty_months:
+          Number(form.warranty_months) > 0 ? Math.round(Number(form.warranty_months)) : null,
+        product_track_serials: form.track_serials,
       });
 
       if (extrasError) {
@@ -806,7 +819,14 @@ export function ProductsClient({
               }}
             >
               <input
-                style={{ flex: 1, padding: 10, borderRadius: 11, background: "#06110e", color: "white", border: "1px solid var(--line)" }}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 11,
+                  background: "#06110e",
+                  color: "white",
+                  border: "1px solid var(--line)",
+                }}
                 placeholder="اسم المستوى الجديد، مثلًا: جملة"
                 value={newLevelName}
                 onChange={(event) => setNewLevelName(event.target.value)}
@@ -1306,6 +1326,30 @@ export function ProductsClient({
                       />
                     </label>
                   ))}
+
+                <label className="field">
+                  <span>الضمان (بالأشهر)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="فاضي = بدون ضمان"
+                    value={form.warranty_months}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, warranty_months: event.target.value }))
+                    }
+                  />
+                  <label className="printToggle" style={{ color: "inherit" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.track_serials}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, track_serials: event.target.checked }))
+                      }
+                    />
+                    كل قطعة إلها رقم تسلسلي
+                  </label>
+                </label>
 
                 <Field
                   label="رابط صورة المنتج"

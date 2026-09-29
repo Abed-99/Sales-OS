@@ -301,6 +301,18 @@ check("وانحسب خسارة تلف", (await byKey("damaged_goods_expense")) -
 mustFail("تلف بدون سبب", await u.rpc("record_damaged_goods", { target_company: company, target_warehouse: wh1, target_product: cable, target_quantity: 1, target_reason: "" }));
 mustFail("تلف أكتر من الموجود", await u.rpc("record_damaged_goods", { target_company: company, target_warehouse: wh1, target_product: cable, target_quantity: 99999, target_reason: "كسر" }));
 
+// ---------------------------------------------------------------- Q. serials + warranty
+log("\nQ️⃣  الأرقام التسلسلية والضمان");
+must("الكبل عليه ضمان 12 شهر ومتتبّع", await u.rpc("save_product_packaging_and_prices", { target_company: company, target_product: cable, product_pack_size: 24, product_pack_unit: "كرتونة", level_prices: [], product_warranty_months: 12, product_track_serials: true }));
+must("سجّلنا رقمين عالفاتورة", await u.rpc("record_invoice_serials", { target_company: company, target_invoice: inv4.id, target_product: cable, serials: ["sn-001"] }));
+mustFail("أرقام أكتر من المباع", await u.rpc("record_invoice_serials", { target_company: company, target_invoice: inv4.id, target_product: cable, serials: ["SN-002", "SN-003"] }));
+const look = (await u.rpc("lookup_serial", { target_company: company, target_serial: "SN-001" })).data;
+check("لقينا الرقم", look?.length, 1);
+check("بالضمان", look?.[0]?.in_warranty ? 1 : 0, 1);
+const claim = must("شكوى صيانة", await u.rpc("save_warranty_claim", { target_company: company, target_serial_id: look[0].id, target_claim: null, target_issue: "ما عم يشتغل", target_status: null, target_resolution: null }));
+must("تصلّح", await u.rpc("save_warranty_claim", { target_company: company, target_serial_id: look[0].id, target_claim: claim, target_issue: null, target_status: "repaired", target_resolution: "تبديل قطعة" }));
+check("الشكوى صارت مصلّحة", (await u.rpc("lookup_serial", { target_company: company, target_serial: "sn-001" })).data?.[0]?.claims?.[0]?.status === "repaired" ? 1 : 0, 1);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

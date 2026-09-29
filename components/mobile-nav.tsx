@@ -41,6 +41,7 @@ const moreNav: readonly NavItem[] = [
   { href: "/products", label: "الأصناف", icon: Icons.box, permission: "products.view" },
   { href: "/suppliers", label: "الموردون", icon: Icons.store, permission: "suppliers.view" },
   { href: "/deliveries", label: "التوصيل", icon: Icons.truck, permission: "deliveries.view" },
+  { href: "/warranty", label: "الضمان", icon: Icons.shield, permission: "orders.view" },
   {
     href: "/inventory",
     label: "المخزون",
