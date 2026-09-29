@@ -259,6 +259,20 @@ mustFail("نفس الرمز ما بيشتغل مرتين", await salesRep.rpc("r
 const mOrder = (await admin.from("sales_quotes").select("converted_order_id").eq("id", mqId).single()).data.converted_order_id;
 must("إلغاء الطلبية التجريبية", await u.rpc("cancel_sales_order", { target_company: company, target_order: mOrder, target_reason: "تجربة" }));
 
+// ---------------------------------------------------------------- N. quick sale
+log("\nN️⃣  البيع السريع");
+const stockBefore = await stockOf(cable);
+const arBefore = await byKey("accounts_receivable");
+const cashBefore = await byCode("1110");
+const qs = must("بيع سريع 3 كبل × 10$ لزبون نقدي، دفع كامل", await salesRep.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: cable, quantity: 3, sale_unit_price: 10 }], target_cashbox: usdBox, target_paid_amount: 30, target_cash_amount: 30 }));
+check("الكبل نقص 3", stockBefore - (await stockOf(cable)), 3);
+check("الصندوق زاد 30", (await byCode("1110")) - cashBefore, 30);
+check("ديون الزبائن ما تغيّرت", (await byKey("accounts_receivable")) - arBefore, 0);
+check("الفاتورة مدفوعة", (await admin.from("sales_invoices").select("balance_due").eq("id", qs?.invoice_id).single()).data?.balance_due, 0);
+mustFail("بيع سريع تحت الكلفة بدون رمز", await salesRep.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: cable, quantity: 1, sale_unit_price: 1 }], target_cashbox: usdBox, target_paid_amount: 1, target_cash_amount: 1 }));
+mustFail("بيع سريع لكمية مش موجودة", await salesRep.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: cable, quantity: 99999, sale_unit_price: 10 }], target_cashbox: usdBox, target_paid_amount: 0, target_cash_amount: 0 }));
+check("الرفض ما ترك طلبيات معلّقة", (await admin.from("sales_orders").select("id", { count: "exact", head: true }).eq("company_id", company).eq("status", "to_purchase")).count, 0);
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));
@@ -289,7 +303,7 @@ check("رواتب مستحقة", -(await byKey("payroll_payable")), 0);
 log("\nH️⃣  أصل ثابت + إهلاك");
 must("سيارة 1200$ عمرها 12 شهر", await u.rpc("create_fixed_asset", { target_company: company, target_name: "سيارة توصيل", target_category: "vehicles", target_description: null, target_purchase_date: start, target_in_service_date: start, target_currency: "USD", target_purchase_cost: 1200, target_salvage_value: 0, target_useful_life_months: 12, target_notes: null, target_cashbox: usdBox }));
 check("الأصول الثابتة", await byKey("fixed_assets"), 1200);
-check("الصندوق دفع حق السيارة (1740 − 100 سلفة − 250 راتب − 1200)", await byCode("1110"), 1740 - 100 - 250 - 1200);
+check("الصندوق دفع حق السيارة (1740 + 30 بيع سريع − 100 سلفة − 250 راتب − 1200)", await byCode("1110"), 1740 + 30 - 100 - 250 - 1200);
 must("إهلاك الشهر", await u.rpc("post_asset_depreciation_month", { target_company: company, target_year: Y, target_month: M }));
 check("مصروف الإهلاك", await byKey("depreciation_expense"), 100);
 await u.rpc("post_asset_depreciation_month", { target_company: company, target_year: Y, target_month: M });

@@ -25,6 +25,7 @@ type NavItem = {
 const nav: readonly NavItem[] = [
   { href: "/", label: "الرئيسية", icon: Icons.grid, permission: "dashboard.view" },
   { href: "/orders", label: "المبيعات", icon: Icons.cart, permission: "orders.view" },
+  { href: "/quick-sale", label: "بيع سريع", icon: Icons.cart, permission: "sales.quick_sale" },
   { href: "/quotes", label: "عروض الأسعار", icon: Icons.money, permission: "orders.view" },
   { href: "/purchases", label: "المشتريات", icon: Icons.store, permission: "purchases.view" },
   { href: "/customers", label: "العملاء", icon: Icons.users, permission: "traders.view" },
@@ -41,11 +42,7 @@ const nav: readonly NavItem[] = [
     href: "/finance",
     label: "المالية",
     icon: Icons.money,
-    anyPermissions: [
-      "finance.accounts_view",
-      "finance.cashbox_view",
-      "reports.finance",
-    ],
+    anyPermissions: ["finance.accounts_view", "finance.cashbox_view", "reports.finance"],
   },
   {
     href: "/payroll",
@@ -91,20 +88,13 @@ const nav: readonly NavItem[] = [
     href: "/returns",
     label: "المرتجعات",
     icon: Icons.box,
-    anyPermissions: [
-      "returns.view",
-      "returns.create",
-      "inventory.returns",
-    ],
+    anyPermissions: ["returns.view", "returns.create", "inventory.returns"],
   },
   {
     href: "/approvals",
     label: "الموافقات",
     icon: Icons.check,
-    anyPermissions: [
-      "approvals.view",
-      "approvals.resolve",
-    ],
+    anyPermissions: ["approvals.view", "approvals.resolve"],
   },
   { href: "/settings", label: "الإعدادات", icon: Icons.dots, permission: "settings.view" },
 ];
@@ -119,11 +109,7 @@ type Membership = {
   permissions: string[];
 };
 
-function canSeeNavItem(
-  item: NavItem,
-  permissions: readonly string[],
-  isOwner: boolean
-) {
+function canSeeNavItem(item: NavItem, permissions: readonly string[], isOwner: boolean) {
   if (item.ownerOnly) return isOwner;
   if (item.anyPermissions?.length) {
     return hasAnyPermission(permissions, item.anyPermissions, isOwner);
@@ -152,9 +138,7 @@ export function Sidebar({
   memberships: Membership[];
 }) {
   const path = usePathname();
-  const visibleNav = nav.filter((item) =>
-    canSeeNavItem(item, permissions, isOwner)
-  );
+  const visibleNav = nav.filter((item) => canSeeNavItem(item, permissions, isOwner));
 
   return (
     <aside className="sidebar">
@@ -170,11 +154,7 @@ export function Sidebar({
         {visibleNav.map(({ href, label, icon: Icon }) => {
           const active = href === "/" ? path === "/" : path.startsWith(href);
           return (
-            <Link
-              key={href}
-              href={href}
-              className={`navItem ${active ? "active" : ""}`}
-            >
+            <Link key={href} href={href} className={`navItem ${active ? "active" : ""}`}>
               <Icon size={18} />
               <span>{label}</span>
             </Link>

@@ -4034,6 +4034,130 @@ begin
 end;
 $function$;
 
+-- ----------------------------------------------------------------------
+-- البيع السريع: زبون بالمحل بياخد البضاعة وبيدفع. طلبية + تسليم + فاتورة + قبض بخطوة وحدة.
+-- ----------------------------------------------------------------------
+create or replace function public.quick_sale(target_company uuid, target_trader uuid, items_payload jsonb, target_cashbox uuid, target_paid_amount numeric, target_cash_amount numeric, target_method text DEFAULT 'cash'::text, target_notes text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_trader uuid := target_trader;
+  v_item jsonb;
+  v_needs_approval boolean := false;
+  v_result jsonb;
+  v_order uuid;
+  v_status text;
+  v_delivery_items jsonb;
+  v_invoice uuid;
+  v_total numeric(18,2);
+  v_currency text;
+  v_paid numeric(18,2) := round(coalesce(target_paid_amount, 0), 2);
+  v_today date := (now() at time zone 'Asia/Damascus')::date;
+begin
+  if not public.has_any_permission(target_company, array['sales.quick_sale']) then
+    raise exception 'Not allowed';
+  end if;
+
+  if items_payload is null or jsonb_typeof(items_payload) <> 'array' or jsonb_array_length(items_payload) = 0 then
+    raise exception 'Quick sale requires items';
+  end if;
+
+  -- أي سعر تحت الكلفة أو أقل سعر: بدها صلاحية الخصم أو رمز المالك (بدون ما نعمل طلب موافقة معلّق).
+  for v_item in select value from jsonb_array_elements(items_payload) loop
+    if (v_item->>'sale_unit_price')::numeric < (
+      select greatest(coalesce(p.minimum_sale_price, 0), coalesce(public.product_reference_cost(target_company, p.id), 0))
+      from public.products p
+      where p.id = (v_item->>'product_id')::uuid and p.company_id = target_company
+    ) then
+      v_needs_approval := true;
+    end if;
+  end loop;
+
+  if v_needs_approval
+     and not public.has_permission(target_company, 'orders.approve_discount')
+     and not public.use_owner_override(target_company, 'approve')
+  then
+    raise exception 'Owner approval required for this price';
+  end if;
+
+  perform set_config('app.elevated_company', target_company::text, true);
+  perform set_config(
+    'app.elevated_permissions',
+    'orders.create,deliveries.update,payments.sales_create'
+      || case when v_needs_approval then ',orders.approve_discount' else '' end,
+    true
+  );
+
+  -- بدون زبون: "زبون نقدي" (بينعمل مرة وحدة لكل شركة).
+  if v_trader is null then
+    select id into v_trader
+    from public.traders
+    where company_id = target_company and name = 'زبون نقدي'
+    limit 1;
+
+    if v_trader is null then
+      insert into public.traders(company_id, name, status, notes)
+      values (target_company, 'زبون نقدي', 'customer', 'للبيع السريع بدون اسم')
+      returning id into v_trader;
+    end if;
+  end if;
+
+  v_result := public.create_sales_order_v2(target_company, v_trader, target_notes, items_payload, null);
+  v_order := nullif(v_result->>'order_id', '')::uuid;
+
+  if v_order is null then
+    raise exception 'Quick sale could not create the order';
+  end if;
+
+  select status into v_status from public.sales_orders where id = v_order;
+
+  if v_status <> 'ready' then
+    raise exception 'Not enough stock for quick sale';
+  end if;
+
+  select jsonb_agg(jsonb_build_object('sales_order_item_id', soi.id, 'quantity', soi.quantity))
+  into v_delivery_items
+  from public.sales_order_items soi
+  where soi.order_id = v_order;
+
+  perform public.create_order_delivery(target_company, v_order, v_delivery_items);
+  v_invoice := public.complete_order_delivery(target_company, v_order, 'بيع سريع');
+
+  select total, currency into v_total, v_currency from public.sales_invoices where id = v_invoice;
+
+  if v_paid > v_total then
+    raise exception 'Paid amount exceeds invoice total';
+  end if;
+
+  if v_paid > 0 then
+    perform public.record_customer_payment(
+      target_company,
+      v_trader,
+      target_cashbox,
+      round(coalesce(target_cash_amount, v_paid), 2),
+      v_today,
+      coalesce(target_method, 'cash'),
+      null,
+      'بيع سريع',
+      jsonb_build_array(jsonb_build_object('sales_invoice_id', v_invoice, 'amount', v_paid))
+    );
+  end if;
+
+  return jsonb_build_object(
+    'status', 'done',
+    'order_id', v_order,
+    'order_number', (select order_number from public.sales_orders where id = v_order),
+    'invoice_id', v_invoice,
+    'total', v_total,
+    'currency', v_currency,
+    'paid', v_paid
+  );
+end;
+$function$;
+
 create or replace function public.recalc_sales_invoice_payment(target_invoice uuid)
  RETURNS void
  LANGUAGE plpgsql

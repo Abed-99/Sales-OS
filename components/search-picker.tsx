@@ -23,6 +23,7 @@ export function SearchPicker<T>({
   placeholder = "اكتب للبحث...",
   disabled,
   emptyText = "ما في نتائج",
+  autoFocus,
 }: {
   value: string;
   options: PickerOption<T>[];
@@ -31,6 +32,7 @@ export function SearchPicker<T>({
   placeholder?: string;
   disabled?: boolean;
   emptyText?: string;
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
@@ -124,6 +126,7 @@ export function SearchPicker<T>({
         value={open ? term : (selected?.label ?? "")}
         placeholder={selected ? selected.label : placeholder}
         disabled={disabled}
+        autoFocus={autoFocus}
         onFocus={() => {
           setOpen(true);
           setActive(0);

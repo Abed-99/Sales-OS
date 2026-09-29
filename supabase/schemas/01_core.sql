@@ -143,6 +143,7 @@ insert into public.permissions (code, module, action, label, description, sort_o
   ('products.view_cost', 'products', 'view_cost', 'عرض تكلفة الشراء', null, 64),
   ('orders.view', 'orders', 'view', 'عرض الطلبيات', null, 70),
   ('orders.create', 'orders', 'create', 'إنشاء طلبية', null, 71),
+  ('sales.quick_sale', 'orders', 'quick_sale', 'بيع سريع (كاشير)', null, 72),
   ('orders.update', 'orders', 'update', 'تعديل طلبية', null, 72),
   ('orders.cancel', 'orders', 'cancel', 'إلغاء طلبية', null, 73),
   ('orders.approve_discount', 'orders', 'approve_discount', 'الموافقة على الخصومات', null, 74),
@@ -465,7 +466,7 @@ begin
     'suppliers.view','suppliers.create','suppliers.update','suppliers.archive',
     'suppliers.view_finance',
     'products.view','products.create','products.update','products.archive','products.view_cost',
-    'orders.view','orders.create','orders.update','orders.cancel','orders.approve_discount',
+    'orders.view','orders.create','orders.update','orders.cancel','orders.approve_discount','sales.quick_sale',
     'deliveries.view','deliveries.update',
     'purchases.view','purchases.create','purchases.update','purchases.cancel',
     'sales_invoices.view','sales_invoices.create','sales_invoices.cancel',
@@ -500,7 +501,7 @@ begin
     'traders.assign_rep','traders.view_balance',
     'visits.view','visits.create','visits.update',
     'suppliers.view','products.view',
-    'orders.view','orders.create','orders.update','orders.cancel',
+    'orders.view','orders.create','orders.update','orders.cancel','sales.quick_sale',
     'deliveries.view','deliveries.update',
     'payments.sales_view','payments.sales_create',
     'inventory.view','map.view',
@@ -624,6 +625,11 @@ AS $function$
       where cm.company_id = target_company
         and cm.user_id = auth.uid()
         and rp.permission_code = target_permission
+    )
+    -- جوّا "البيع السريع" بس: صلاحية البيع السريع بتغطي الطلبية والتسليم والقبض لهالعملية.
+    or (
+      target_permission = any(string_to_array(coalesce(current_setting('app.elevated_permissions', true), ''), ','))
+      and coalesce(current_setting('app.elevated_company', true), '') = target_company::text
     );
 $function$;
 

@@ -30,6 +30,7 @@ const primaryNav: readonly NavItem[] = [
 ];
 
 const moreNav: readonly NavItem[] = [
+  { href: "/quick-sale", label: "بيع سريع", icon: Icons.cart, permission: "sales.quick_sale" },
   { href: "/quotes", label: "عروض الأسعار", icon: Icons.money, permission: "orders.view" },
   { href: "/products", label: "الأصناف", icon: Icons.box, permission: "products.view" },
   { href: "/suppliers", label: "الموردون", icon: Icons.store, permission: "suppliers.view" },
@@ -44,11 +45,7 @@ const moreNav: readonly NavItem[] = [
     href: "/finance",
     label: "المالية",
     icon: Icons.money,
-    anyPermissions: [
-      "finance.accounts_view",
-      "finance.cashbox_view",
-      "reports.finance",
-    ],
+    anyPermissions: ["finance.accounts_view", "finance.cashbox_view", "reports.finance"],
   },
   {
     href: "/payroll",
@@ -88,26 +85,24 @@ const moreNav: readonly NavItem[] = [
       "reports.team",
     ],
   },
-  { href: "/whatsapp", label: "WhatsApp Center", icon: Icons.whatsapp, permission: "whatsapp.view" },
+  {
+    href: "/whatsapp",
+    label: "WhatsApp Center",
+    icon: Icons.whatsapp,
+    permission: "whatsapp.view",
+  },
   { href: "/owner", label: "الفريق", icon: Icons.shield, ownerOnly: true },
   {
     href: "/returns",
     label: "المرتجعات",
     icon: Icons.box,
-    anyPermissions: [
-      "returns.view",
-      "returns.create",
-      "inventory.returns",
-    ],
+    anyPermissions: ["returns.view", "returns.create", "inventory.returns"],
   },
   {
     href: "/approvals",
     label: "الموافقات",
     icon: Icons.check,
-    anyPermissions: [
-      "approvals.view",
-      "approvals.resolve",
-    ],
+    anyPermissions: ["approvals.view", "approvals.resolve"],
   },
   { href: "/settings", label: "الإعدادات", icon: Icons.dots, permission: "settings.view" },
 ];
@@ -123,30 +118,21 @@ function canSee(item: NavItem, permissions: readonly string[], isOwner: boolean)
   return false;
 }
 
-export function MobileNav({
-  permissions,
-  isOwner,
-}: {
-  permissions: string[];
-  isOwner: boolean;
-}) {
+export function MobileNav({ permissions, isOwner }: { permissions: string[]; isOwner: boolean }) {
   const path = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const primary = primaryNav.filter((item) => canSee(item, permissions, isOwner));
   const more = moreNav.filter((item) => canSee(item, permissions, isOwner));
   const moreActive = more.some((item) =>
-    item.href === "/" ? path === "/" : path.startsWith(item.href)
+    item.href === "/" ? path === "/" : path.startsWith(item.href),
   );
 
   return (
     <>
       {moreOpen ? (
         <div className="mobileMoreBackdrop" onClick={() => setMoreOpen(false)}>
-          <div
-            className="mobileMoreSheet"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="mobileMoreSheet" onClick={(event) => event.stopPropagation()}>
             <div className="mobileMoreHeader">
               <div>
                 <strong>كل الأقسام</strong>
