@@ -28,6 +28,7 @@ AS $function$
       when 'adjustment_out' then 'تسوية نقص'
       when 'transfer_in' then 'تحويل وارد'
       when 'transfer_out' then 'تحويل صادر'
+      when 'damage' then 'بضاعة تالفة'
       when 'sale_receipt' then 'قبض من زبون'
       when 'supplier_payment' then 'دفع لمورد'
       when 'expense' then 'مصروف'
@@ -598,6 +599,28 @@ begin
         )
       );
 
+  elsif new.movement_type =
+        'damage'
+  then
+    v_lines :=
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(new.company_id, 'damaged_goods_expense'),
+          'debit',
+          v_amount,
+          'credit',
+          0
+        ),
+        jsonb_build_object(
+          'account_id',
+          v_inventory,
+          'debit',
+          0,
+          'credit',
+          v_amount
+        )
+      );
   elsif new.movement_type =
         'sales_return'
   then

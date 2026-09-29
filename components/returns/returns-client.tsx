@@ -367,6 +367,9 @@ export function ReturnsClient({
 
   const [purchaseTarget, setPurchaseTarget] = useState<PurchaseReturnCandidate | null>(null);
 
+  // أسطر المرتجع اللي رجعت خربانة.
+  const [damagedLines, setDamagedLines] = useState<Record<string, boolean>>({});
+
   const ownerPin = useOwnerPin(supabase, companyId);
 
   const [reverseTarget, setReverseTarget] = useState<ReturnHistoryRow | null>(null);
@@ -492,6 +495,8 @@ export function ReturnsClient({
       return;
     }
 
+    setDamagedLines({});
+
     const next: Record<string, string> = {};
 
     for (const item of invoice.items) {
@@ -564,8 +569,8 @@ export function ReturnsClient({
 
     const payload: Array<{
       sales_invoice_item_id: string;
-
       quantity: number;
+      damaged?: boolean;
     }> = [];
 
     for (const item of salesTarget.items) {
@@ -588,6 +593,8 @@ export function ReturnsClient({
           sales_invoice_item_id: item.id,
 
           quantity: Number(value.toFixed(3)),
+
+          damaged: Boolean(damagedLines[item.id]),
         });
       }
     }
@@ -1104,6 +1111,7 @@ export function ReturnsClient({
                       <th>مرتجع سابق</th>
                       <th>متاح</th>
                       <th>الكمية</th>
+                      <th>تالف؟</th>
                     </tr>
                   </thead>
 
@@ -1139,6 +1147,20 @@ export function ReturnsClient({
                             style={{
                               minWidth: 100,
                             }}
+                          />
+                        </td>
+
+                        <td>
+                          <input
+                            type="checkbox"
+                            title="البضاعة رجعت خربانة: ما بترجع للمخزون وبتنحسب خسارة تلف"
+                            checked={Boolean(damagedLines[item.id])}
+                            onChange={(event) =>
+                              setDamagedLines((current) => ({
+                                ...current,
+                                [item.id]: event.target.checked,
+                              }))
+                            }
                           />
                         </td>
                       </tr>

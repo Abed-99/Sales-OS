@@ -3508,7 +3508,8 @@ begin
       ('4300', '4000', 'خصومات المبيعات', 'revenue', 'debit', 'sales_discounts'),
       ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance'),
       ('4400', '4000', 'أرباح بيع أصول', 'revenue', 'credit', 'asset_disposal_gain'),
-      ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss')
+      ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss'),
+      ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company
@@ -6193,7 +6194,7 @@ create table public.inventory_movements (
   occurred_at timestamp with time zone default now() not null,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
-  constraint inventory_movements_movement_type_check check ((movement_type = any (array['opening'::text, 'purchase_receipt'::text, 'sales_delivery'::text, 'sales_return'::text, 'purchase_return'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'transfer_in'::text, 'transfer_out'::text]))),
+  constraint inventory_movements_movement_type_check check ((movement_type = any (array['opening'::text, 'purchase_receipt'::text, 'sales_delivery'::text, 'sales_return'::text, 'purchase_return'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'transfer_in'::text, 'transfer_out'::text, 'damage'::text]))),
   constraint inventory_movements_quantity_check check ((quantity <> (0)::numeric)),
   constraint inventory_movements_unit_cost_check check (((unit_cost is null) or (unit_cost >= (0)::numeric)))
 );
@@ -7012,6 +7013,51 @@ begin
   end loop;
 
   return v_count;
+end;
+$function$;
+
+-- بضاعة تالفة: بتطلع من المخزون وكلفتها بتروح على "خسائر بضاعة تالفة".
+create or replace function public.record_damaged_goods(target_company uuid, target_warehouse uuid, target_product uuid, target_quantity numeric, target_reason text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_on_hand numeric;
+  v_reserved numeric;
+  v_cost numeric;
+begin
+  if not public.has_permission(target_company, 'inventory.adjust') then
+    raise exception 'Not allowed';
+  end if;
+
+  if target_quantity is null or target_quantity <= 0 then
+    raise exception 'Damaged quantity must be greater than zero';
+  end if;
+
+  if nullif(trim(coalesce(target_reason, '')), '') is null then
+    raise exception 'Damage reason is required';
+  end if;
+
+  perform public.assert_finance_period_open(target_company, (now() at time zone 'Asia/Damascus')::date);
+
+  select s.on_hand, s.average_cost,
+         coalesce((select sum(r.quantity) from public.inventory_reservations r
+                   where r.warehouse_id = s.warehouse_id and r.product_id = s.product_id and r.status = 'active'), 0)
+  into v_on_hand, v_cost, v_reserved
+  from public.inventory_stock s
+  where s.company_id = target_company and s.warehouse_id = target_warehouse and s.product_id = target_product;
+
+  -- المحجوز لطلبيات ما بيتلف من هون (لازم تتلغى الحجوزات أول).
+  if coalesce(v_on_hand, 0) - coalesce(v_reserved, 0) < target_quantity then
+    raise exception 'Not enough free stock to mark as damaged';
+  end if;
+
+  return public.post_inventory_movement(
+    target_company, target_warehouse, target_product, 'damage', -target_quantity, v_cost,
+    null, null, null, null, 'تالف: ' || trim(target_reason)
+  );
 end;
 $function$;
 
@@ -18544,6 +18590,25 @@ begin
         (v_return_date::timestamp at time zone 'Asia/Damascus')
       );
 
+    -- الزبون رجّع بضاعة خربانة: بتدخل وبتطلع فورًا كتالفة (ما بتنباع ولا بتنحجز).
+    if coalesce((v_item->>'damaged')::boolean, false) then
+      perform
+        public.post_inventory_movement(
+          target_company,
+          target_warehouse,
+          v_product,
+          'damage',
+          -v_qty,
+          v_cost,
+          'sales_returns',
+          v_return,
+          v_return_item,
+          v_number,
+          'تالف من مرتجع',
+          (v_return_date::timestamp at time zone 'Asia/Damascus')
+        );
+    end if;
+
     perform
       public.reserve_pending_orders_for_product(
         target_company,
@@ -25406,6 +25471,7 @@ AS $function$
       when 'adjustment_out' then 'تسوية نقص'
       when 'transfer_in' then 'تحويل وارد'
       when 'transfer_out' then 'تحويل صادر'
+      when 'damage' then 'بضاعة تالفة'
       when 'sale_receipt' then 'قبض من زبون'
       when 'supplier_payment' then 'دفع لمورد'
       when 'expense' then 'مصروف'
@@ -25976,6 +26042,28 @@ begin
         )
       );
 
+  elsif new.movement_type =
+        'damage'
+  then
+    v_lines :=
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(new.company_id, 'damaged_goods_expense'),
+          'debit',
+          v_amount,
+          'credit',
+          0
+        ),
+        jsonb_build_object(
+          'account_id',
+          v_inventory,
+          'debit',
+          0,
+          'credit',
+          v_amount
+        )
+      );
   elsif new.movement_type =
         'sales_return'
   then

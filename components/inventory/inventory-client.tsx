@@ -335,10 +335,55 @@ export function InventoryClient({
 }) {
   const [supabase] = useState(() => createClient());
 
+  const [damage, setDamage] = useState<{
+    warehouse: string;
+    product: string;
+    quantity: string;
+    reason: string;
+  } | null>(null);
+  const [damageMessage, setDamageMessage] = useState("");
+
+  async function saveDamage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!damage) return;
+    if (!damage.product || !(Number(damage.quantity) > 0) || !damage.reason.trim()) {
+      setDamageMessage("اختار الصنف واكتب الكمية والسبب.");
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase.rpc("record_damaged_goods", {
+      target_company: companyId,
+      target_warehouse: damage.warehouse,
+      target_product: damage.product,
+      target_quantity: Number(damage.quantity),
+      target_reason: damage.reason.trim(),
+    });
+    setSaving(false);
+    if (error) {
+      const text = error.message.toLowerCase();
+      setDamageMessage(
+        text.includes("not enough free stock")
+          ? "الكمية أكبر من الموجود غير المحجوز بهالمستودع."
+          : text.includes("closed")
+            ? "الشهر مقفل بالمالية."
+            : "ما قدرنا نسجّل التالف.",
+      );
+      return;
+    }
+    setDamage(null);
+    router.refresh();
+  }
+
   const productOptions = useMemo(
     () =>
       products.map((row) =>
-        productOption({ id: row.id, name: row.name, sku: row.sku, unit: row.unit, sale_price: null }),
+        productOption({
+          id: row.id,
+          name: row.name,
+          sku: row.sku,
+          unit: row.unit,
+          sale_price: null,
+        }),
       ),
     [products],
   );
@@ -1209,12 +1254,100 @@ export function InventoryClient({
               تحويل مخزون
             </button>
 
+            <button
+              type="button"
+              className="dangerButton"
+              onClick={() => {
+                setDamageMessage("");
+                setDamage({
+                  warehouse:
+                    warehouses.find((row) => row.is_default)?.id ?? warehouses[0]?.id ?? "",
+                  product: "",
+                  quantity: "",
+                  reason: "",
+                });
+              }}
+            >
+              تسجيل تالف
+            </button>
+
             <button type="button" className="primaryButton" onClick={() => void openCount()}>
               جرد فعلي
             </button>
           </div>
         ) : null}
       </div>
+
+      {damage ? (
+        <div className="modalOverlay">
+          <section className="modal" role="dialog" aria-modal="true">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">المخزون</span>
+                <h2>تسجيل بضاعة تالفة</h2>
+                <p className="muted">بتطلع من المخزون وبتنحسب على «خسائر بضاعة تالفة».</p>
+              </div>
+              <button type="button" className="closeButton" onClick={() => setDamage(null)}>
+                ×
+              </button>
+            </div>
+            <form onSubmit={saveDamage}>
+              <div className="formGrid">
+                <label className="field">
+                  <span>المستودع</span>
+                  <select
+                    value={damage.warehouse}
+                    onChange={(event) => setDamage({ ...damage, warehouse: event.target.value })}
+                  >
+                    {warehouses.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>الصنف</span>
+                  <SearchPicker
+                    value={damage.product}
+                    placeholder="اسم الصنف أو كودو..."
+                    options={productOptions}
+                    onSearch={findProducts}
+                    onChange={(id) => setDamage({ ...damage, product: id })}
+                  />
+                </label>
+                <label className="field">
+                  <span>الكمية</span>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    value={damage.quantity}
+                    onChange={(event) => setDamage({ ...damage, quantity: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>السبب</span>
+                  <input
+                    placeholder="كسر، رطوبة، عيب مصنعي..."
+                    value={damage.reason}
+                    onChange={(event) => setDamage({ ...damage, reason: event.target.value })}
+                  />
+                </label>
+              </div>
+              {damageMessage ? <div className="toastError">{damageMessage}</div> : null}
+              <div className="modalActions">
+                <button type="button" className="softButton" onClick={() => setDamage(null)}>
+                  إلغاء
+                </button>
+                <button className="dangerButton" disabled={saving}>
+                  تسجيل التالف
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       {notice ? (
         <div

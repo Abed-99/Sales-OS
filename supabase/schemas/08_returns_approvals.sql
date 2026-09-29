@@ -1305,6 +1305,25 @@ begin
         (v_return_date::timestamp at time zone 'Asia/Damascus')
       );
 
+    -- الزبون رجّع بضاعة خربانة: بتدخل وبتطلع فورًا كتالفة (ما بتنباع ولا بتنحجز).
+    if coalesce((v_item->>'damaged')::boolean, false) then
+      perform
+        public.post_inventory_movement(
+          target_company,
+          target_warehouse,
+          v_product,
+          'damage',
+          -v_qty,
+          v_cost,
+          'sales_returns',
+          v_return,
+          v_return_item,
+          v_number,
+          'تالف من مرتجع',
+          (v_return_date::timestamp at time zone 'Asia/Damascus')
+        );
+    end if;
+
     perform
       public.reserve_pending_orders_for_product(
         target_company,
