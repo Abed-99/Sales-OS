@@ -36,6 +36,11 @@ create table public.companies (
   whatsapp text,
   logo_url text,
   address text,
+  -- الضريبة خيار: مطفية افتراضيًا.
+  tax_enabled boolean default false not null,
+  tax_rate numeric(5,2) default 0 not null check (tax_rate >= 0 and tax_rate <= 100),
+  tax_number text,
+  tax_label text default 'ضريبة المبيعات'::text not null,
   default_currency text default 'USD'::text not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null

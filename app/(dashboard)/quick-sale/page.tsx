@@ -20,7 +20,7 @@ export default async function QuickSalePage() {
   }
 
   const supabase = await createClient();
-  const [productsResult, cashboxesResult] = await Promise.all([
+  const [productsResult, cashboxesResult, companyResult] = await Promise.all([
     supabase
       .from("products")
       .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit")
@@ -34,7 +34,16 @@ export default async function QuickSalePage() {
       .eq("company_id", context.companyId)
       .eq("active", true)
       .order("created_at"),
+    supabase
+      .from("companies")
+      .select("tax_enabled,tax_rate,tax_label")
+      .eq("id", context.companyId)
+      .maybeSingle(),
   ]);
+
+  const tax = companyResult.data?.tax_enabled
+    ? { rate: Number(companyResult.data.tax_rate), label: companyResult.data.tax_label }
+    : null;
 
   return (
     <>
@@ -48,6 +57,7 @@ export default async function QuickSalePage() {
         currency={context.currency}
         products={productsResult.data ?? []}
         cashboxes={cashboxesResult.data ?? []}
+        tax={tax}
       />
     </>
   );

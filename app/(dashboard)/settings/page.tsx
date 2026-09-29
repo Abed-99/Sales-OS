@@ -31,7 +31,9 @@ export default async function SettingsPage() {
     supabase.from("profiles").select("full_name").eq("id", context.user.id).maybeSingle(),
     supabase
       .from("companies")
-      .select("id,name,phone,whatsapp,address,default_currency")
+      .select(
+        "id,name,phone,whatsapp,address,default_currency,tax_enabled,tax_rate,tax_number,tax_label",
+      )
       .eq("id", context.companyId)
       .maybeSingle(),
   ]);

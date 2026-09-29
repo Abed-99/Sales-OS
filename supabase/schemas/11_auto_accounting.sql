@@ -945,6 +945,27 @@ begin
       );
   end if;
 
+  if coalesce(new.tax_total, 0) > 0 then
+    v_lines :=
+      v_lines ||
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(new.company_id, 'tax_payable'),
+          'debit',
+          0,
+          'credit',
+          new.tax_total,
+          'party_type',
+          'trader',
+          'party_id',
+          new.trader_id,
+          'memo',
+          'ضريبة مبيعات'
+        )
+      );
+  end if;
+
   if new.subtotal > 0 then
     v_lines :=
       v_lines ||

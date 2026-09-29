@@ -9,6 +9,8 @@ export type Letterhead = {
   whatsapp: string | null;
   address: string | null;
   logo_url: string | null;
+  tax_number?: string | null;
+  tax_label?: string | null;
 };
 
 /** رقم واتساب بصيغة wa.me (أرقام بس، بدون +). */
@@ -173,9 +175,18 @@ export function PrintShell({
                     <bdi dir="ltr">{company.phone}</bdi>
                   </span>
                 ) : null}
+                {company.tax_number ? (
+                  <span>
+                    {company.address || company.phone || company.whatsapp ? " • " : ""}
+                    {"الرقم الضريبي "}
+
+                    <bdi dir="ltr">{company.tax_number}</bdi>
+                  </span>
+                ) : null}
                 {company.whatsapp ? (
                   <span>
-                    {" • واتساب "}
+                    {company.address || company.phone ? " • " : ""}
+                    {"واتساب "}
                     <bdi dir="ltr">{company.whatsapp}</bdi>
                   </span>
                 ) : null}

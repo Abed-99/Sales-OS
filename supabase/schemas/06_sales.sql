@@ -160,6 +160,7 @@ create table public.sales_invoices (
   due_date date,
   subtotal numeric(14,2) default 0 not null,
   discount_total numeric(14,2) default 0 not null,
+  tax_total numeric(14,2) default 0 not null,
   total numeric(14,2) default 0 not null,
   paid_total numeric(14,2) default 0 not null,
   balance_due numeric(14,2) default 0 not null,
@@ -781,6 +782,7 @@ declare
   v_discount numeric(14,2);
   v_previous_discount numeric(14,2);
   v_total numeric(14,2);
+  v_tax numeric(14,2) := 0;
 
   v_invoice_number text;
   v_now timestamptz;
@@ -1173,6 +1175,15 @@ begin
       2
     );
 
+  -- الضريبة (إذا مفعّلة بالإعدادات) بتنضاف عالصافي.
+  select case when c.tax_enabled then round(v_total * c.tax_rate / 100, 2) else 0 end
+  into v_tax
+  from public.companies c
+  where c.id = target_company;
+
+  v_tax := coalesce(v_tax, 0);
+  v_total := v_total + v_tax;
+
   v_invoice_number :=
     public.next_sales_invoice_number(
       target_company,
@@ -1191,6 +1202,7 @@ begin
     due_date,
     subtotal,
     discount_total,
+    tax_total,
     total,
     paid_total,
     balance_due,
@@ -1221,6 +1233,7 @@ begin
       v_discount,
       2
     ),
+    v_tax,
     v_total,
     0,
     v_total,
@@ -4268,7 +4281,7 @@ declare
   v_invoice uuid;
   v_total numeric(18,2);
   v_currency text;
-  v_paid numeric(18,2) := round(coalesce(target_paid_amount, 0), 2);
+  v_paid numeric(18,2);
   v_today date := (now() at time zone 'Asia/Damascus')::date;
 begin
   if not public.has_any_permission(target_company, array['sales.quick_sale']) then
@@ -4341,6 +4354,9 @@ begin
   v_invoice := public.complete_order_delivery(target_company, v_order, 'بيع سريع');
 
   select total, currency into v_total, v_currency from public.sales_invoices where id = v_invoice;
+
+  -- بدون مبلغ محدد = دفع كامل (مع الضريبة إذا في).
+  v_paid := round(coalesce(target_paid_amount, v_total), 2);
 
   if v_paid > v_total then
     raise exception 'Paid amount exceeds invoice total';

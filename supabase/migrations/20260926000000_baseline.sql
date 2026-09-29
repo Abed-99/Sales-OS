@@ -40,6 +40,11 @@ create table public.companies (
   whatsapp text,
   logo_url text,
   address text,
+  -- الضريبة خيار: مطفية افتراضيًا.
+  tax_enabled boolean default false not null,
+  tax_rate numeric(5,2) default 0 not null check (tax_rate >= 0 and tax_rate <= 100),
+  tax_number text,
+  tax_label text default 'ضريبة المبيعات'::text not null,
   default_currency text default 'USD'::text not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null
@@ -3514,7 +3519,8 @@ begin
       ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance'),
       ('4400', '4000', 'أرباح بيع أصول', 'revenue', 'credit', 'asset_disposal_gain'),
       ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss'),
-      ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense')
+      ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense'),
+      ('2700', '2000', 'ضريبة مبيعات مستحقة', 'liability', 'credit', 'tax_payable')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company
@@ -8310,6 +8316,7 @@ create table public.sales_invoices (
   due_date date,
   subtotal numeric(14,2) default 0 not null,
   discount_total numeric(14,2) default 0 not null,
+  tax_total numeric(14,2) default 0 not null,
   total numeric(14,2) default 0 not null,
   paid_total numeric(14,2) default 0 not null,
   balance_due numeric(14,2) default 0 not null,
@@ -8931,6 +8938,7 @@ declare
   v_discount numeric(14,2);
   v_previous_discount numeric(14,2);
   v_total numeric(14,2);
+  v_tax numeric(14,2) := 0;
 
   v_invoice_number text;
   v_now timestamptz;
@@ -9323,6 +9331,15 @@ begin
       2
     );
 
+  -- الضريبة (إذا مفعّلة بالإعدادات) بتنضاف عالصافي.
+  select case when c.tax_enabled then round(v_total * c.tax_rate / 100, 2) else 0 end
+  into v_tax
+  from public.companies c
+  where c.id = target_company;
+
+  v_tax := coalesce(v_tax, 0);
+  v_total := v_total + v_tax;
+
   v_invoice_number :=
     public.next_sales_invoice_number(
       target_company,
@@ -9341,6 +9358,7 @@ begin
     due_date,
     subtotal,
     discount_total,
+    tax_total,
     total,
     paid_total,
     balance_due,
@@ -9371,6 +9389,7 @@ begin
       v_discount,
       2
     ),
+    v_tax,
     v_total,
     0,
     v_total,
@@ -12418,7 +12437,7 @@ declare
   v_invoice uuid;
   v_total numeric(18,2);
   v_currency text;
-  v_paid numeric(18,2) := round(coalesce(target_paid_amount, 0), 2);
+  v_paid numeric(18,2);
   v_today date := (now() at time zone 'Asia/Damascus')::date;
 begin
   if not public.has_any_permission(target_company, array['sales.quick_sale']) then
@@ -12491,6 +12510,9 @@ begin
   v_invoice := public.complete_order_delivery(target_company, v_order, 'بيع سريع');
 
   select total, currency into v_total, v_currency from public.sales_invoices where id = v_invoice;
+
+  -- بدون مبلغ محدد = دفع كامل (مع الضريبة إذا في).
+  v_paid := round(coalesce(target_paid_amount, v_total), 2);
 
   if v_paid > v_total then
     raise exception 'Paid amount exceeds invoice total';
@@ -18454,6 +18476,8 @@ declare
   v_open_ar numeric(18,2);
 
   v_ar_part numeric(18,2);
+  v_tax numeric(18,2) := 0;
+  v_invoice_tax numeric(18,2);
   v_credit_part numeric(18,2);
 
   v_cost numeric(18,4);
@@ -18885,6 +18909,14 @@ begin
       0
     );
 
+  -- إذا الفاتورة عليها ضريبة، المرتجع بيرجّع نسبتها.
+  select tax_total into v_invoice_tax from public.sales_invoices where id = target_invoice;
+
+  if coalesce(v_invoice_tax, 0) > 0 and v_invoice_total - v_invoice_tax > 0 then
+    v_tax := round(v_total * v_invoice_tax / (v_invoice_total - v_invoice_tax), 2);
+    v_total := v_total + v_tax;
+  end if;
+
   select
     coalesce(
       sum(a.amount),
@@ -19077,6 +19109,27 @@ begin
           v_trader,
           'memo',
           'مرتجع مبيعات'
+        )
+      );
+  end if;
+
+  if v_tax > 0 then
+    v_lines :=
+      v_lines ||
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(target_company, 'tax_payable'),
+          'debit',
+          v_tax,
+          'credit',
+          0,
+          'party_type',
+          'trader',
+          'party_id',
+          v_trader,
+          'memo',
+          'رد ضريبة المرتجع'
         )
       );
   end if;
@@ -26592,6 +26645,27 @@ begin
           new.trader_id,
           'memo',
           'خصم مبيعات'
+        )
+      );
+  end if;
+
+  if coalesce(new.tax_total, 0) > 0 then
+    v_lines :=
+      v_lines ||
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(new.company_id, 'tax_payable'),
+          'debit',
+          0,
+          'credit',
+          new.tax_total,
+          'party_type',
+          'trader',
+          'party_id',
+          new.trader_id,
+          'memo',
+          'ضريبة مبيعات'
         )
       );
   end if;

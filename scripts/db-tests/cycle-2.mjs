@@ -313,6 +313,19 @@ const claim = must("شكوى صيانة", await u.rpc("save_warranty_claim", { t
 must("تصلّح", await u.rpc("save_warranty_claim", { target_company: company, target_serial_id: look[0].id, target_claim: claim, target_issue: null, target_status: "repaired", target_resolution: "تبديل قطعة" }));
 check("الشكوى صارت مصلّحة", (await u.rpc("lookup_serial", { target_company: company, target_serial: "sn-001" })).data?.[0]?.claims?.[0]?.status === "repaired" ? 1 : 0, 1);
 
+// ---------------------------------------------------------------- R. optional tax
+log("\nR️⃣  الضريبة (خيار)");
+must("تفعيل ضريبة 10%", await u.from("companies").update({ tax_enabled: true, tax_rate: 10, tax_number: "123456" }).eq("id", company));
+const taxInv = await sellCable(1);
+const taxRow = (await admin.from("sales_invoices").select("subtotal,tax_total,total").eq("id", taxInv.id).single()).data;
+check("الفاتورة: 10$ + ضريبة 1$", taxRow.total, 11);
+check("ضريبة مستحقة بالحسابات", -(await byKey("tax_payable")), 1);
+const taxItem = (await admin.from("sales_invoice_items").select("id").eq("invoice_id", taxInv.id).single()).data.id;
+must("مرتجع القطعة", await u.rpc("create_sales_return", { target_company: company, target_invoice: taxInv.id, target_warehouse: wh1, target_date: today, target_notes: null, items_payload: [{ sales_invoice_item_id: taxItem, quantity: 1 }] }));
+check("المرتجع رجّع الضريبة", -(await byKey("tax_payable")), 0);
+check("الفاتورة صارت صفر", (await admin.from("sales_invoices").select("balance_due").eq("id", taxInv.id).single()).data.balance_due, 0);
+must("طفّينا الضريبة", await u.from("companies").update({ tax_enabled: false }).eq("id", company));
+
 // ---------------------------------------------------------------- G. payroll
 log("\nG️⃣  الرواتب والسلف");
 const emp = must("موظف راتبه 300$", await u.rpc("save_employee", { target_company: company, target_employee: null, target_employee_number: null, target_name: "أحمد", target_phone: null, target_job_title: "سائق", target_department: null, target_hire_date: today, target_salary_currency: "USD", target_base_salary: 300, target_fixed_allowances: 0, target_overtime_rate: 0, target_employee_social_rate: 0, target_employer_social_rate: 0, target_income_tax_rate: 0, target_cashbox: usdBox, target_notes: null, target_status: "active" }));

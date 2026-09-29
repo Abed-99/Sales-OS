@@ -24,7 +24,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
   const { data: invoice } = await supabase
     .from("sales_invoices")
     .select(
-      "id,invoice_number,invoice_date,due_date,currency,subtotal,discount_total,total,paid_total,balance_due,status,notes,order_id,traders(name,phone,whatsapp,address),sales_orders(order_number)",
+      "id,invoice_number,invoice_date,due_date,currency,subtotal,discount_total,tax_total,total,paid_total,balance_due,status,notes,order_id,traders(name,phone,whatsapp,address),sales_orders(order_number)",
     )
     .eq("company_id", context.companyId)
     .eq("id", id)
@@ -146,6 +146,13 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
               <span>{money(invoice.discount_total, currency)}</span>
             </div>
           </>
+        ) : null}
+        {Number(invoice.tax_total) > 0 ? (
+          <div>
+            <span>{company.tax_label ?? "الضريبة"}</span>
+
+            <span>{money(invoice.tax_total, currency)}</span>
+          </div>
         ) : null}
         <div className="grand">
           <span>الإجمالي</span>

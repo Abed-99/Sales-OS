@@ -1157,7 +1157,8 @@ begin
       ('5200', '5000', 'فروقات أسعار الشراء', 'expense', 'debit', 'purchase_variance'),
       ('4400', '4000', 'أرباح بيع أصول', 'revenue', 'credit', 'asset_disposal_gain'),
       ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss'),
-      ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense')
+      ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense'),
+      ('2700', '2000', 'ضريبة مبيعات مستحقة', 'liability', 'credit', 'tax_payable')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company

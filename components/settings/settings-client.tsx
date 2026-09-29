@@ -12,6 +12,10 @@ type Company = {
   phone: string | null;
   whatsapp: string | null;
   address?: string | null;
+  tax_enabled?: boolean;
+  tax_rate?: number;
+  tax_number?: string | null;
+  tax_label?: string;
   default_currency: string;
 };
 
@@ -99,6 +103,10 @@ export function SettingsClient({
   const [phone, setPhone] = useState(company.phone || "");
   const [whatsapp, setWhatsapp] = useState(company.whatsapp || "");
   const [address, setAddress] = useState(company.address || "");
+  const [taxEnabled, setTaxEnabled] = useState(Boolean(company.tax_enabled));
+  const [taxRate, setTaxRate] = useState(String(company.tax_rate ?? 0));
+  const [taxNumber, setTaxNumber] = useState(company.tax_number || "");
+  const [taxLabel, setTaxLabel] = useState(company.tax_label || "ضريبة المبيعات");
   const [currency, setCurrency] = useState(company.default_currency || "USD");
 
   const [busy, setBusy] = useState(false);
@@ -171,6 +179,10 @@ export function SettingsClient({
             phone: normalizedPhone,
             whatsapp: normalizedWhatsapp,
             address: address.trim() || null,
+            tax_enabled: taxEnabled,
+            tax_rate: Math.min(Math.max(Number(taxRate) || 0, 0), 100),
+            tax_number: taxNumber.trim() || null,
+            tax_label: taxLabel.trim() || "ضريبة المبيعات",
             ...(currencyLocked ? {} : { default_currency: currency.trim().toUpperCase() }),
           })
           .eq("id", company.id);
@@ -287,6 +299,48 @@ export function SettingsClient({
                 onChange={(event) => setAddress(event.target.value)}
               />
             </label>
+
+            <div className="field">
+              <span>الضريبة</span>
+              <label className="printToggle" style={{ color: "inherit" }}>
+                <input
+                  type="checkbox"
+                  disabled={!canManage}
+                  checked={taxEnabled}
+                  onChange={(event) => setTaxEnabled(event.target.checked)}
+                />
+                تفعيل الضريبة على فواتير البيع
+              </label>
+              {taxEnabled ? (
+                <>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="النسبة %"
+                    value={taxRate}
+                    readOnly={!canManage}
+                    onChange={(event) => setTaxRate(event.target.value)}
+                  />
+                  <input
+                    placeholder="اسمها بالفاتورة (مثلًا ضريبة المبيعات)"
+                    value={taxLabel}
+                    readOnly={!canManage}
+                    onChange={(event) => setTaxLabel(event.target.value)}
+                  />
+                  <input
+                    placeholder="الرقم الضريبي للشركة"
+                    value={taxNumber}
+                    readOnly={!canManage}
+                    onChange={(event) => setTaxNumber(event.target.value)}
+                  />
+                  <small className="helpText">
+                    بتنحسب على الفواتير الجديدة بس. الفواتير القديمة ما بتتغيّر.
+                  </small>
+                </>
+              ) : null}
+            </div>
 
             <label className="field">
               <span>العملة الأساسية</span>

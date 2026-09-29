@@ -961,6 +961,8 @@ declare
   v_open_ar numeric(18,2);
 
   v_ar_part numeric(18,2);
+  v_tax numeric(18,2) := 0;
+  v_invoice_tax numeric(18,2);
   v_credit_part numeric(18,2);
 
   v_cost numeric(18,4);
@@ -1392,6 +1394,14 @@ begin
       0
     );
 
+  -- إذا الفاتورة عليها ضريبة، المرتجع بيرجّع نسبتها.
+  select tax_total into v_invoice_tax from public.sales_invoices where id = target_invoice;
+
+  if coalesce(v_invoice_tax, 0) > 0 and v_invoice_total - v_invoice_tax > 0 then
+    v_tax := round(v_total * v_invoice_tax / (v_invoice_total - v_invoice_tax), 2);
+    v_total := v_total + v_tax;
+  end if;
+
   select
     coalesce(
       sum(a.amount),
@@ -1584,6 +1594,27 @@ begin
           v_trader,
           'memo',
           'مرتجع مبيعات'
+        )
+      );
+  end if;
+
+  if v_tax > 0 then
+    v_lines :=
+      v_lines ||
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(target_company, 'tax_payable'),
+          'debit',
+          v_tax,
+          'credit',
+          0,
+          'party_type',
+          'trader',
+          'party_id',
+          v_trader,
+          'memo',
+          'رد ضريبة المرتجع'
         )
       );
   end if;

@@ -65,11 +65,13 @@ export function QuickSaleClient({
   currency,
   products,
   cashboxes,
+  tax = null,
 }: {
   companyId: string;
   currency: string;
   products: ProductPick[];
   cashboxes: { id: string; name: string; currency: string }[];
+  tax?: { rate: number; label: string } | null;
 }) {
   const [supabase] = useState(() => createClient());
   const ownerPin = useOwnerPin(supabase, companyId);
@@ -98,7 +100,9 @@ export function QuickSaleClient({
   );
 
   const cashbox = cashboxes.find((box) => box.id === cashboxId);
-  const total = lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.price), 0);
+  const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.price), 0);
+  const taxAmount = tax ? Math.round(subtotal * tax.rate) / 100 : 0;
+  const total = subtotal + taxAmount;
   const paidValue = paid.trim() === "" ? total : Number(paid);
   const foreign = cashbox && cashbox.currency !== currency;
   const cashAmount = foreign ? paidValue * Number(txRate || 0) : paidValue;
@@ -205,7 +209,8 @@ export function QuickSaleClient({
             sale_unit_price: toBasePrice(Number(line.price), line.mode, line.product.pack_size),
           })),
           target_cashbox: cashboxId || null,
-          target_paid_amount: Number(paidValue.toFixed(2)),
+          // فاضي = دفع كامل: القاعدة بتحسب المجموع مع الضريبة بالضبط.
+          target_paid_amount: paid.trim() === "" ? null : Number(paidValue.toFixed(2)),
           target_cash_amount: Number(cashAmount.toFixed(2)),
           target_method: method,
           target_notes: null,
@@ -387,6 +392,12 @@ export function QuickSaleClient({
               />
             </label>
 
+            {taxAmount > 0 ? (
+              <p className="muted">
+                الصافي {money(subtotal, currency)} + {tax?.label} {tax?.rate}%:{" "}
+                {money(taxAmount, currency)}
+              </p>
+            ) : null}
             <div className="statValue">{money(total, currency)}</div>
 
             <label className="field">
