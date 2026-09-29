@@ -23,7 +23,7 @@ export default async function QuickSalePage() {
   const [productsResult, cashboxesResult, companyResult] = await Promise.all([
     supabase
       .from("products")
-      .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit")
+      .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit,barcode")
       .eq("company_id", context.companyId)
       .eq("active", true)
       .order("name")

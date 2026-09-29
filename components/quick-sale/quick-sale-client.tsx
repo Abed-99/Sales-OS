@@ -8,6 +8,7 @@ import { useOwnerPin } from "@/components/owner-pin";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { SearchPicker, type PickerOption } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
+import { BarcodeScanButton } from "@/components/barcode-scan";
 import {
   productOption,
   searchProducts,
@@ -284,15 +285,27 @@ export function QuickSaleClient({
             </div>
           </div>
 
-          <SearchPicker
-            key={lines.length}
-            autoFocus
-            value={scan}
-            placeholder="باركود أو اسم الصنف..."
-            options={productOptions}
-            onSearch={findProducts}
-            onChange={(_, option) => void addProduct(option)}
-          />
+          <div className="rowActions" style={{ flexWrap: "nowrap", alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <SearchPicker
+                key={lines.length}
+                autoFocus
+                value={scan}
+                placeholder="باركود أو اسم الصنف..."
+                options={productOptions}
+                onSearch={findProducts}
+                onChange={(_, option) => void addProduct(option)}
+              />
+            </div>
+            <BarcodeScanButton
+              onDetect={async (code) => {
+                const found = await searchProducts(supabase, companyId, code);
+                const exact = found.find((option) => option.code === code) ?? found[0];
+                if (exact) void addProduct(exact);
+                else setMessage(`ما في صنف بالباركود ${code}.`);
+              }}
+            />
+          </div>
 
           <div className="tableWrap" style={{ marginTop: 12 }}>
             <table className="dataTable">

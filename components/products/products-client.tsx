@@ -6,6 +6,8 @@ import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { BarcodeScanButton } from "@/components/barcode-scan";
+import { uploadProductImage } from "@/lib/image-upload";
 import { createClient } from "@/lib/supabase/client";
 
 export type Product = {
@@ -22,6 +24,7 @@ export type Product = {
   pack_unit?: string | null;
   warranty_months?: number | null;
   track_serials?: boolean;
+  barcode?: string | null;
   image_url: string | null;
   active: boolean;
   created_at: string;
@@ -77,6 +80,7 @@ type ProductForm = {
   level_prices: Record<string, string>;
   warranty_months: string;
   track_serials: boolean;
+  barcode: string;
   image_url: string;
 };
 
@@ -95,6 +99,7 @@ function emptyForm(): ProductForm {
     level_prices: {},
     warranty_months: "",
     track_serials: false,
+    barcode: "",
     image_url: "",
   };
 }
@@ -197,6 +202,7 @@ export function ProductsClient({
   const [supabase] = useState(() => createClient());
 
   const [levelsOpen, setLevelsOpen] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [newLevelName, setNewLevelName] = useState("");
   const [levelMessage, setLevelMessage] = useState("");
 
@@ -405,6 +411,8 @@ export function ProductsClient({
       warranty_months: product.warranty_months == null ? "" : String(product.warranty_months),
 
       track_serials: Boolean(product.track_serials),
+
+      barcode: product.barcode ?? "",
 
       image_url: product.image_url ?? "",
     });
@@ -643,6 +651,7 @@ export function ProductsClient({
         product_warranty_months:
           Number(form.warranty_months) > 0 ? Math.round(Number(form.warranty_months)) : null,
         product_track_serials: form.track_serials,
+        product_barcode: form.barcode.trim() || null,
       });
 
       if (extrasError) {
@@ -1351,17 +1360,76 @@ export function ProductsClient({
                   </label>
                 </label>
 
-                <Field
-                  label="رابط صورة المنتج"
-                  value={form.image_url}
-                  full
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      image_url: value,
-                    }))
-                  }
-                />
+                <label className="field">
+                  <span>الباركود</span>
+                  <div className="rowActions" style={{ flexWrap: "nowrap" }}>
+                    <input
+                      dir="ltr"
+                      style={{ flex: 1 }}
+                      placeholder="امسحو أو اكتبو"
+                      value={form.barcode}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, barcode: event.target.value }))
+                      }
+                    />
+                    <BarcodeScanButton
+                      onDetect={(code) => setForm((current) => ({ ...current, barcode: code }))}
+                    />
+                  </div>
+                </label>
+
+                <div className="field full">
+                  <span>صورة الصنف</span>
+                  <div className="rowActions" style={{ alignItems: "center" }}>
+                    {form.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={form.image_url}
+                        alt=""
+                        className="productImage"
+                        style={{ width: 88, height: 88 }}
+                      />
+                    ) : null}
+                    <label className="softButton" style={{ cursor: "pointer" }}>
+                      {uploadingImage
+                        ? "عم نرفع..."
+                        : form.image_url
+                          ? "تغيير الصورة"
+                          : "📷 صورة من الموبايل"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        hidden
+                        disabled={uploadingImage}
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (!file) return;
+                          setUploadingImage(true);
+                          setFormMessage("");
+                          try {
+                            const url = await uploadProductImage(supabase, companyId, file);
+                            setForm((current) => ({ ...current, image_url: url }));
+                          } catch {
+                            setFormMessage("ما قدرنا نرفع الصورة. جرّب صورة تانية.");
+                          } finally {
+                            setUploadingImage(false);
+                          }
+                        }}
+                      />
+                    </label>
+                    {form.image_url ? (
+                      <button
+                        type="button"
+                        className="dangerButton"
+                        onClick={() => setForm((current) => ({ ...current, image_url: "" }))}
+                      >
+                        شيل الصورة
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
               {canUpdate && suppliers.some((row) => row.active) ? (

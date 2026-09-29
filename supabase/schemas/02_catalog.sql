@@ -36,6 +36,7 @@ create table public.products (
   -- الضمان: مدة بالأشهر، وإذا القطع بتتبّع بأرقام تسلسلية.
   warranty_months integer check (warranty_months is null or (warranty_months > 0 and warranty_months <= 240)),
   track_serials boolean default false not null,
+  barcode text,
   image_url text,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
@@ -194,6 +195,35 @@ create policy product_level_prices_read on public.product_level_prices
   using (public.has_any_permission(company_id, array['products.view'::text, 'orders.view'::text, 'orders.create'::text, 'purchases.view'::text]));
 
 -- سعر الصنف لزبون معيّن: سعر مستواه إذا موجود، وإلا سعر البيع العادي.
+-- الباركود فريد بالشركة (إذا موجود).
+create unique index products_company_barcode_key on public.products using btree (company_id, barcode) where (barcode is not null);
+
+-- ----------------------------------------------------------------------
+-- صور الأصناف: مخزن ملفات عام للقراءة، والرفع بصلاحية الأصناف لمجلد الشركة بس.
+-- ----------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('product-images', 'product-images', true, 2097152, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do nothing;
+
+create policy product_images_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'product-images'
+    and public.has_any_permission(((storage.foldername(name))[1])::uuid, array['products.create','products.update'])
+  );
+create policy product_images_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'product-images'
+    and public.has_any_permission(((storage.foldername(name))[1])::uuid, array['products.create','products.update'])
+  );
+create policy product_images_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'product-images'
+    and public.has_any_permission(((storage.foldername(name))[1])::uuid, array['products.update'])
+  );
+
 create or replace function public.get_trader_product_prices(target_company uuid, target_trader uuid, target_products uuid[])
  RETURNS TABLE(product_id uuid, price numeric)
  LANGUAGE sql
@@ -210,7 +240,7 @@ AS $function$
 $function$;
 
 -- الكرتونة وأسعار المستويات للصنف (بعد حفظ الصنف الأساسي).
-create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb, product_warranty_months integer DEFAULT NULL::integer, product_track_serials boolean DEFAULT false)
+create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb, product_warranty_months integer DEFAULT NULL::integer, product_track_serials boolean DEFAULT false, product_barcode text DEFAULT NULL::text)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -230,6 +260,7 @@ begin
                        then coalesce(nullif(trim(product_pack_unit), ''), 'كرتونة') end,
       warranty_months = case when coalesce(product_warranty_months, 0) > 0 then product_warranty_months end,
       track_serials = coalesce(product_track_serials, false),
+      barcode = nullif(trim(product_barcode), ''),
       updated_at = now()
   where id = target_product and company_id = target_company;
 

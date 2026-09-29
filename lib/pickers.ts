@@ -48,6 +48,7 @@ export type ProductPick = {
   active?: boolean;
   pack_size?: number | null;
   pack_unit?: string | null;
+  barcode?: string | null;
 };
 
 export async function searchProducts(
@@ -56,12 +57,17 @@ export async function searchProducts(
   term: string,
 ): Promise<PickerOption<ProductPick>[]> {
   const like = pattern(term);
+  const code = term.replace(/[%_,()"'\\\s]/g, "");
   const { data } = await supabase
     .from("products")
-    .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit")
+    .select("id,name,sku,unit,sale_price,active,pack_size,pack_unit,barcode")
     .eq("company_id", companyId)
     .eq("active", true)
-    .or(`name.ilike.${like},sku.ilike.${like},brand.ilike.${like}`)
+    .or(
+      [`name.ilike.${like}`, `sku.ilike.${like}`, `brand.ilike.${like}`, code ? `barcode.eq.${code}` : ""]
+        .filter(Boolean)
+        .join(","),
+    )
     .order("name")
     .limit(LIMIT);
 
@@ -73,7 +79,7 @@ export function productOption(row: ProductPick): PickerOption<ProductPick> {
     id: row.id,
     label: row.name,
     hint: [row.sku, row.unit].filter(Boolean).join(" • ") || null,
-    code: row.sku,
+    code: row.barcode || row.sku,
     data: row,
   };
 }
