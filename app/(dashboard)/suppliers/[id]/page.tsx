@@ -168,6 +168,14 @@ function money(value: number, currency: string) {
   }).format(Number(value || 0))} ${currency}`;
 }
 
+const supplierTypeLabels: Record<string, string> = {
+  factory: "مصنع",
+  agent: "وكيل",
+  wholesaler: "تاجر جملة",
+  local: "مورد محلي",
+  other: "غير ذلك",
+};
+
 export default async function SupplierDetailPage({
   params,
 }: {
@@ -249,7 +257,7 @@ export default async function SupplierDetailPage({
   const supplierResult = await supabase
     .from("suppliers")
     .select(
-      "id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,created_at,updated_at",
+      "id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,supplier_type,country,currency,created_at,updated_at",
     )
     .eq("company_id", context.companyId)
     .eq("id", id)
@@ -693,6 +701,19 @@ export default async function SupplierDetailPage({
 
             <div className="quickList">
               <Info title="الشخص المسؤول" value={supplier.contact_name} />
+
+              <Info
+                title="النوع والبلد"
+                value={
+                  [
+                    supplierTypeLabels[supplier.supplier_type ?? ""] ?? null,
+                    supplier.country,
+                    supplier.currency ? `يتعامل بـ ${supplier.currency}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ") || null
+                }
+              />
 
               <Info title="الهاتف" value={supplier.phone} />
 

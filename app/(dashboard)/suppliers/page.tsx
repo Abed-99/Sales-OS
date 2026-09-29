@@ -28,7 +28,7 @@ export default async function SuppliersPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("suppliers")
-    .select("id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,created_at")
+    .select("id,name,contact_name,phone,whatsapp,address,notes,active,payment_terms_days,supplier_type,country,currency,created_at")
     .eq("company_id", context.companyId)
     .order("created_at", { ascending: false });
 

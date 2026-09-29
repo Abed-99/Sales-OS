@@ -1434,6 +1434,12 @@ create table public.suppliers (
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   payment_terms_days integer default 0 not null,
+  -- نوع المورد وبلدو وعملة التعامل معه (معلومات؛ فواتير الشراء بعملة الشركة).
+  supplier_type text,
+  country text,
+  currency text,
+  constraint suppliers_type_check check (supplier_type is null or supplier_type in ('factory','agent','wholesaler','local','other')),
+  constraint suppliers_currency_check check (currency is null or currency ~ '^[A-Z]{3}$'),
   constraint suppliers_payment_terms_days_check check (((payment_terms_days >= 0) and (payment_terms_days <= 3650)))
 );
 create index dashboard_suppliers_active_idx on public.suppliers using btree (company_id, active);

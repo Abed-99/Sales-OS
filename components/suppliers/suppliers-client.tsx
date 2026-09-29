@@ -15,7 +15,18 @@ type Row = {
   notes: string | null;
   active: boolean;
   payment_terms_days: number;
+  supplier_type?: string | null;
+  country?: string | null;
+  currency?: string | null;
   created_at: string;
+};
+
+const supplierTypes: Record<string, string> = {
+  factory: "مصنع",
+  agent: "وكيل",
+  wholesaler: "تاجر جملة",
+  local: "مورد محلي",
+  other: "غير ذلك",
 };
 const empty = {
   name: "",
@@ -26,6 +37,9 @@ const empty = {
   notes: "",
   active: true,
   payment_terms_days: "0",
+  supplier_type: "",
+  country: "",
+  currency: "",
 };
 function friendlyError(error: { code?: string; message?: string } | null) {
   const message = error?.message?.toLowerCase() ?? "";
@@ -71,9 +85,14 @@ export function SuppliersClient({
       rows.filter(
         (r) =>
           !q ||
-          [r.name, r.contact_name, r.phone, r.address].some((x) =>
-            x?.toLowerCase().includes(q.toLowerCase()),
-          ),
+          [
+            r.name,
+            r.contact_name,
+            r.phone,
+            r.address,
+            r.country,
+            supplierTypes[r.supplier_type ?? ""],
+          ].some((x) => x?.toLowerCase().includes(q.toLowerCase())),
       ),
     [rows, q],
   );
@@ -94,6 +113,9 @@ export function SuppliersClient({
       notes: r.notes || "",
       active: r.active,
       payment_terms_days: String(r.payment_terms_days ?? 0),
+      supplier_type: r.supplier_type ?? "",
+      country: r.country ?? "",
+      currency: r.currency ?? "",
     });
     setOpen(true);
     setMsg("");
@@ -121,6 +143,9 @@ export function SuppliersClient({
       notes: f.notes.trim() || null,
       active: f.active,
       payment_terms_days: paymentTerms,
+      supplier_type: f.supplier_type || null,
+      country: f.country.trim() || null,
+      currency: /^[A-Za-z]{3}$/.test(f.currency.trim()) ? f.currency.trim().toUpperCase() : null,
     };
     if (editing) {
       const { data, error } = await supabase
@@ -232,7 +257,11 @@ export function SuppliersClient({
                           <Link href={`/suppliers/${r.id}`}>
                             <strong>{r.name}</strong>
                           </Link>
-                          <span>{r.contact_name || "—"}</span>
+                          <span>
+                            {[supplierTypes[r.supplier_type ?? ""], r.country, r.contact_name]
+                              .filter(Boolean)
+                              .join(" • ") || "—"}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -306,6 +335,40 @@ export function SuppliersClient({
                 />
                 <Phone l="رقم الهاتف" v={f.phone} s={(v) => setF((x) => ({ ...x, phone: v }))} />
                 <Phone l="واتساب" v={f.whatsapp} s={(v) => setF((x) => ({ ...x, whatsapp: v }))} />
+                <label className="field">
+                  <span>نوع المورد</span>
+                  <select
+                    value={f.supplier_type}
+                    onChange={(e) => setF((x) => ({ ...x, supplier_type: e.target.value }))}
+                  >
+                    <option value="">غير محدد</option>
+                    {Object.entries(supplierTypes).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <F l="البلد" v={f.country} s={(v) => setF((x) => ({ ...x, country: v }))} />
+                <label className="field">
+                  <span>عملة التعامل</span>
+                  <select
+                    value={
+                      ["", "USD", "SYP", "CNY", "EUR", "TRY", "AED"].includes(f.currency)
+                        ? f.currency
+                        : ""
+                    }
+                    onChange={(e) => setF((x) => ({ ...x, currency: e.target.value }))}
+                  >
+                    <option value="">غير محددة</option>
+                    <option value="USD">USD دولار</option>
+                    <option value="CNY">CNY يوان صيني</option>
+                    <option value="SYP">SYP ليرة سورية</option>
+                    <option value="EUR">EUR يورو</option>
+                    <option value="TRY">TRY ليرة تركية</option>
+                    <option value="AED">AED درهم</option>
+                  </select>
+                </label>
                 <F l="العنوان" v={f.address} s={(v) => setF((x) => ({ ...x, address: v }))} full />
                 {canArchive && (
                   <label className="field">
