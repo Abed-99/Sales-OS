@@ -35,6 +35,7 @@ type Line = {
 type Done = {
   order_number: string | null;
   order_id: string;
+  invoice_id: string;
   total: number;
   paid: number;
   currency: string;
@@ -253,6 +254,9 @@ export function QuickSaleClient({
             <button type="button" className="primaryButton" onClick={() => setDone(null)}>
               <Icons.plus size={14} /> بيع جديد
             </button>
+            <Link className="softButton" href={`/print/invoice/${done.invoice_id}`}>
+              طباعة / واتساب
+            </Link>
             <Link className="softButton" href={`/orders?order=${done.order_id}`}>
               عرض الطلبية
             </Link>

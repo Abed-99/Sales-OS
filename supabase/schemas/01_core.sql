@@ -35,6 +35,7 @@ create table public.companies (
   phone text,
   whatsapp text,
   logo_url text,
+  address text,
   default_currency text default 'USD'::text not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null

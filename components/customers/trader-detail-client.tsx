@@ -441,6 +441,13 @@ export function TraderDetailClient({
 
             {trader.notes ? <Info t="ملاحظات" v={trader.notes} /> : null}
 
+            {canViewFinancials ? (
+              <Link className="primaryButton" href={`/print/customer/${trader.id}`}>
+                <Icons.whatsapp size={14} />
+                كشف حساب (طباعة / واتساب)
+              </Link>
+            ) : null}
+
             {canViewMap && trader.latitude != null && trader.longitude != null ? (
               <Link className="softButton" href={`/map?trader=${trader.id}`}>
                 <Icons.map size={14} />

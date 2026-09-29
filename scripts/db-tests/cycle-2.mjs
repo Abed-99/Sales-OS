@@ -347,6 +347,13 @@ else {
   const { data: allSr } = await admin.from("sales_returns").select("total").eq("company_id", company).eq("status", "posted");
   check("تقرير المبيعات الشهري = الفواتير − المرتجعات", sm.data.reduce((t, r) => t + Number(r.net_sales), 0), allSi.reduce((t, r) => t + Number(r.total), 0) - allSr.reduce((t, r) => t + Number(r.total), 0));
 }
+const stmt = await u.rpc("get_trader_statement", { target_company: company, target_trader: trader, target_from: null, target_to: today });
+if (stmt.error) { failures++; log("   ❌ كشف حساب الزبون: " + stmt.error.message); }
+else {
+  const { data: trInv } = await admin.from("sales_invoices").select("balance_due").eq("trader_id", trader).eq("status", "posted");
+  const { data: trPay } = await admin.from("customer_payments").select("unallocated_total").eq("trader_id", trader).eq("status", "posted");
+  check("كشف حساب الزبون: آخر رصيد = ديونو − رصيدو الدائن", stmt.data[stmt.data.length - 1].balance, trInv.reduce((t, r) => t + Number(r.balance_due), 0) - trPay.reduce((t, r) => t + Number(r.unallocated_total), 0));
+}
 const ov = await u.rpc("get_owner_overview", { target_company: company });
 if (ov.error) { failures++; log("   ❌ لوحة المالك: " + ov.error.message); }
 else {

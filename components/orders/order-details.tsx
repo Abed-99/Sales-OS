@@ -338,6 +338,15 @@ export function OrderDetails({
                         )}
                       </td>
                       <td>
+                        <a
+                          className="softButton"
+                          href={`/print/invoice/${invoice.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ marginInlineEnd: 6 }}
+                        >
+                          طباعة
+                        </a>
                         {invoice.status === "posted" ? (
                           <button
                             type="button"

@@ -31,7 +31,7 @@ export default async function SettingsPage() {
     supabase.from("profiles").select("full_name").eq("id", context.user.id).maybeSingle(),
     supabase
       .from("companies")
-      .select("id,name,phone,whatsapp,default_currency")
+      .select("id,name,phone,whatsapp,address,default_currency")
       .eq("id", context.companyId)
       .maybeSingle(),
   ]);
@@ -81,6 +81,7 @@ export default async function SettingsPage() {
             name: context.companyName,
             phone: null,
             whatsapp: null,
+            address: null,
             default_currency: context.currency,
           }
         }

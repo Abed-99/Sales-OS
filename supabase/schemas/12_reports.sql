@@ -112,6 +112,60 @@ begin
 end;
 $function$;
 
+-- كشف حساب الزبون: رصيد أول المدة، بعدين كل فاتورة (مدين) ودفعة ومرتجع (دائن) مع الرصيد بعد كل حركة.
+-- المبالغ بعملة الشركة الأساسية.
+create or replace function public.get_trader_statement(target_company uuid, target_trader uuid, target_from date, target_to date)
+ RETURNS TABLE(event_date date, row_type text, reference text, description text, debit numeric, credit numeric, balance numeric)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_from date := coalesce(target_from, date '2000-01-01');
+  v_to date := coalesce(target_to, (now() at time zone 'Asia/Damascus')::date);
+begin
+  if not public.has_any_permission(target_company, array['traders.view_balance','payments.sales_view','reports.finance','reports.sales']) then
+    raise exception 'Not allowed';
+  end if;
+
+  return query
+  with events as (
+    select si.invoice_date as d, 1 as ord, 'invoice'::text as t, si.invoice_number as ref,
+           'فاتورة بيع'::text as descr,
+           public.finance_to_base(target_company, si.currency, si.total, si.invoice_date) as dr, 0::numeric as cr,
+           si.created_at as at
+    from public.sales_invoices si
+    where si.company_id = target_company and si.trader_id = target_trader and si.status = 'posted'
+    union all
+    select p.payment_date, 2, 'payment', p.payment_number,
+           case when p.payment_currency is not null and p.payment_currency <> (select default_currency from public.companies where id = target_company)
+                then 'دفعة (' || p.amount::text || ' ' || p.payment_currency || ')' else 'دفعة' end,
+           0, coalesce(p.base_amount, public.finance_to_base(target_company, coalesce(p.payment_currency, 'USD'), p.amount, p.payment_date)),
+           p.created_at
+    from public.customer_payments p
+    where p.company_id = target_company and p.trader_id = target_trader and p.status = 'posted'
+    union all
+    select sr.return_date, 3, 'return', sr.return_number, 'مرتجع',
+           0, public.finance_to_base(target_company, sr.currency, sr.total, sr.return_date),
+           sr.created_at
+    from public.sales_returns sr
+    where sr.company_id = target_company and sr.trader_id = target_trader and sr.status = 'posted'
+  ),
+  opening as (
+    select coalesce(sum(dr - cr), 0) as amount from events where d < v_from
+  ),
+  period as (
+    select * from events where d between v_from and v_to
+  )
+  select v_from, 'opening'::text, null::text, 'رصيد أول المدة'::text, null::numeric, null::numeric,
+         round((select amount from opening), 2)
+  union all
+  select x.d, x.t, x.ref, x.descr, round(x.dr, 2), round(x.cr, 2),
+         round((select amount from opening) + sum(x.dr - x.cr) over (order by x.d, x.ord, x.at rows unbounded preceding), 2)
+  from period x;
+end;
+$function$;
+
 create or replace function public.get_dashboard_summary(target_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql

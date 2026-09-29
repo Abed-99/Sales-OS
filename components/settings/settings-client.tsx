@@ -11,6 +11,7 @@ type Company = {
   name: string;
   phone: string | null;
   whatsapp: string | null;
+  address?: string | null;
   default_currency: string;
 };
 
@@ -97,6 +98,7 @@ export function SettingsClient({
   const [companyName, setCompanyName] = useState(company.name);
   const [phone, setPhone] = useState(company.phone || "");
   const [whatsapp, setWhatsapp] = useState(company.whatsapp || "");
+  const [address, setAddress] = useState(company.address || "");
   const [currency, setCurrency] = useState(company.default_currency || "USD");
 
   const [busy, setBusy] = useState(false);
@@ -168,6 +170,7 @@ export function SettingsClient({
             name: companyName.trim(),
             phone: normalizedPhone,
             whatsapp: normalizedWhatsapp,
+            address: address.trim() || null,
             ...(currencyLocked ? {} : { default_currency: currency.trim().toUpperCase() }),
           })
           .eq("id", company.id);
@@ -272,6 +275,17 @@ export function SettingsClient({
                 onChange={(event) => setWhatsapp(event.target.value)}
               />
               {canManage && phoneStatus(whatsapp)}
+            </label>
+
+            <label className="field">
+              <span>العنوان (بيطلع بترويسة الفواتير)</span>
+              <input
+                value={address}
+                readOnly={!canManage}
+                className={canManage ? "" : "readOnlyInput"}
+                placeholder="مثلًا: دمشق - البرامكة"
+                onChange={(event) => setAddress(event.target.value)}
+              />
             </label>
 
             <label className="field">
