@@ -60,6 +60,7 @@ create table public.traders (
   updated_at timestamp with time zone default now() not null,
   credit_limit numeric(14,2),
   price_level_id uuid,
+  sales_rep_id uuid,
   payment_terms_days integer default 0 not null,
   whatsapp_marketing_opt_in boolean default false not null,
   whatsapp_opt_in_at timestamp with time zone,
@@ -456,6 +457,28 @@ begin
   ) then
     if not public.has_permission(new.company_id, 'traders.manage_credit') then
       raise exception 'Not allowed to change credit terms';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- تعيين المندوب للزبون بدو صلاحية "تعيين مندوب".
+create or replace function public.enforce_trader_rep_permission()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  if (tg_op = 'INSERT' and new.sales_rep_id is not null)
+     or (tg_op = 'UPDATE' and new.sales_rep_id is distinct from old.sales_rep_id) then
+    if not public.has_permission(new.company_id, 'traders.assign_rep') then
+      raise exception 'Not allowed to assign sales rep';
     end if;
   end if;
 
@@ -890,6 +913,8 @@ create trigger trader_visits_company_guard before insert or update of company_id
 create trigger audit_traders after insert or delete or update on public.traders for each row execute function public.write_audit_log();
 
 create trigger traders_archive_permission_guard before insert or update on public.traders for each row execute function public.enforce_trader_archive_permission();
+create trigger traders_rep_permission_guard before insert or update of sales_rep_id on public.traders for each row execute function public.enforce_trader_rep_permission();
+
 create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days, price_level_id on public.traders for each row execute function public.enforce_trader_credit_permission();
 
 create trigger traders_prevent_duplicate_contact before insert or update of phone, whatsapp on public.traders for each row execute function public.prevent_duplicate_trader_contact();

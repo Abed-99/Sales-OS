@@ -53,7 +53,7 @@ export default async function PayrollPage() {
     supabase
       .from("employees")
       .select(
-        "id,employee_number,full_name,phone,job_title,department,hire_date,termination_date,status,salary_currency,base_salary,fixed_allowances,overtime_hour_rate,social_security_employee_rate,social_security_employer_rate,income_tax_rate,default_cashbox_id,notes,created_at",
+        "id,employee_number,full_name,phone,job_title,department,hire_date,termination_date,status,salary_currency,base_salary,fixed_allowances,overtime_hour_rate,social_security_employee_rate,social_security_employer_rate,income_tax_rate,default_cashbox_id,notes,created_at,is_driver,is_sales_rep,commission_rate",
       )
       .eq("company_id", context.companyId)
       .order("full_name"),

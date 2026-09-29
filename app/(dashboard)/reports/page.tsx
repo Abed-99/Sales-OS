@@ -141,6 +141,28 @@ export default async function ReportsPage({
 
   const warnings: string[] = [];
 
+  let team: unknown = null;
+
+  if (
+    hasAnyPermission(
+      context.permissions,
+      ["reports.sales", "reports.team", "reports.profit"],
+      context.isOwner,
+    )
+  ) {
+    const { data, error } = await supabase.rpc("get_team_performance", {
+      target_company: context.companyId,
+      target_from: from,
+      target_to: to,
+    });
+
+    if (error) {
+      warnings.push("تعذر تحميل جزء من التقرير.");
+    } else {
+      team = data;
+    }
+  }
+
   if (canFinance) {
     const [financialResult, receivableResult, payableResult] = await Promise.all([
       supabase.rpc("get_financial_report", {
@@ -321,6 +343,7 @@ export default async function ReportsPage({
         canPayroll={canPayroll}
         canAssets={canAssets}
         canPartners={canPartners}
+        team={team as never}
       />
     </>
   );

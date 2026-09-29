@@ -46,6 +46,9 @@ export type PayrollEmployee = {
   hire_date: string | null;
   termination_date: string | null;
   status: "active" | "inactive" | "terminated";
+  is_driver?: boolean;
+  is_sales_rep?: boolean;
+  commission_rate?: number;
   salary_currency: string;
   base_salary: number;
   fixed_allowances: number;
@@ -183,6 +186,9 @@ type EmployeeForm = {
   cashboxId: string;
   notes: string;
   status: "active" | "inactive" | "terminated";
+  isDriver: boolean;
+  isSalesRep: boolean;
+  commissionRate: string;
 };
 
 const emptyEmployee = (currency: string): EmployeeForm => ({
@@ -202,6 +208,9 @@ const emptyEmployee = (currency: string): EmployeeForm => ({
   cashboxId: "",
   notes: "",
   status: "active",
+  isDriver: false,
+  isSalesRep: false,
+  commissionRate: "0",
 });
 
 export function PayrollClient({
@@ -424,6 +433,9 @@ export function PayrollClient({
       cashboxId: employee.default_cashbox_id || "",
       notes: employee.notes || "",
       status: employee.status,
+      isDriver: Boolean(employee.is_driver),
+      isSalesRep: Boolean(employee.is_sales_rep),
+      commissionRate: String(employee.commission_rate ?? 0),
     });
 
     setMessage("");
@@ -441,7 +453,7 @@ export function PayrollClient({
     setSaving(true);
     setMessage("");
 
-    const { error } = await supabase.rpc("save_employee", {
+    const { data: savedEmployee, error } = await supabase.rpc("save_employee", {
       target_company: companyId,
 
       target_employee: editingEmployee?.id || null,
@@ -479,10 +491,24 @@ export function PayrollClient({
       target_status: employeeForm.status,
     });
 
+    if (error) {
+      setSaving(false);
+      setMessage(payrollError(error));
+      return;
+    }
+
+    const { error: rolesError } = await supabase.rpc("set_employee_roles", {
+      target_company: companyId,
+      target_employee: (savedEmployee as string | null) ?? editingEmployee?.id,
+      target_is_driver: employeeForm.isDriver,
+      target_is_sales_rep: employeeForm.isSalesRep,
+      target_commission_rate: num(employeeForm.commissionRate),
+    });
+
     setSaving(false);
 
-    if (error) {
-      setMessage(payrollError(error));
+    if (rolesError) {
+      setMessage("انحفظ الموظف، بس ما انحفظ (سائق/مندوب). جرّب مرة تانية.");
       return;
     }
 
@@ -1492,6 +1518,55 @@ export function PayrollClient({
                     <option value="terminated">منتهي العمل</option>
                   </select>
                 </label>
+
+                <div className="field">
+                  <span>الدور</span>
+                  <label className="printToggle" style={{ color: "inherit" }}>
+                    <input
+                      type="checkbox"
+                      checked={employeeForm.isDriver}
+                      onChange={(event) =>
+                        setEmployeeForm((current) => ({
+                          ...current,
+                          isDriver: event.target.checked,
+                        }))
+                      }
+                    />
+                    سائق توصيل
+                  </label>
+                  <label className="printToggle" style={{ color: "inherit" }}>
+                    <input
+                      type="checkbox"
+                      checked={employeeForm.isSalesRep}
+                      onChange={(event) =>
+                        setEmployeeForm((current) => ({
+                          ...current,
+                          isSalesRep: event.target.checked,
+                        }))
+                      }
+                    />
+                    مندوب مبيعات
+                  </label>
+                </div>
+
+                {employeeForm.isSalesRep ? (
+                  <label className="field">
+                    <span>عمولة المندوب (% من صافي مبيعات زبائنو)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={employeeForm.commissionRate}
+                      onChange={(event) =>
+                        setEmployeeForm((current) => ({
+                          ...current,
+                          commissionRate: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ) : null}
 
                 <label className="field full">
                   <span>ملاحظات</span>

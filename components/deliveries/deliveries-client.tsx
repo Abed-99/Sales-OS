@@ -46,6 +46,8 @@ export type DeliveryQueueRow = {
 
   trader: DeliveryTrader | null;
 
+  delivery?: { id: string; driver_id: string | null } | null;
+
   items: DeliveryQueueItem[];
 };
 
@@ -212,6 +214,21 @@ export function DeliveriesClient({
   initialError: string | null;
 }) {
   const [supabase] = useState(() => createClient());
+
+  const [drivers, setDrivers] = useState<{ id: string; full_name: string }[]>([]);
+  const [deliveryDriver, setDeliveryDriver] = useState("");
+
+  useEffect(() => {
+    void supabase
+      .rpc("get_staff_options", { target_company: companyId })
+      .then(({ data }) =>
+        setDrivers(
+          ((data ?? []) as { id: string; full_name: string; is_driver: boolean }[]).filter(
+            (row) => row.is_driver,
+          ),
+        ),
+      );
+  }, [supabase, companyId]);
 
   const router = useRouter();
 
@@ -383,7 +400,7 @@ export function DeliveriesClient({
     setBusyId(deliveryTarget.id);
 
     try {
-      const { error } = await supabase.rpc("create_order_delivery", {
+      const { data: deliveryId, error } = await supabase.rpc("create_order_delivery", {
         target_company: companyId,
 
         target_order: deliveryTarget.id,
@@ -394,6 +411,14 @@ export function DeliveriesClient({
       if (error) {
         setDeliveryMessage(friendlyError(error, "start"));
         return;
+      }
+
+      if (deliveryDriver && deliveryId) {
+        await supabase.rpc("set_delivery_driver", {
+          target_company: companyId,
+          target_delivery: deliveryId,
+          target_driver: deliveryDriver,
+        });
       }
 
       setRows((current) =>
@@ -408,6 +433,10 @@ export function DeliveriesClient({
             ...order,
 
             status: "out_for_delivery",
+
+            delivery: deliveryId
+              ? { id: deliveryId as string, driver_id: deliveryDriver || null }
+              : order.delivery,
 
             items: order.items.map((item) => {
               const sent = byItem.get(item.id) ?? 0;
@@ -436,6 +465,23 @@ export function DeliveriesClient({
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function changeDriver(order: DeliveryQueueRow, driverId: string) {
+    if (!order.delivery) return;
+    const { error } = await supabase.rpc("set_delivery_driver", {
+      target_company: companyId,
+      target_delivery: order.delivery.id,
+      target_driver: driverId || null,
+    });
+    if (error) return;
+    setRows((current) =>
+      current.map((row) =>
+        row.id === order.id && row.delivery
+          ? { ...row, delivery: { ...row.delivery, driver_id: driverId || null } }
+          : row,
+      ),
+    );
   }
 
   function openComplete(order: DeliveryQueueRow) {
@@ -775,6 +821,23 @@ export function DeliveriesClient({
                               </button>
                             ) : (
                               <>
+                                {drivers.length && order.delivery ? (
+                                  <select
+                                    aria-label="السائق"
+                                    value={order.delivery.driver_id ?? ""}
+                                    onChange={(event) =>
+                                      void changeDriver(order, event.target.value)
+                                    }
+                                  >
+                                    <option value="">بدون سائق</option>
+                                    {drivers.map((driver) => (
+                                      <option key={driver.id} value={driver.id}>
+                                        🚚 {driver.full_name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : null}
+
                                 <button
                                   type="button"
                                   className="primaryButton"
@@ -932,6 +995,23 @@ export function DeliveriesClient({
                   </tbody>
                 </table>
               </div>
+
+              {drivers.length ? (
+                <label className="field" style={{ marginTop: 12 }}>
+                  <span>السائق</span>
+                  <select
+                    value={deliveryDriver}
+                    onChange={(event) => setDeliveryDriver(event.target.value)}
+                  >
+                    <option value="">بدون تحديد</option>
+                    {drivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               {deliveryMessage ? (
                 <div className="toastError" role="alert">

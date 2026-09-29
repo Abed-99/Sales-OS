@@ -294,6 +294,19 @@ check("خصم السلفة من الراتب (بس المصروفة، مش ال�
 check("صافي الراتب", item.net_pay, 250);
 must("دفع الراتب", await u.rpc("record_payroll_payment", { target_company: company, target_payroll_item: item.id, target_cashbox: usdBox, target_amount: item.net_pay, target_payment_date: today, target_method: "cash", target_reference: null, target_notes: null }));
 check("مصروف الرواتب", await byKey("salary_expense"), 300);
+must("أحمد صار مندوب بعمولة 5% وسائق", await u.rpc("set_employee_roles", { target_company: company, target_employee: empId, target_is_driver: true, target_is_sales_rep: true, target_commission_rate: 5 }));
+mustFail("موظف المبيعات ما بيعيّن مندوب", await salesRep.from("traders").update({ sales_rep_id: empId }).eq("id", trader).select("id").single());
+must("المالك عيّن أحمد مندوب لمحل السلام", await u.from("traders").update({ sales_rep_id: empId }).eq("id", trader));
+const perf = await u.rpc("get_team_performance", { target_company: company, target_from: start, target_to: today });
+if (perf.error) { failures++; log("   ❌ تقرير المندوبين: " + perf.error.message); }
+else {
+  const { data: tInv } = await admin.from("sales_invoices").select("total").eq("trader_id", trader).eq("status", "posted").gte("invoice_date", start);
+  const { data: tRet } = await admin.from("sales_returns").select("total").eq("trader_id", trader).eq("status", "posted").gte("return_date", start);
+  const net = tInv.reduce((t, r) => t + Number(r.total), 0) - tRet.reduce((t, r) => t + Number(r.total), 0);
+  const repRow = perf.data.reps.find((r) => r.id === empId);
+  check("صافي مبيعات زبائن المندوب", repRow?.net_sales, net);
+  check("العمولة 5%", repRow?.commission, Math.round(net * 5) / 100);
+}
 check("سلف الموظفين بعد القسط", await byKey("employee_advances"), 50);
 must("إلغاء السلفة اللي ما انصرفت", await u.rpc("cancel_employee_loan", { target_company: company, target_loan: loan2Id }));
 mustFail("إلغاء سلفة مصروفة", await u.rpc("cancel_employee_loan", { target_company: company, target_loan: loanId }));

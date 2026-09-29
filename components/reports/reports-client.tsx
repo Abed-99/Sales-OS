@@ -158,7 +158,23 @@ type Tab =
   | "purchases"
   | "payroll"
   | "assets"
-  | "partners";
+  | "partners"
+  | "team";
+
+type TeamPerformance = {
+  reps: {
+    id: string;
+    full_name: string;
+    commission_rate: number;
+    customers: number;
+    sales: number;
+    returns: number;
+    net_sales: number;
+    collected: number;
+    commission: number;
+  }[];
+  drivers: { id: string; full_name: string; delivered: number; failed: number; open: number }[];
+};
 
 export function ReportsClient({
   baseCurrency,
@@ -182,6 +198,7 @@ export function ReportsClient({
   canPayroll,
   canAssets,
   canPartners,
+  team = null,
 }: {
   baseCurrency: string;
   from: string;
@@ -204,6 +221,7 @@ export function ReportsClient({
   canPayroll: boolean;
   canAssets: boolean;
   canPartners: boolean;
+  team?: TeamPerformance | null;
 }) {
   const router = useRouter();
 
@@ -350,8 +368,24 @@ export function ReportsClient({
       });
     }
 
+    if (team) {
+      rows.push({
+        key: "team",
+        label: "المندوبين والسائقين",
+      });
+    }
+
     return rows;
-  }, [canFinance, canInventoryCost, canSales, canPurchases, canPayroll, canAssets, canPartners]);
+  }, [
+    canFinance,
+    canInventoryCost,
+    canSales,
+    canPurchases,
+    canPayroll,
+    canAssets,
+    canPartners,
+    team,
+  ]);
 
   return (
     <div className="page">
@@ -895,6 +929,93 @@ export function ReportsClient({
           </section>
         </>
       )}
+
+      {tab === "team" && team ? (
+        <>
+          <section className="panel" style={{ marginTop: 14 }}>
+            <div className="panelHeader panelPad">
+              <div>
+                <h2>المندوبين</h2>
+                <p>صافي مبيعات زبائن كل مندوب بالفترة وعمولتو</p>
+              </div>
+            </div>
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>المندوب</th>
+                    <th>الزبائن</th>
+                    <th>المبيعات</th>
+                    <th>المرتجعات</th>
+                    <th>الصافي</th>
+                    <th>المحصّل</th>
+                    <th>العمولة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {team.reps.map((rep) => (
+                    <tr key={rep.id}>
+                      <td>
+                        <strong>{rep.full_name}</strong>
+                        <div className="muted">{Number(rep.commission_rate)}%</div>
+                      </td>
+                      <td>{rep.customers}</td>
+                      <td>{money(rep.sales, baseCurrency)}</td>
+                      <td>{money(rep.returns, baseCurrency)}</td>
+                      <td>{money(rep.net_sales, baseCurrency)}</td>
+                      <td>{money(rep.collected, baseCurrency)}</td>
+                      <td>
+                        <strong>{money(rep.commission, baseCurrency)}</strong>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!team.reps.length ? (
+                <p className="muted panelPad">
+                  ما في مندوبين. علّم الموظف «مندوب مبيعات» من صفحة الرواتب وعيّنو للزبائن.
+                </p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="panel" style={{ marginTop: 14 }}>
+            <div className="panelHeader panelPad">
+              <div>
+                <h2>السائقين</h2>
+                <p>التوصيلات بالفترة</p>
+              </div>
+            </div>
+            <div className="tableWrap">
+              <table className="dataTable">
+                <thead>
+                  <tr>
+                    <th>السائق</th>
+                    <th>انسلّمت</th>
+                    <th>فشلت</th>
+                    <th>بالطريق</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {team.drivers.map((driver) => (
+                    <tr key={driver.id}>
+                      <td>
+                        <strong>{driver.full_name}</strong>
+                      </td>
+                      <td>{driver.delivered}</td>
+                      <td>{driver.failed}</td>
+                      <td>{driver.open}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!team.drivers.length ? (
+                <p className="muted panelPad">ما في سائقين. علّم الموظف «سائق» من صفحة الرواتب.</p>
+              ) : null}
+            </div>
+          </section>
+        </>
+      ) : null}
 
       {tab === "partners" && (
         <>

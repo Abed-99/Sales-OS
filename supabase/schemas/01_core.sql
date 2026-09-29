@@ -499,7 +499,7 @@ begin
   join public.permissions p on p.code = any(array[
     'dashboard.view',
     'traders.view','traders.create','traders.update','traders.archive',
-    'traders.assign_rep','traders.view_balance',
+    'traders.view_balance',
     'visits.view','visits.create','visits.update',
     'suppliers.view','products.view',
     'orders.view','orders.create','orders.update','orders.cancel','sales.quick_sale',

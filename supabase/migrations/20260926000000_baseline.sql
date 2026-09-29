@@ -503,7 +503,7 @@ begin
   join public.permissions p on p.code = any(array[
     'dashboard.view',
     'traders.view','traders.create','traders.update','traders.archive',
-    'traders.assign_rep','traders.view_balance',
+    'traders.view_balance',
     'visits.view','visits.create','visits.update',
     'suppliers.view','products.view',
     'orders.view','orders.create','orders.update','orders.cancel','sales.quick_sale',
@@ -1391,6 +1391,7 @@ create table public.traders (
   updated_at timestamp with time zone default now() not null,
   credit_limit numeric(14,2),
   price_level_id uuid,
+  sales_rep_id uuid,
   payment_terms_days integer default 0 not null,
   whatsapp_marketing_opt_in boolean default false not null,
   whatsapp_opt_in_at timestamp with time zone,
@@ -1787,6 +1788,28 @@ begin
   ) then
     if not public.has_permission(new.company_id, 'traders.manage_credit') then
       raise exception 'Not allowed to change credit terms';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- تعيين المندوب للزبون بدو صلاحية "تعيين مندوب".
+create or replace function public.enforce_trader_rep_permission()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  if (tg_op = 'INSERT' and new.sales_rep_id is not null)
+     or (tg_op = 'UPDATE' and new.sales_rep_id is distinct from old.sales_rep_id) then
+    if not public.has_permission(new.company_id, 'traders.assign_rep') then
+      raise exception 'Not allowed to assign sales rep';
     end if;
   end if;
 
@@ -2221,6 +2244,8 @@ create trigger trader_visits_company_guard before insert or update of company_id
 create trigger audit_traders after insert or delete or update on public.traders for each row execute function public.write_audit_log();
 
 create trigger traders_archive_permission_guard before insert or update on public.traders for each row execute function public.enforce_trader_archive_permission();
+create trigger traders_rep_permission_guard before insert or update of sales_rep_id on public.traders for each row execute function public.enforce_trader_rep_permission();
+
 create trigger traders_credit_permission_guard before insert or update of credit_limit, payment_terms_days, price_level_id on public.traders for each row execute function public.enforce_trader_credit_permission();
 
 create trigger traders_prevent_duplicate_contact before insert or update of phone, whatsapp on public.traders for each row execute function public.prevent_duplicate_trader_contact();
@@ -11054,6 +11079,17 @@ begin
 
         'ordered_at',
           so.ordered_at,
+
+        -- التوصيلة المفتوحة وسائقها (إذا في).
+        'delivery',
+          (
+            select jsonb_build_object('id', d.id, 'driver_id', d.driver_id)
+            from public.deliveries d
+            where d.order_id = so.id
+              and d.status in ('pending', 'out_for_delivery')
+            order by d.created_at desc
+            limit 1
+          ),
 
         'trader',
           jsonb_build_object(
@@ -21273,6 +21309,10 @@ create table public.employees (
   social_security_employer_rate numeric(9,4) default 0 not null,
   income_tax_rate numeric(9,4) default 0 not null,
   default_cashbox_id uuid references public.cashboxes(id) on delete set null,
+  -- سائق توصيل / مندوب مبيعات (مع نسبة عمولة من صافي مبيعات زبائنو).
+  is_driver boolean default false not null,
+  is_sales_rep boolean default false not null,
+  commission_rate numeric(5,2) default 0 not null check (commission_rate >= 0 and commission_rate <= 100),
   notes text,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
@@ -21424,6 +21464,15 @@ alter table public.cash_transactions
 -- ----------------------------------------------------------------------
 -- الدوال
 -- ----------------------------------------------------------------------
+
+alter table public.traders
+  add constraint traders_sales_rep_fk foreign key (sales_rep_id) references public.employees(id) on delete set null;
+
+alter table public.deliveries
+  add column driver_id uuid references public.employees(id) on delete set null;
+
+create index deliveries_driver_idx on public.deliveries using btree (driver_id) where (driver_id is not null);
+create index traders_sales_rep_idx on public.traders using btree (sales_rep_id) where (sales_rep_id is not null);
 
 create or replace function public.apply_payroll_loan_deductions(target_run uuid)
  RETURNS void
@@ -21776,6 +21825,153 @@ begin
   if not found then
     raise exception 'Employee loan not found';
   end if;
+end;
+$function$;
+
+-- سائق/مندوب ونسبة العمولة (بعد حفظ الموظف).
+create or replace function public.set_employee_roles(target_company uuid, target_employee uuid, target_is_driver boolean, target_is_sales_rep boolean, target_commission_rate numeric)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.has_permission(target_company, 'payroll.manage_employees') then
+    raise exception 'Not allowed';
+  end if;
+
+  update public.employees
+  set is_driver = coalesce(target_is_driver, false),
+      is_sales_rep = coalesce(target_is_sales_rep, false),
+      commission_rate = case when coalesce(target_is_sales_rep, false)
+                             then greatest(least(coalesce(target_commission_rate, 0), 100), 0) else 0 end,
+      updated_at = now()
+  where id = target_employee and company_id = target_company;
+
+  if not found then
+    raise exception 'Employee not found';
+  end if;
+end;
+$function$;
+
+-- أسماء السائقين والمندوبين الشغّالين (لقوائم الاختيار؛ بدون رواتب أو تفاصيل).
+create or replace function public.get_staff_options(target_company uuid)
+ RETURNS TABLE(id uuid, full_name text, is_driver boolean, is_sales_rep boolean)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select e.id, e.full_name, e.is_driver, e.is_sales_rep
+  from public.employees e
+  where e.company_id = target_company
+    and e.status = 'active'
+    and (e.is_driver or e.is_sales_rep)
+    and public.is_company_member(target_company)
+  order by e.full_name;
+$function$;
+
+-- سائق التوصيلة.
+create or replace function public.set_delivery_driver(target_company uuid, target_delivery uuid, target_driver uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.has_permission(target_company, 'deliveries.update') then
+    raise exception 'Not allowed';
+  end if;
+
+  if target_driver is not null and not exists (
+    select 1 from public.employees
+    where id = target_driver and company_id = target_company and is_driver and status = 'active'
+  ) then
+    raise exception 'Invalid driver';
+  end if;
+
+  update public.deliveries
+  set driver_id = target_driver, updated_at = now()
+  where id = target_delivery and company_id = target_company;
+
+  if not found then
+    raise exception 'Delivery not found';
+  end if;
+end;
+$function$;
+
+-- أداء المندوبين (صافي مبيعات زبائنهن والعمولة) والسائقين (التوصيلات) بفترة.
+create or replace function public.get_team_performance(target_company uuid, target_from date, target_to date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_from date := coalesce(target_from, date_trunc('month', (now() at time zone 'Asia/Damascus')::date)::date);
+  v_to date := coalesce(target_to, (now() at time zone 'Asia/Damascus')::date);
+begin
+  if not public.has_any_permission(target_company, array['reports.sales','reports.team','reports.profit','payroll.view']) then
+    raise exception 'Not allowed';
+  end if;
+
+  return jsonb_build_object(
+    'reps', coalesce((
+      select jsonb_agg(r order by r.net_sales desc)
+      from (
+        select
+          e.id,
+          e.full_name,
+          e.commission_rate,
+          (select count(*) from public.traders t where t.sales_rep_id = e.id) as customers,
+          round(coalesce(inv.sales, 0), 2) as sales,
+          round(coalesce(ret.returns, 0), 2) as returns,
+          round(coalesce(inv.sales, 0) - coalesce(ret.returns, 0), 2) as net_sales,
+          round(coalesce(pay.collected, 0), 2) as collected,
+          round((coalesce(inv.sales, 0) - coalesce(ret.returns, 0)) * e.commission_rate / 100, 2) as commission
+        from public.employees e
+        left join lateral (
+          select sum(public.finance_to_base(target_company, si.currency, si.total, si.invoice_date)) as sales
+          from public.sales_invoices si
+          join public.traders t on t.id = si.trader_id
+          where t.sales_rep_id = e.id and si.status = 'posted'
+            and si.invoice_date between v_from and v_to
+        ) inv on true
+        left join lateral (
+          select sum(public.finance_to_base(target_company, sr.currency, sr.total, sr.return_date)) as returns
+          from public.sales_returns sr
+          join public.traders t on t.id = sr.trader_id
+          where t.sales_rep_id = e.id and sr.status = 'posted'
+            and sr.return_date between v_from and v_to
+        ) ret on true
+        left join lateral (
+          select sum(coalesce(p.base_amount, p.amount)) as collected
+          from public.customer_payments p
+          join public.traders t on t.id = p.trader_id
+          where t.sales_rep_id = e.id and p.status = 'posted'
+            and p.payment_date between v_from and v_to
+        ) pay on true
+        where e.company_id = target_company and e.is_sales_rep
+      ) r
+    ), '[]'::jsonb),
+    'drivers', coalesce((
+      select jsonb_agg(d order by d.delivered desc)
+      from (
+        select
+          e.id,
+          e.full_name,
+          count(*) filter (where dl.status = 'delivered') as delivered,
+          count(*) filter (where dl.status = 'failed') as failed,
+          count(*) filter (where dl.status in ('pending','out_for_delivery')) as open
+        from public.employees e
+        left join public.deliveries dl
+          on dl.driver_id = e.id
+         and (dl.status in ('pending','out_for_delivery')
+              or (coalesce(dl.delivered_at, dl.failed_at) at time zone 'Asia/Damascus')::date between v_from and v_to)
+        where e.company_id = target_company and e.is_driver
+        group by e.id, e.full_name
+      ) d
+    ), '[]'::jsonb)
+  );
 end;
 $function$;
 

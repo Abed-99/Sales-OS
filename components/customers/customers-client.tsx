@@ -28,6 +28,7 @@ export type Trader = {
   credit_limit: number | null;
   payment_terms_days: number;
   price_level_id?: string | null;
+  sales_rep_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -63,6 +64,7 @@ function emptyForm() {
     credit_limit: "",
     payment_terms_days: "0",
     price_level_id: "",
+    sales_rep_id: "",
   };
 }
 
@@ -132,6 +134,8 @@ export function CustomersClient({
   canViewBalance,
   canManageCredit,
   priceLevels = [],
+  salesReps = [],
+  canAssignRep = false,
 }: {
   companyId: string;
   currency: string;
@@ -150,6 +154,8 @@ export function CustomersClient({
   canViewBalance: boolean;
   canManageCredit: boolean;
   priceLevels?: { id: string; name: string; active: boolean }[];
+  salesReps?: { id: string; full_name: string }[];
+  canAssignRep?: boolean;
 }) {
   const [supabase] = useState(() => createClient());
 
@@ -285,6 +291,7 @@ export function CustomersClient({
 
       payment_terms_days: String(trader.payment_terms_days ?? 0),
       price_level_id: trader.price_level_id ?? "",
+      sales_rep_id: trader.sales_rep_id ?? "",
     });
 
     setFormMessage("");
@@ -406,6 +413,10 @@ export function CustomersClient({
 
       whatsapp_marketing_opt_in: form.optin,
     };
+
+    if (canAssignRep) {
+      payload.sales_rep_id = form.sales_rep_id || null;
+    }
 
     // حد الدين ومهلة الدفع بيتغيّروا بس بصلاحية "تحديد حد الدين" (القاعدة كمان بتمنع).
     if (canManageCredit) {
@@ -996,6 +1007,25 @@ export function CustomersClient({
                       </label>
                     ) : null}
                   </>
+                ) : null}
+
+                {canAssignRep && salesReps.length ? (
+                  <label className="field">
+                    <span>المندوب</span>
+                    <select
+                      value={form.sales_rep_id}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, sales_rep_id: event.target.value }))
+                      }
+                    >
+                      <option value="">بدون مندوب</option>
+                      {salesReps.map((rep) => (
+                        <option key={rep.id} value={rep.id}>
+                          {rep.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 ) : null}
 
                 <label className="field full">

@@ -2987,6 +2987,17 @@ begin
         'ordered_at',
           so.ordered_at,
 
+        -- التوصيلة المفتوحة وسائقها (إذا في).
+        'delivery',
+          (
+            select jsonb_build_object('id', d.id, 'driver_id', d.driver_id)
+            from public.deliveries d
+            where d.order_id = so.id
+              and d.status in ('pending', 'out_for_delivery')
+            order by d.created_at desc
+            limit 1
+          ),
+
         'trader',
           jsonb_build_object(
             'id',
