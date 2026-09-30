@@ -65,6 +65,7 @@ export type QuoteRow = {
   notes: string | null;
   accepted_at: string | null;
   converted_order_id: string | null;
+  source?: "manual" | "catalog";
   created_at: string;
   expired: boolean;
 
@@ -925,6 +926,11 @@ export function QuotesClient({
 
                     <td>
                       <strong>{row.trader?.name || "—"}</strong>
+                      {row.source === "catalog" ? (
+                        <span className="chip blue" style={{ marginInlineStart: 6 }}>
+                          من الكتالوج
+                        </span>
+                      ) : null}
 
                       <span
                         className="muted"

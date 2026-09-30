@@ -25,6 +25,7 @@ export type Product = {
   warranty_months?: number | null;
   track_serials?: boolean;
   barcode?: string | null;
+  description?: string | null;
   image_url: string | null;
   active: boolean;
   created_at: string;
@@ -81,6 +82,7 @@ type ProductForm = {
   warranty_months: string;
   track_serials: boolean;
   barcode: string;
+  description: string;
   image_url: string;
 };
 
@@ -100,6 +102,7 @@ function emptyForm(): ProductForm {
     warranty_months: "",
     track_serials: false,
     barcode: "",
+    description: "",
     image_url: "",
   };
 }
@@ -414,6 +417,8 @@ export function ProductsClient({
 
       barcode: product.barcode ?? "",
 
+      description: product.description ?? "",
+
       image_url: product.image_url ?? "",
     });
 
@@ -652,6 +657,7 @@ export function ProductsClient({
           Number(form.warranty_months) > 0 ? Math.round(Number(form.warranty_months)) : null,
         product_track_serials: form.track_serials,
         product_barcode: form.barcode.trim() || null,
+        product_description: form.description.trim() || null,
       });
 
       if (extrasError) {
@@ -1376,6 +1382,19 @@ export function ProductsClient({
                       onDetect={(code) => setForm((current) => ({ ...current, barcode: code }))}
                     />
                   </div>
+                </label>
+
+                <label className="field full">
+                  <span>شرح للكتالوج (اختياري)</span>
+                  <textarea
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="مثلًا: 12 واط، ضوء أبيض، بتركب على قاعدة E27"
+                    value={form.description}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, description: event.target.value }))
+                    }
+                  />
                 </label>
 
                 <div className="field full">

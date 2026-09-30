@@ -52,6 +52,7 @@ type OwnerOverview = {
     pending_approvals?: number | null;
     loans_to_disburse?: number | null;
     ready_to_deliver?: number | null;
+    catalog_orders?: number | null;
   };
 };
 
@@ -436,6 +437,7 @@ function OwnerPanel({
       href: "/orders",
     },
     { count: overview.alerts?.low_stock, text: "صنف وصل للحد الأدنى بالمخزون", href: "/inventory" },
+    { count: overview.alerts?.catalog_orders, text: "طلب جديد من الكتالوج", href: "/quotes?status=draft" },
     { count: overview.alerts?.ready_to_deliver, text: "طلبية جاهزة للتوصيل", href: "/deliveries" },
     { count: overview.alerts?.loans_to_disburse, text: "سلفة بانتظار الصرف", href: "/payroll" },
   ].filter((alert) => toSafeNumber(alert.count) > 0);

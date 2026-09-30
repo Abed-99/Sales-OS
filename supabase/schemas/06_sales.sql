@@ -67,11 +67,15 @@ create table public.sales_quotes (
   notes text,
   accepted_at timestamp with time zone,
   converted_order_id uuid references public.sales_orders(id) on delete set null,
+  -- من وين إجى العرض: الموظف عملو، أو التاجر طلبو من رابط الكتالوج.
+  source text default 'manual'::text not null,
+  catalog_link_id uuid,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
   constraint sales_quotes_company_id_quote_number_key unique (company_id, quote_number),
   constraint sales_quotes_status_check check ((status = any (array['draft'::text, 'sent'::text, 'accepted'::text, 'rejected'::text, 'cancelled'::text, 'converted'::text]))),
+  constraint sales_quotes_source_check check (source in ('manual','catalog')),
   constraint sales_quotes_subtotal_check check ((subtotal >= (0)::numeric)),
   constraint sales_quotes_total_check check ((total >= (0)::numeric))
 );
@@ -3547,6 +3551,9 @@ begin
 
         'converted_order_id',
           q.converted_order_id,
+
+        'source',
+          q.source,
 
         'created_at',
           q.created_at,

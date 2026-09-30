@@ -106,6 +106,11 @@ begin
       select count(*) from public.sales_orders
       where company_id = target_company and status = 'ready'
     ) end
+,
+    'catalog_orders', case when public.has_permission(target_company, 'orders.view') then (
+      select count(*) from public.sales_quotes
+      where company_id = target_company and source = 'catalog' and status = 'draft'
+    ) end
   ));
 
   return v_result;

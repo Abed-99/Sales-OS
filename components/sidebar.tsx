@@ -41,6 +41,12 @@ const nav: readonly NavItem[] = [
   { href: "/deliveries", label: "التوصيل", icon: Icons.truck, permission: "deliveries.view" },
   { href: "/warranty", label: "الضمان", icon: Icons.shield, permission: "orders.view" },
   {
+    href: "/catalog",
+    label: "الكتالوج",
+    icon: Icons.box,
+    anyPermissions: ["orders.create", "products.update"],
+  },
+  {
     href: "/inventory",
     label: "المخزون",
     icon: Icons.box,

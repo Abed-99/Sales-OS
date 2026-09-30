@@ -448,6 +448,13 @@ export function TraderDetailClient({
               </Link>
             ) : null}
 
+            {canViewOrders ? (
+              <Link className="softButton" href={`/catalog?trader=${trader.id}`}>
+                <Icons.box size={14} />
+                ابعتلو كتالوج البضاعة
+              </Link>
+            ) : null}
+
             {canViewMap && trader.latitude != null && trader.longitude != null ? (
               <Link className="softButton" href={`/map?trader=${trader.id}`}>
                 <Icons.map size={14} />

@@ -38,6 +38,8 @@ create table public.products (
   track_serials boolean default false not null,
   barcode text,
   image_url text,
+  -- شرح قصير بيطلع بالكتالوج (المواصفات، الاستعمال...).
+  description text,
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
@@ -240,7 +242,7 @@ AS $function$
 $function$;
 
 -- الكرتونة وأسعار المستويات للصنف (بعد حفظ الصنف الأساسي).
-create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb, product_warranty_months integer DEFAULT NULL::integer, product_track_serials boolean DEFAULT false, product_barcode text DEFAULT NULL::text)
+create or replace function public.save_product_packaging_and_prices(target_company uuid, target_product uuid, product_pack_size numeric, product_pack_unit text, level_prices jsonb, product_warranty_months integer DEFAULT NULL::integer, product_track_serials boolean DEFAULT false, product_barcode text DEFAULT NULL::text, product_description text DEFAULT NULL::text)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -261,6 +263,7 @@ begin
       warranty_months = case when coalesce(product_warranty_months, 0) > 0 then product_warranty_months end,
       track_serials = coalesce(product_track_serials, false),
       barcode = nullif(trim(product_barcode), ''),
+      description = nullif(left(trim(product_description), 2000), ''),
       updated_at = now()
   where id = target_product and company_id = target_company;
 
