@@ -28,7 +28,7 @@ export default async function ImportsPage() {
     supabase
       .from("import_shipments")
       .select(
-        "id,shipment_number,container_number,origin_country,shipped_on,expected_on,arrived_on,status,notes,closed_at,import_shipment_costs(id,cost_type,amount,currency,base_amount,cost_date,notes),purchase_invoices(id,invoice_number,supplier_invoice_number,total,currency,suppliers(name))",
+        "id,shipment_number,container_number,origin_country,shipped_on,expected_on,arrived_on,status,notes,closed_at,import_shipment_costs(id,cost_type,amount,currency,base_amount,cost_date,notes,allocation_method),purchase_invoices(id,invoice_number,supplier_invoice_number,total,currency,suppliers(name))",
       )
       .eq("company_id", context.companyId)
       .order("created_at", { ascending: false })

@@ -342,14 +342,44 @@ mustFail("إقفال قبل الاستلام", await u.rpc("close_import_shipmen
 const shipItems = (await admin.from("purchase_invoice_items").select("id,quantity").eq("invoice_id", shipInvId)).data;
 must("استلام الكونتينر", await u.rpc("receive_purchase_invoice", { target_company: company, target_invoice: shipInvId, target_warehouse: wh1, target_receipt_date: today, target_notes: null, items_payload: shipItems.map((i) => ({ purchase_invoice_item_id: i.id, quantity: i.quantity })) }));
 must("بعنا مولدين قبل التوزيع", await u.rpc("quick_sale", { target_company: company, target_trader: null, items_payload: [{ product_id: gen, quantity: 2, sale_unit_price: 200 }], target_cashbox: usdBox, target_paid_amount: 400, target_cash_amount: 400 }));
+mustFail("إقفال بدون وزن وحجم (الشحن حسب الحجم والجمرك حسب الوزن)", await u.rpc("close_import_shipment", { target_company: company, target_shipment: ship }));
+must("وزن وحجم من البيان: المولدات 900 كغ 4 م³، اللمبات 100 كغ 1 م³", await u.rpc("save_shipment_measures", { target_company: company, target_shipment: ship, items_payload: [{ product_id: gen, weight_kg: 900, volume_cbm: 4 }, { product_id: lamp, weight_kg: 100, volume_cbm: 1 }] }));
+const prev = must("معاينة التوزيع", await u.rpc("preview_shipment_allocation", { target_company: company, target_shipment: ship }));
+const genPrev = prev?.find((r) => r.product_id === gen);
+check("المولدات من الشحن (حجم 80%)", genPrev?.cost_breakdown?.freight ?? 0, 44);
+check("المولدات من الجمرك (وزن 90%)", genPrev?.cost_breakdown?.customs ?? 0, 49.5);
+const costRow = (await admin.from("import_shipment_costs").select("id").eq("shipment_id", ship).eq("cost_type", "freight").single()).data;
+must("الشحن حسب العدد (تجربة)", await u.rpc("set_shipment_cost_method", { target_company: company, target_cost: costRow.id, target_method: "quantity" }));
+const prevQty = (await u.rpc("preview_shipment_allocation", { target_company: company, target_shipment: ship })).data;
+check("حسب العدد: المولدات 10 من 110 قطعة", prevQty.find((r) => r.product_id === gen).cost_breakdown.freight, 5);
+must("رجّعنا الشحن حسب الحجم", await u.rpc("set_shipment_cost_method", { target_company: company, target_cost: costRow.id, target_method: "volume" }));
 const cogsBeforeClose = await byKey("cogs");
 const closeRes = must("توزيع المصاريف وإقفال الكونتينر", await u.rpc("close_import_shipment", { target_company: company, target_shipment: ship }));
 check("بانتظار التوزيع رجع صفر", await byKey("import_costs_pending"), 0);
-check("حصة المولدين المباعين راحت لكلفة المبيعات", (await byKey("cogs")) - cogsBeforeClose, 20);
+check("حصة المولدين المباعين راحت لكلفة المبيعات", (await byKey("cogs")) - cogsBeforeClose, 18.7);
 const genStock = (await admin.from("inventory_stock").select("average_cost").eq("product_id", gen).single()).data;
-check("كلفة المولد الواصلة 110$", genStock.average_cost, 110);
+check("كلفة المولد الواصلة 109.35$", genStock.average_cost, 109.35);
 const lampStock = (await admin.from("inventory_stock").select("average_cost").eq("product_id", lamp).single()).data;
-check("كلفة اللمبة الواصلة 1.10$", lampStock.average_cost, 1.1);
+check("كلفة اللمبة الواصلة 1.165$", lampStock.average_cost, 1.165);
+check("البرنامج تذكّر وزن المولد للقطعة: 90 كغ", (await admin.from("products").select("unit_weight_kg").eq("id", gen).single()).data.unit_weight_kg, 90);
+// كونتينر تاني: براد ولمبات — تقريب كلفة اللمبة بيخلّي المخزون ياخد قروش زيادة، ولازم القيد يضل متوازن.
+const fridge = (await u.from("products").insert({ company_id: company, name: "براد 18 قدم", sale_price: 300 }).select("id").single()).data.id;
+const lamp2 = (await u.from("products").insert({ company_id: company, name: "لمبة LED كونتينر 2", sale_price: 2 }).select("id").single()).data.id;
+const impBox = must("صندوق الاستيراد", await u.from("cashboxes").insert({ company_id: company, name: "صندوق الاستيراد", currency: "USD" }).select("id").single())?.id;
+must("إيداع 3000$ بصندوق الاستيراد", await u.rpc("record_cash_movement", { target_company: company, target_cashbox: impBox, movement_type: "adjustment_in", movement_amount: 3000, movement_notes: null }));
+const ship2 = must("كونتينر 2", await u.rpc("save_import_shipment", { target_company: company, target_shipment: null, target_container: "MSKU2", target_origin: "الصين", target_shipped_on: today, target_expected_on: null, target_arrived_on: null, target_status: "arrived", target_notes: null }));
+const inv2 = must("فاتورة 100 براد × 200 + 5000 لمبة × 1", await u.rpc("create_purchase_invoice", { target_company: company, target_supplier: supplier, target_supplier_invoice_number: "CN-2", target_invoice_date: today, target_due_date: null, target_notes: null, items_payload: [{ product_id: fridge, quantity: 100, unit_cost: 200 }, { product_id: lamp2, quantity: 5000, unit_cost: 1 }] }));
+const inv2Id = typeof inv2 === "string" ? inv2 : inv2?.invoice_id ?? inv2?.id;
+must("ربط", await u.rpc("link_invoice_to_shipment", { target_company: company, target_invoice: inv2Id, target_shipment: ship2 }));
+must("شحن 2000 (حجم)", await u.rpc("add_shipment_cost", { target_company: company, target_shipment: ship2, target_type: "freight", target_amount: 2000, target_cashbox: impBox, target_date: today, target_notes: null }));
+must("جمرك 800 (وزن)", await u.rpc("add_shipment_cost", { target_company: company, target_shipment: ship2, target_type: "customs", target_amount: 800, target_cashbox: impBox, target_date: today, target_notes: null }));
+must("نقل 200 (وزن)", await u.rpc("add_shipment_cost", { target_company: company, target_shipment: ship2, target_type: "transport", target_amount: 200, target_cashbox: impBox, target_date: today, target_notes: null }));
+const items2 = (await admin.from("purchase_invoice_items").select("id,quantity").eq("invoice_id", inv2Id)).data;
+must("استلام", await u.rpc("receive_purchase_invoice", { target_company: company, target_invoice: inv2Id, target_warehouse: wh1, target_receipt_date: today, target_notes: null, items_payload: items2.map((i) => ({ purchase_invoice_item_id: i.id, quantity: i.quantity })) }));
+must("وزن وحجم: برادات 6000 كغ 45 م³، لمبات 1500 كغ 8 م³", await u.rpc("save_shipment_measures", { target_company: company, target_shipment: ship2, items_payload: [{ product_id: fridge, weight_kg: 6000, volume_cbm: 45 }, { product_id: lamp2, weight_kg: 1500, volume_cbm: 8 }] }));
+must("إقفال الكونتينر 2", await u.rpc("close_import_shipment", { target_company: company, target_shipment: ship2 }));
+check("البراد واصل 224.98$", (await admin.from("inventory_stock").select("average_cost").eq("product_id", fridge).single()).data.average_cost, 224.9811);
+check("بانتظار التوزيع رجع صفر بعد الكونتينر 2", await byKey("import_costs_pending"), 0);
 
 // ---------------------------------------------------------------- T. WhatsApp outbox
 log("\nT️⃣  صندوق رسائل واتساب الجاهزة");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
@@ -31,6 +31,7 @@ export type ShipmentRow = {
     base_amount: number;
     cost_date: string;
     notes: string | null;
+    allocation_method: Method;
   }[];
   purchase_invoices: {
     id: string;
@@ -42,12 +43,20 @@ export type ShipmentRow = {
   }[];
 };
 
+type Method = "value" | "weight" | "volume" | "quantity";
+
 type Preview = {
   product_id: string;
   product_name: string;
   quantity: number;
   received: number;
   goods_value: number;
+  weight_kg: number | null;
+  volume_cbm: number | null;
+  suggested_weight_kg: number | null;
+  suggested_volume_cbm: number | null;
+  missing: string | null;
+  cost_breakdown: Record<string, number>;
   allocated_cost: number;
   unit_goods_cost: number;
   unit_landed_cost: number;
@@ -72,6 +81,19 @@ const costLabels: Record<string, string> = {
   other: "مصاريف أخرى",
 };
 
+const methodLabels: Record<Method, string> = {
+  volume: "حسب الحجم",
+  weight: "حسب الوزن",
+  value: "حسب السعر",
+  quantity: "حسب العدد",
+};
+
+// الشحن بيتوزّع حسب الحجم، والجمرك وباقي المصاريف حسب الوزن (بيتغيّر لكل مصروف).
+const defaultMethod = (type: string): Method => (type === "freight" ? "volume" : "weight");
+
+const num = (value: number | string | null | undefined) =>
+  value == null || value === "" ? "" : String(Number(value));
+
 const money = (value: number, currency: string) =>
   `${Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 
@@ -79,6 +101,7 @@ const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Dam
 
 function friendly(message: string) {
   const text = message.toLowerCase();
+  if (text.includes("missing weight")) return "في أصناف ناقصها وزن أو حجم. عبّيهن من البيان واحفظ.";
   if (text.includes("receive all")) return "لازم تستلم كل بضاعة الكونتينر قبل توزيع المصاريف.";
   if (text.includes("no purchase invoices")) return "اربط فاتورة شراء وحدة على الأقل بالكونتينر.";
   if (text.includes("closed")) return "الكونتينر مسكّر.";
@@ -125,11 +148,58 @@ export function ImportsClient({
     cashbox: cashboxes[0]?.id ?? "",
     date: today(),
     notes: "",
+    method: "volume" as Method,
   });
   const [txRate, setTxRate] = useState("");
   const [preview, setPreview] = useState<Preview[] | null>(null);
+  const [measures, setMeasures] = useState<Record<string, { weight: string; volume: string }>>({});
+  const [measuresSaved, setMeasuresSaved] = useState(true);
 
   const open = shipments.find((row) => row.id === openId) ?? null;
+  const openKey = open
+    ? `${open.id}:${open.purchase_invoices.length}:${open.import_shipment_costs
+        .map((item) => item.id + item.allocation_method)
+        .join()}`
+    : "";
+
+  // كل ما ينفتح كونتينر أو تتغيّر فواتيرو أو مصاريفو: منجيب الأصناف والتوزيع.
+  useEffect(() => {
+    if (!openKey) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase.rpc("preview_shipment_allocation", {
+        target_company: companyId,
+        target_shipment: openKey.split(":")[0],
+      });
+      if (cancelled || !data) return;
+      const rows = data as Preview[];
+      setPreview(rows);
+      // اللي كتبتو وما حفظتو بيضل (مثلًا إذا ضفت مصروف بالنص).
+      setMeasures((current) =>
+        Object.fromEntries(
+          rows.map((row) => [
+            row.product_id,
+            current[row.product_id] ?? {
+              weight: num(row.weight_kg ?? row.suggested_weight_kg),
+              volume: num(row.volume_cbm ?? row.suggested_volume_cbm),
+            },
+          ]),
+        ),
+      );
+      setMeasuresSaved(
+        (current) =>
+          current &&
+          rows.every(
+            (row) =>
+              (row.weight_kg != null || row.suggested_weight_kg == null) &&
+              (row.volume_cbm != null || row.suggested_volume_cbm == null),
+          ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openKey, companyId, supabase]);
 
   async function run<T>(action: () => PromiseLike<{ data: T; error: { message: string } | null }>) {
     setBusy(true);
@@ -141,7 +211,8 @@ export function ImportsClient({
       return null;
     }
     router.refresh();
-    return data;
+    // دوال بلا نتيجة بترجع null: منرجّع true مشان نعرف إنها نجحت.
+    return data ?? (true as T);
   }
 
   async function saveShipment(event: React.FormEvent<HTMLFormElement>) {
@@ -189,11 +260,44 @@ export function ImportsClient({
         target_cashbox: cost.cashbox,
         target_date: cost.date,
         target_notes: cost.notes,
+        target_method: cost.method,
       }),
     );
     if (ok) {
       setCost((current) => ({ ...current, amount: "", notes: "" }));
-      setPreview(null);
+    }
+  }
+
+  async function changeMethod(costId: string, method: Method) {
+    await run(() =>
+      supabase.rpc("set_shipment_cost_method", {
+        target_company: companyId,
+        target_cost: costId,
+        target_method: method,
+      }),
+    );
+  }
+
+  async function saveMeasures() {
+    if (!open || !preview) return;
+    const bad = Object.values(measures).some(
+      (row) => Number(row.weight) < 0 || Number(row.volume) < 0,
+    );
+    if (bad) return setMessage("الوزن والحجم لازم يكونو أرقام موجبة.");
+    const ok = await run(() =>
+      supabase.rpc("save_shipment_measures", {
+        target_company: companyId,
+        target_shipment: open.id,
+        items_payload: preview.map((row) => ({
+          product_id: row.product_id,
+          weight_kg: measures[row.product_id]?.weight.trim() || null,
+          volume_cbm: measures[row.product_id]?.volume.trim() || null,
+        })),
+      }),
+    );
+    if (ok !== null) {
+      setMeasuresSaved(true);
+      await loadPreview();
     }
   }
 
@@ -207,6 +311,10 @@ export function ImportsClient({
     );
     if (data) setPreview(data as Preview[]);
   }
+
+  const costTypes = open
+    ? Array.from(new Set(open.import_shipment_costs.map((item) => item.cost_type)))
+    : [];
 
   const costTotal = (row: ShipmentRow) =>
     row.import_shipment_costs.reduce((sum, item) => sum + Number(item.base_amount), 0);
@@ -298,6 +406,8 @@ export function ImportsClient({
                         onClick={() => {
                           setMessage("");
                           setPreview(null);
+                          setMeasures({});
+                          setMeasuresSaved(true);
                           setOpenId(row.id);
                         }}
                       >
@@ -518,6 +628,22 @@ export function ImportsClient({
                       {item.notes ? ` • ${item.notes}` : ""}
                     </span>
                   </div>
+                  {canManage && open.status !== "closed" ? (
+                    <select
+                      value={item.allocation_method}
+                      disabled={busy}
+                      onChange={(e) => void changeMethod(item.id, e.target.value as Method)}
+                      style={{ width: "auto" }}
+                    >
+                      {(Object.keys(methodLabels) as Method[]).map((method) => (
+                        <option key={method} value={method}>
+                          {methodLabels[method]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="chip gray">{methodLabels[item.allocation_method]}</span>
+                  )}
                   <div className="count">
                     {money(item.amount, item.currency)}
                     {item.currency !== currency ? ` = ${money(item.base_amount, currency)}` : ""}
@@ -532,7 +658,13 @@ export function ImportsClient({
                   <span>نوع المصروف</span>
                   <select
                     value={cost.type}
-                    onChange={(e) => setCost({ ...cost, type: e.target.value })}
+                    onChange={(e) =>
+                      setCost({
+                        ...cost,
+                        type: e.target.value,
+                        method: defaultMethod(e.target.value),
+                      })
+                    }
                   >
                     {Object.entries(costLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -582,6 +714,19 @@ export function ImportsClient({
                   onChange={setTxRate}
                 />
                 <label className="field">
+                  <span>كيف يتوزّع عالأصناف</span>
+                  <select
+                    value={cost.method}
+                    onChange={(e) => setCost({ ...cost, method: e.target.value as Method })}
+                  >
+                    {(Object.keys(methodLabels) as Method[]).map((method) => (
+                      <option key={method} value={method}>
+                        {methodLabels[method]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
                   <span>ملاحظة</span>
                   <input
                     value={cost.notes}
@@ -597,9 +742,81 @@ export function ImportsClient({
               </form>
             ) : null}
 
+            {preview && preview.length ? (
+              <>
+                <h3 style={{ marginTop: 18 }}>الوزن والحجم (من البيان الجمركي أو الفاتورة)</h3>
+                <p className="muted" style={{ margin: "0 0 8px" }}>
+                  اكتب الوزن الكلي والحجم الكلي لكل صنف بهالكونتينر.
+                  {measuresSaved ? "" : " في أرقام ما انحفظت (الرمادية من آخر كونتينر): راجعها واكبس حفظ."}
+                </p>
+                <div className="tableWrap">
+                  <table className="dataTable">
+                    <thead>
+                      <tr>
+                        <th>الصنف</th>
+                        <th>الكمية</th>
+                        <th>الوزن الكلي (كغ)</th>
+                        <th>الحجم الكلي (م³)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((row) => {
+                        const value = measures[row.product_id] ?? { weight: "", volume: "" };
+                        const editable = canManage && open.status !== "closed";
+                        const input = (key: "weight" | "volume", saved: number | null) => (
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            dir="ltr"
+                            disabled={!editable}
+                            value={value[key]}
+                            style={{
+                              width: 120,
+                              background: "#06110e",
+                              color: saved == null && value[key] ? "#7f958e" : "white",
+                              border: `1px solid ${row.missing?.includes(key) ? "rgba(232,134,134,.6)" : "var(--line)"}`,
+                              borderRadius: 9,
+                              padding: "7px 9px",
+                            }}
+                            onChange={(e) => {
+                              setMeasuresSaved(false);
+                              setMeasures({
+                                ...measures,
+                                [row.product_id]: { ...value, [key]: e.target.value },
+                              });
+                            }}
+                          />
+                        );
+                        return (
+                          <tr key={row.product_id}>
+                            <td>{row.product_name}</td>
+                            <td>{Number(row.quantity)}</td>
+                            <td>{input("weight", row.weight_kg)}</td>
+                            <td>{input("volume", row.volume_cbm)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {canManage && open.status !== "closed" ? (
+                  <button
+                    type="button"
+                    className={measuresSaved ? "softButton" : "primaryButton"}
+                    style={{ marginTop: 8 }}
+                    disabled={busy}
+                    onClick={() => void saveMeasures()}
+                  >
+                    حفظ الوزن والحجم
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+
             <div className="rowActions" style={{ marginTop: 18 }}>
               <button type="button" className="softButton" onClick={() => void loadPreview()}>
-                الكلفة الواصلة لكل صنف
+                تحديث الكلفة الواصلة
               </button>
               {canManage && open.status !== "closed" ? (
                 <button
@@ -607,6 +824,10 @@ export function ImportsClient({
                   className="primaryButton"
                   disabled={busy}
                   onClick={async () => {
+                    if (!measuresSaved) {
+                      setMessage("في وزن أو حجم ما انحفظ. اكبس «حفظ الوزن والحجم» أول.");
+                      return;
+                    }
                     if (
                       !window.confirm(
                         "توزيع المصاريف عالأصناف وإقفال الكونتينر؟ بعدها ما بتقدر تضيف مصاريف.",
@@ -636,6 +857,9 @@ export function ImportsClient({
                       <th>الكمية</th>
                       <th>مستلم</th>
                       <th>قيمة البضاعة</th>
+                      {costTypes.map((type) => (
+                        <th key={type}>{costLabels[type] ?? type}</th>
+                      ))}
                       <th>حصتو من المصاريف</th>
                       <th>كلفة القطعة بالفاتورة</th>
                       <th>الكلفة الواصلة للقطعة</th>
@@ -648,7 +872,19 @@ export function ImportsClient({
                         <td>{Number(row.quantity)}</td>
                         <td>{Number(row.received)}</td>
                         <td>{money(row.goods_value, currency)}</td>
-                        <td>{money(row.allocated_cost, currency)}</td>
+                        {costTypes.map((type) => (
+                          <td key={type}>{money(row.cost_breakdown?.[type] ?? 0, currency)}</td>
+                        ))}
+                        <td>
+                          {money(row.allocated_cost, currency)}
+                          {row.missing ? (
+                            <div className="invalidText" style={{ fontSize: 9 }}>
+                              ناقص {row.missing.includes("weight") ? "الوزن" : ""}
+                              {row.missing === "weight,volume" ? " و" : ""}
+                              {row.missing.includes("volume") ? "الحجم" : ""}
+                            </div>
+                          ) : null}
+                        </td>
                         <td>{money(row.unit_goods_cost, currency)}</td>
                         <td>
                           <strong>{money(row.unit_landed_cost, currency)}</strong>
