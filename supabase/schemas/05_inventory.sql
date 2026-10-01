@@ -1905,6 +1905,130 @@ begin
 end;
 $function$;
 
+-- تعديل اسم المستودع وكودو وعنوانو.
+create or replace function public.update_warehouse(target_company uuid, target_warehouse uuid, target_name text, target_code text DEFAULT NULL::text, target_address text DEFAULT NULL::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.has_permission(target_company, 'inventory.adjust') then
+    raise exception 'Not allowed';
+  end if;
+
+  if nullif(trim(target_name), '') is null then
+    raise exception 'Warehouse name is required';
+  end if;
+
+  update public.warehouses
+  set name = trim(target_name),
+      code = nullif(trim(target_code), ''),
+      address = nullif(trim(target_address), ''),
+      updated_at = now()
+  where id = target_warehouse and company_id = target_company;
+
+  if not found then
+    raise exception 'Invalid warehouse';
+  end if;
+end;
+$function$;
+
+-- إيقاف أو تفعيل مستودع. ما بيتوقف إذا فيه بضاعة أو حجوزات، أو إذا كان آخر مستودع شغّال.
+-- إذا كان الرئيسي، بيصير غيرو رئيسي.
+create or replace function public.set_warehouse_active(target_company uuid, target_warehouse uuid, target_active boolean)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_was_default boolean;
+begin
+  if not public.has_permission(target_company, 'inventory.adjust') then
+    raise exception 'Not allowed';
+  end if;
+
+  select is_default into v_was_default
+  from public.warehouses
+  where id = target_warehouse and company_id = target_company
+  for update;
+
+  if not found then
+    raise exception 'Invalid warehouse';
+  end if;
+
+  if coalesce(target_active, false) then
+    update public.warehouses set active = true, updated_at = now() where id = target_warehouse;
+    return;
+  end if;
+
+  if exists (select 1 from public.inventory_stock where warehouse_id = target_warehouse and on_hand <> 0) then
+    raise exception 'Warehouse has stock';
+  end if;
+
+  if exists (select 1 from public.inventory_reservations where warehouse_id = target_warehouse and status = 'active') then
+    raise exception 'Warehouse has active reservations';
+  end if;
+
+  if not exists (
+    select 1 from public.warehouses
+    where company_id = target_company and active and id <> target_warehouse
+  ) then
+    raise exception 'Cannot deactivate the last warehouse';
+  end if;
+
+  update public.warehouses
+  set active = false, is_default = false, updated_at = now()
+  where id = target_warehouse;
+
+  if v_was_default then
+    update public.warehouses
+    set is_default = true
+    where id = (
+      select id from public.warehouses
+      where company_id = target_company and active
+      order by created_at
+      limit 1
+    );
+  end if;
+end;
+$function$;
+
+-- حركات صنف: إيمتى دخل وطلع، من وين ولمين، والرصيد بعد كل حركة (كل المستودعات).
+create or replace function public.get_product_movements(target_company uuid, target_product uuid, target_limit integer DEFAULT 200)
+ RETURNS TABLE(occurred_at timestamp with time zone, movement_type text, quantity numeric, balance numeric,
+               warehouse_name text, reference text, party_name text, notes text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select * from (
+    select m.occurred_at, m.movement_type, m.quantity,
+           sum(m.quantity) over (order by m.occurred_at, m.created_at, m.id) as balance,
+           w.name as warehouse_name,
+           coalesce(m.reference_number, so.order_number, gr.receipt_number, sr.return_number, pr.return_number) as reference,
+           coalesce(t1.name, t2.name, s1.name, s2.name) as party_name,
+           m.notes
+    from public.inventory_movements m
+    join public.warehouses w on w.id = m.warehouse_id
+    left join public.deliveries d on m.source_table = 'deliveries' and d.id = m.source_id
+    left join public.sales_orders so on so.id = d.order_id
+    left join public.traders t1 on t1.id = so.trader_id
+    left join public.sales_returns sr on m.source_table = 'sales_returns' and sr.id = m.source_id
+    left join public.traders t2 on t2.id = sr.trader_id
+    left join public.goods_receipts gr on m.source_table = 'goods_receipts' and gr.id = m.source_id
+    left join public.suppliers s1 on s1.id = gr.supplier_id
+    left join public.purchase_returns pr on m.source_table = 'purchase_returns' and pr.id = m.source_id
+    left join public.suppliers s2 on s2.id = pr.supplier_id
+    where m.company_id = target_company
+      and m.product_id = target_product
+      and public.has_any_permission(target_company, array['inventory.view','products.view'])
+  ) x
+  order by x.occurred_at desc
+  limit least(greatest(coalesce(target_limit, 200), 1), 1000);
+$function$;
+
 
 -- ----------------------------------------------------------------------
 -- العروض (Views)

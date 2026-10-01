@@ -256,10 +256,6 @@ export default async function InventoryPage({
           "company_id",
           context.companyId
         )
-        .eq(
-          "active",
-          true
-        )
         .order(
           "is_default",
           {
@@ -487,8 +483,12 @@ export default async function InventoryPage({
           context.currency
         }
         warehouses={
-          (warehousesResult.data ??
-            []) as InventoryWarehouse[]
+          ((warehousesResult.data ??
+            []) as InventoryWarehouse[]).filter((row) => row.active)
+        }
+        inactiveWarehouses={
+          ((warehousesResult.data ??
+            []) as InventoryWarehouse[]).filter((row) => !row.active)
         }
         stock={
           (stockResult.data ??
@@ -515,7 +515,7 @@ export default async function InventoryPage({
             (
               warehousesResult.data ??
               []
-            ).length,
+            ).filter((row) => row.active).length,
 
           reservedLines:
             stockStats.reservedLines,

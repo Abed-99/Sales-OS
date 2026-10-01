@@ -489,6 +489,26 @@ export default async function ProductDetailPage({
         row.available
     ) ?? null;
 
+
+  // حركات الصنف (دخل/طلع، لمين، والرصيد بعد كل حركة).
+  const movementsResult = canViewInventory
+    ? await supabase.rpc("get_product_movements", {
+        target_company: context.companyId,
+        target_product: id,
+        target_limit: 100,
+      })
+    : { data: null };
+  const movements = (movementsResult.data ?? []) as {
+    occurred_at: string;
+    movement_type: string;
+    quantity: number;
+    balance: number;
+    warehouse_name: string;
+    reference: string | null;
+    party_name: string | null;
+    notes: string | null;
+  }[];
+
   return (
     <>
       <Topbar
@@ -871,10 +891,74 @@ export default async function ProductDetailPage({
             )}
           </aside>
         </div>
+
+        {canViewInventory ? (
+          <section className="panel" style={{ marginTop: 14 }}>
+            <div className="panelHeader panelPad">
+              <div>
+                <h2>حركات الصنف</h2>
+                <p>إيمتى دخل وإيمتى طلع، ومن وين ولمين (آخر 100 حركة)</p>
+              </div>
+            </div>
+            {!movements.length ? (
+              <p className="muted panelPad">ما في حركات لهالصنف لسا.</p>
+            ) : (
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>التاريخ</th>
+                      <th>الحركة</th>
+                      <th>الكمية</th>
+                      <th>الرصيد بعدها</th>
+                      <th>المستودع</th>
+                      <th>لمين / من مين</th>
+                      <th>المرجع</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((row, index) => (
+                      <tr key={index}>
+                        <td>{formatDateTime(row.occurred_at)}</td>
+                        <td>{movementLabels[row.movement_type] ?? row.movement_type}</td>
+                        <td>
+                          <strong className={Number(row.quantity) < 0 ? "kpiNegative" : "kpiPositive"}>
+                            {Number(row.quantity) > 0 ? "+" : ""}
+                            {Number(row.quantity).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                          </strong>
+                        </td>
+                        <td>{Number(row.balance).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                        <td>{row.warehouse_name}</td>
+                        <td>{row.party_name ?? "—"}</td>
+                        <td>
+                          {row.reference ?? ""}
+                          {row.notes ? <div className="muted">{row.notes}</div> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
       </div>
     </>
   );
 }
+
+const movementLabels: Record<string, string> = {
+  opening: "رصيد أول",
+  purchase_receipt: "استلام شراء",
+  sales_delivery: "تسليم لزبون",
+  sales_return: "مرتجع من زبون",
+  purchase_return: "مرتجع لمورد",
+  adjustment_in: "تسوية (زيادة)",
+  adjustment_out: "تسوية (نقص)",
+  transfer_in: "تحويل (دخل)",
+  transfer_out: "تحويل (طلع)",
+  damage: "تالف",
+};
 
 function Mini({
   title,

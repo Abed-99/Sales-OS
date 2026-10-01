@@ -246,6 +246,9 @@ export function ProductsClient({
   const [saving, setSaving] = useState(false);
 
   const [categorySaving, setCategorySaving] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [categoryNamesDraft, setCategoryNamesDraft] = useState<Record<string, string>>({});
+  const [categoriesMessage, setCategoriesMessage] = useState("");
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -516,6 +519,60 @@ export function ProductsClient({
     }
   }
 
+  async function renameCategory(row: Category) {
+    const name = (categoryNamesDraft[row.id] ?? row.name).trim();
+    if (!name || name === row.name) return;
+    setCategorySaving(true);
+    setCategoriesMessage("");
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("id", row.id);
+      if (error) {
+        setCategoriesMessage(
+          error.code === "23505" ? "في تصنيف بنفس الاسم." : "ما قدرنا نغيّر الاسم.",
+        );
+        return;
+      }
+      setCategories((current) =>
+        current
+          .map((item) => (item.id === row.id ? { ...item, name } : item))
+          .sort((a, b) => a.name.localeCompare(b.name, "ar")),
+      );
+      router.refresh();
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
+  async function deleteCategory(row: Category) {
+    if (
+      !window.confirm(
+        `حذف تصنيف "${row.name}"؟ الأصناف اللي فيه ما بتنحذف، بس بتصير بلا تصنيف.`,
+      )
+    )
+      return;
+    setCategorySaving(true);
+    setCategoriesMessage("");
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("id", row.id);
+      if (error) {
+        setCategoriesMessage("ما قدرنا نحذف التصنيف.");
+        return;
+      }
+      setCategories((current) => current.filter((item) => item.id !== row.id));
+      router.refresh();
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
     setFormMessage("");
@@ -740,6 +797,20 @@ export function ProductsClient({
 
         <div className="rowActions">
           {canUpdate ? (
+            <button
+              type="button"
+              className="softButton"
+              onClick={() => {
+                setCategoryNamesDraft({});
+                setCategoriesMessage("");
+                setCategoriesOpen(true);
+              }}
+            >
+              التصنيفات
+            </button>
+          ) : null}
+
+          {canUpdate ? (
             <button type="button" className="softButton" onClick={() => setLevelsOpen(true)}>
               مستويات الأسعار
             </button>
@@ -753,6 +824,80 @@ export function ProductsClient({
           ) : null}
         </div>
       </div>
+
+      {categoriesOpen ? (
+        <div className="modalOverlay">
+          <section className="modal" role="dialog" aria-modal="true">
+            <div className="modalHeader">
+              <div>
+                <span className="eyebrow">الأصناف</span>
+                <h2>التصنيفات</h2>
+              </div>
+              <button
+                type="button"
+                className="closeButton"
+                onClick={() => setCategoriesOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            {!categories.length ? (
+              <p className="muted">ما في تصنيفات. بتضيفها من شاشة الصنف.</p>
+            ) : (
+              <div className="quickList">
+                {categories.map((row) => (
+                  <div className="quickItem" key={row.id}>
+                    <input
+                      style={{
+                        flex: 1,
+                        background: "#06110e",
+                        color: "white",
+                        border: "1px solid var(--line)",
+                        borderRadius: 9,
+                        padding: "8px 10px",
+                      }}
+                      value={categoryNamesDraft[row.id] ?? row.name}
+                      maxLength={80}
+                      onChange={(event) =>
+                        setCategoryNamesDraft((current) => ({
+                          ...current,
+                          [row.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="softButton"
+                      disabled={
+                        categorySaving ||
+                        (categoryNamesDraft[row.id] ?? row.name).trim() === row.name
+                      }
+                      onClick={() => void renameCategory(row)}
+                    >
+                      حفظ
+                    </button>
+                    {canArchive ? (
+                      <button
+                        type="button"
+                        className="dangerButton"
+                        disabled={categorySaving}
+                        onClick={() => void deleteCategory(row)}
+                      >
+                        حذف
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            {categoriesMessage ? (
+              <div className="toastError" style={{ marginTop: 10 }}>
+                {categoriesMessage}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
 
       {levelsOpen ? (
         <div className="modalOverlay">

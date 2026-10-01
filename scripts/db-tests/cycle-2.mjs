@@ -381,6 +381,19 @@ must("إقفال الكونتينر 2", await u.rpc("close_import_shipment", { t
 check("البراد واصل 224.98$", (await admin.from("inventory_stock").select("average_cost").eq("product_id", fridge).single()).data.average_cost, 224.9811);
 check("بانتظار التوزيع رجع صفر بعد الكونتينر 2", await byKey("import_costs_pending"), 0);
 
+// ---------------------------------------------------------------- S2. warehouses + product movements
+log("\nS2️⃣  المستودعات وحركات الصنف");
+const wh3 = must("مستودع تاني", await u.rpc("create_warehouse", { target_company: company, target_name: "مستودع القابون", target_code: null, target_address: null, target_is_default: false }));
+must("تعديل اسمو", await u.rpc("update_warehouse", { target_company: company, target_warehouse: wh3, target_name: "مستودع القابون 2", target_code: "M2", target_address: "المزة" }));
+check("الاسم انحفظ", (await admin.from("warehouses").select("name").eq("id", wh3).single()).data.name === "مستودع القابون 2" ? 1 : 0, 1);
+mustFail("ما بيتوقف مستودع فيه بضاعة", await u.rpc("set_warehouse_active", { target_company: company, target_warehouse: wh1, target_active: false }));
+must("إيقاف المستودع الفاضي", await u.rpc("set_warehouse_active", { target_company: company, target_warehouse: wh3, target_active: false }));
+must("رجّعناه", await u.rpc("set_warehouse_active", { target_company: company, target_warehouse: wh3, target_active: true }));
+const moves = must("حركات المولد", await u.rpc("get_product_movements", { target_company: company, target_product: gen, target_limit: 50 }));
+check("حركات المولد: استلام + بيع", moves?.length ?? 0, 2);
+check("الرصيد بآخر حركة = المخزون", moves?.[0]?.balance ?? -1, await stockOf(gen));
+check("الاستلام من المورد مكتوب", moves?.some((m) => m.movement_type === "purchase_receipt" && m.party_name) ? 1 : 0, 1);
+
 // ---------------------------------------------------------------- T. WhatsApp outbox
 log("\nT️⃣  صندوق رسائل واتساب الجاهزة");
 const { data: outbox } = await admin.from("whatsapp_outbox").select("kind,message,document_type,trader_id,status").eq("company_id", company);

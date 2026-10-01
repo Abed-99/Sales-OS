@@ -294,6 +294,7 @@ export function InventoryClient({
   companyId,
   currency,
   warehouses,
+  inactiveWarehouses = [],
   stock,
   stockTotalCount,
   stockPage,
@@ -315,6 +316,7 @@ export function InventoryClient({
   companyId: string;
   currency: string;
   warehouses: InventoryWarehouse[];
+  inactiveWarehouses?: InventoryWarehouse[];
   stock: InventoryStockRow[];
   stockTotalCount: number;
   stockPage: number;
@@ -416,6 +418,7 @@ export function InventoryClient({
   // ==========================================================
 
   const [warehouseOpen, setWarehouseOpen] = useState(false);
+  const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
 
   const [warehouseName, setWarehouseName] = useState("");
 
@@ -578,12 +581,71 @@ export function InventoryClient({
       return;
     }
 
+    setEditingWarehouseId(null);
     setWarehouseName("");
     setWarehouseCode("");
     setWarehouseAddress("");
     setWarehouseDefault(false);
     setWarehouseMessage("");
     setWarehouseOpen(true);
+  }
+
+  function editWarehouse(warehouse: InventoryWarehouse) {
+    if (!canAdjust) {
+      return;
+    }
+
+    setEditingWarehouseId(warehouse.id);
+    setWarehouseName(warehouse.name);
+    setWarehouseCode(warehouse.code ?? "");
+    setWarehouseAddress(warehouse.address ?? "");
+    setWarehouseDefault(warehouse.is_default);
+    setWarehouseMessage("");
+    setWarehouseOpen(true);
+  }
+
+  async function setWarehouseActive(warehouse: InventoryWarehouse, active: boolean) {
+    if (!canAdjust) {
+      return;
+    }
+
+    if (!active && !window.confirm(`إيقاف مستودع ${warehouse.name}؟ بيضل بالسجلات القديمة.`)) {
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const { error } = await supabase.rpc("set_warehouse_active", {
+        target_company: companyId,
+        target_warehouse: warehouse.id,
+        target_active: active,
+      });
+
+      if (error) {
+        const text = error.message.toLowerCase();
+        setNotice({
+          type: "error",
+          text: text.includes("has stock")
+            ? "المستودع فيه بضاعة. انقلها لمستودع تاني أول (تحويل)."
+            : text.includes("reservations")
+              ? "في طلبيات محجوزة من هالمستودع. سلّمها أو ألغيها أول."
+              : text.includes("last warehouse")
+                ? "هاد آخر مستودع شغّال، ما فيك توقفو."
+                : friendlyError(error, "warehouse"),
+        });
+        return;
+      }
+
+      setNotice({
+        type: "success",
+        text: active ? "رجع المستودع شغّال." : "انوقف المستودع.",
+      });
+
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveWarehouse(event: FormEvent<HTMLFormElement>) {
@@ -602,28 +664,43 @@ export function InventoryClient({
     setWarehouseMessage("");
 
     try {
-      const { error } = await supabase.rpc("create_warehouse", {
-        target_company: companyId,
+      const { error } = editingWarehouseId
+        ? await supabase.rpc("update_warehouse", {
+            target_company: companyId,
+            target_warehouse: editingWarehouseId,
+            target_name: warehouseName.trim(),
+            target_code: warehouseCode.trim() || null,
+            target_address: warehouseAddress.trim() || null,
+          })
+        : await supabase.rpc("create_warehouse", {
+            target_company: companyId,
 
-        target_name: warehouseName.trim(),
+            target_name: warehouseName.trim(),
 
-        target_code: warehouseCode.trim() || null,
+            target_code: warehouseCode.trim() || null,
 
-        target_address: warehouseAddress.trim() || null,
+            target_address: warehouseAddress.trim() || null,
 
-        target_is_default: warehouseDefault,
-      });
+            target_is_default: warehouseDefault,
+          });
 
       if (error) {
         setWarehouseMessage(friendlyError(error, "warehouse"));
         return;
       }
 
+      if (editingWarehouseId && warehouseDefault) {
+        await supabase.rpc("set_default_warehouse", {
+          target_company: companyId,
+          target_warehouse: editingWarehouseId,
+        });
+      }
+
       setWarehouseOpen(false);
 
       setNotice({
         type: "success",
-        text: "تم إنشاء المستودع بنجاح.",
+        text: editingWarehouseId ? "انحفظ المستودع." : "تم إنشاء المستودع بنجاح.",
       });
 
       router.refresh();
@@ -1424,6 +1501,48 @@ export function InventoryClient({
                     جعله رئيسي
                   </button>
                 ) : null}
+
+                {canAdjust ? (
+                  <>
+                    <button
+                      type="button"
+                      className="softButton"
+                      disabled={saving}
+                      onClick={() => editWarehouse(warehouse)}
+                    >
+                      تعديل
+                    </button>
+                    <button
+                      type="button"
+                      className="dangerButton"
+                      disabled={saving}
+                      onClick={() => void setWarehouseActive(warehouse, false)}
+                    >
+                      إيقاف
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ))}
+            {inactiveWarehouses.map((warehouse) => (
+              <div className="quickItem" key={warehouse.id} style={{ opacity: 0.6 }}>
+                <div className="quickIcon">
+                  <Icons.box size={15} />
+                </div>
+                <div>
+                  <strong>{warehouse.name}</strong>
+                  <span>موقوف</span>
+                </div>
+                {canAdjust ? (
+                  <button
+                    type="button"
+                    className="softButton"
+                    disabled={saving}
+                    onClick={() => void setWarehouseActive(warehouse, true)}
+                  >
+                    تفعيل
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1839,9 +1958,9 @@ export function InventoryClient({
           <section className="modal" role="dialog" aria-modal="true">
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">مستودع جديد</span>
+                <span className="eyebrow">{editingWarehouseId ? "تعديل" : "مستودع جديد"}</span>
 
-                <h2>إضافة مستودع</h2>
+                <h2>{editingWarehouseId ? warehouseName || "تعديل المستودع" : "إضافة مستودع"}</h2>
               </div>
 
               <button
