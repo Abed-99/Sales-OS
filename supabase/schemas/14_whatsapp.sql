@@ -338,3 +338,16 @@ begin
   return v_id;
 end;
 $function$;
+
+
+-- ----------------------------------------------------------------------
+-- الصلاحيات
+-- ----------------------------------------------------------------------
+
+-- دوال داخلية: بتشتغل من المشغّلات بس. ما لازم أي مستخدم يناديها مباشرة
+-- (وإلا بيقدر يحط رسائل بصندوق شركة تانية أو يعرف رصيد زبون عند شركة تانية).
+revoke execute on function public.enqueue_whatsapp(uuid, text, uuid, text, jsonb, text, uuid) from authenticated;
+revoke execute on function public.trader_balance_text(uuid, uuid) from authenticated;
+revoke execute on function public.render_whatsapp_message(uuid, text, jsonb) from authenticated;
+revoke execute on function public.whatsapp_money(numeric, text) from authenticated;
+revoke execute on function public.whatsapp_default_template(text) from authenticated;

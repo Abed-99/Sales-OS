@@ -687,9 +687,17 @@ alter table public.cashboxes enable row level security;
 alter table public.cashbox_gl_accounts enable row level security;
 alter table public.expenses enable row level security;
 alter table public.cash_transactions enable row level security;
+-- الصندوق والمحاسبة: كل الحركات. اللي بيقبض من الزبائن: قبض الزبائن بس.
+-- اللي بيدفع للموردين: دفعات الموردين بس (مش رأس المال والرواتب والمصاريف).
 create policy cash_transactions_read on public.cash_transactions
   for select to authenticated
-  using (public.has_any_permission(company_id, array['finance.cashbox_view'::text, 'finance.accounts_view'::text, 'payments.sales_view'::text, 'payments.sales_create'::text, 'payments.supplier_view'::text, 'payments.supplier_create'::text, 'reports.finance'::text]));
+  using (
+    public.has_any_permission(company_id, array['finance.cashbox_view'::text, 'finance.accounts_view'::text, 'reports.finance'::text])
+    or (customer_payment_id is not null
+        and public.has_any_permission(company_id, array['payments.sales_view'::text, 'payments.sales_create'::text]))
+    or (supplier_payment_id is not null
+        and public.has_any_permission(company_id, array['payments.supplier_view'::text, 'payments.supplier_create'::text]))
+  );
 create policy cashbox_gl_accounts_read on public.cashbox_gl_accounts
   for select to authenticated
   using ((public.has_permission(company_id, 'finance.cashbox_view'::text) or public.has_permission(company_id, 'finance.accounts_view'::text)));

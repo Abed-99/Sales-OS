@@ -6155,9 +6155,17 @@ alter table public.cashboxes enable row level security;
 alter table public.cashbox_gl_accounts enable row level security;
 alter table public.expenses enable row level security;
 alter table public.cash_transactions enable row level security;
+-- الصندوق والمحاسبة: كل الحركات. اللي بيقبض من الزبائن: قبض الزبائن بس.
+-- اللي بيدفع للموردين: دفعات الموردين بس (مش رأس المال والرواتب والمصاريف).
 create policy cash_transactions_read on public.cash_transactions
   for select to authenticated
-  using (public.has_any_permission(company_id, array['finance.cashbox_view'::text, 'finance.accounts_view'::text, 'payments.sales_view'::text, 'payments.sales_create'::text, 'payments.supplier_view'::text, 'payments.supplier_create'::text, 'reports.finance'::text]));
+  using (
+    public.has_any_permission(company_id, array['finance.cashbox_view'::text, 'finance.accounts_view'::text, 'reports.finance'::text])
+    or (customer_payment_id is not null
+        and public.has_any_permission(company_id, array['payments.sales_view'::text, 'payments.sales_create'::text]))
+    or (supplier_payment_id is not null
+        and public.has_any_permission(company_id, array['payments.supplier_view'::text, 'payments.supplier_create'::text]))
+  );
 create policy cashbox_gl_accounts_read on public.cashbox_gl_accounts
   for select to authenticated
   using ((public.has_permission(company_id, 'finance.cashbox_view'::text) or public.has_permission(company_id, 'finance.accounts_view'::text)));
@@ -14986,6 +14994,10 @@ declare
   v_items jsonb;
   v_invoice uuid;
 begin
+  if not public.has_any_permission(target_company, array['purchases.create','purchase_invoices.create']) then
+    raise exception 'Not allowed';
+  end if;
+
   select * into v_po
   from public.purchase_orders
   where id = target_order and company_id = target_company
@@ -29972,6 +29984,19 @@ begin
   return v_id;
 end;
 $function$;
+
+
+-- ----------------------------------------------------------------------
+-- الصلاحيات
+-- ----------------------------------------------------------------------
+
+-- دوال داخلية: بتشتغل من المشغّلات بس. ما لازم أي مستخدم يناديها مباشرة
+-- (وإلا بيقدر يحط رسائل بصندوق شركة تانية أو يعرف رصيد زبون عند شركة تانية).
+revoke execute on function public.enqueue_whatsapp(uuid, text, uuid, text, jsonb, text, uuid) from authenticated;
+revoke execute on function public.trader_balance_text(uuid, uuid) from authenticated;
+revoke execute on function public.render_whatsapp_message(uuid, text, jsonb) from authenticated;
+revoke execute on function public.whatsapp_money(numeric, text) from authenticated;
+revoke execute on function public.whatsapp_default_template(text) from authenticated;
 
 -- ======================================================================
 -- كتالوج البضاعة للتجار: رابط بينبعت للتاجر، بيفتحو بدون تسجيل دخول.

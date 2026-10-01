@@ -8,7 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test:core": "node scripts/core-tests.mjs",
-    "test:db": "node scripts/db-tests/cycle-1.mjs && node scripts/db-tests/cycle-2.mjs && node scripts/db-tests/cycle-3.mjs",
+    "test:db": "node scripts/db-tests/cycle-1.mjs && node scripts/db-tests/cycle-2.mjs && node scripts/db-tests/cycle-3.mjs && node scripts/db-tests/cycle-5.mjs",
     "test:db:stress": "node scripts/db-tests/cycle-4.mjs"
   },
   "dependencies": {

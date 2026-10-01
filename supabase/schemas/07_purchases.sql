@@ -551,6 +551,10 @@ declare
   v_items jsonb;
   v_invoice uuid;
 begin
+  if not public.has_any_permission(target_company, array['purchases.create','purchase_invoices.create']) then
+    raise exception 'Not allowed';
+  end if;
+
   select * into v_po
   from public.purchase_orders
   where id = target_order and company_id = target_company
