@@ -80,7 +80,11 @@ export default async function PrintSupplierStatement({
         <div className="printMeta" style={{ textAlign: "left" }}>
           الرصيد
           <br />
-          <strong style={{ fontSize: 18 }}>{money(closing, currency)}</strong>
+          <strong style={{ fontSize: 18 }}>
+            <bdi dir="ltr">{money(Math.abs(closing), currency)}</bdi>
+          </strong>
+          <br />
+          {closing > 0 ? "علينا للمورد" : closing < 0 ? "إلنا عند المورد" : "مسدّد"}
         </div>
       </div>
 

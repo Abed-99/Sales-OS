@@ -118,7 +118,7 @@ export default async function PrintReceipt({
         <div>
           <h2>
             {title}
-            {reversed ? " (ملغى)" : ""}
+            {reversed ? <span className="printStamp">ملغى</span> : null}
           </h2>
           <div className="printMeta">
             الرقم: <strong>{row.payment_number}</strong>
@@ -137,7 +137,7 @@ export default async function PrintReceipt({
         </div>
       </div>
 
-      <div className="printTotals" style={{ marginTop: 18 }}>
+      <div className="printTotals printAmount">
         <div className="grand">
           <span>المبلغ</span>
           <span>{money(row.amount, currency)}</span>
@@ -191,11 +191,9 @@ export default async function PrintReceipt({
 
       {row.notes ? <p className="printNote">ملاحظات: {row.notes}</p> : null}
 
-      <div
-        style={{ display: "flex", justifyContent: "space-between", marginTop: 48, fontSize: 13 }}
-      >
-        <span>توقيع المستلم: ____________</span>
-        <span>توقيع المحاسب: ____________</span>
+      <div className="printSigns">
+        <span>توقيع المستلم</span>
+        <span>توقيع المحاسب</span>
       </div>
     </PrintShell>
   );

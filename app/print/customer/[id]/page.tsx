@@ -82,7 +82,9 @@ export default async function PrintCustomerStatement({
         <div className="printMeta" style={{ textAlign: "left" }}>
           الرصيد النهائي
           <br />
-          <strong style={{ fontSize: 18 }}>{money(closing, currency)}</strong>
+          <strong style={{ fontSize: 18 }}>
+            <bdi dir="ltr">{money(Math.abs(closing), currency)}</bdi>
+          </strong>
           <br />
           {closing > 0 ? "مطلوب من العميل" : closing < 0 ? "رصيد للعميل عنا" : "مسدّد"}
         </div>

@@ -1584,27 +1584,44 @@ body{
 .printPage { min-height: 100vh; background: #1a2522; padding: 16px; direction: rtl; }
 .printToolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 794px; margin: 0 auto 14px; }
 .printToggle { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: #cfe0da; }
-.printPaper { width: 100%; max-width: 794px; min-height: 1123px; margin: 0 auto; background: #fff; color: #111; padding: 36px 40px; font-family: Tahoma, Arial, sans-serif; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
-.printHeader { display: flex; gap: 14px; align-items: center; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 18px; }
-.printHeader h1 { margin: 0 0 4px; font-size: 22px; }
-.printHeader p { margin: 0; color: #444; font-size: 12px; }
+.printPaper { --ink: #0e5a4a; --tint: #eef6f3; --rule: #d7e2de; width: 100%; max-width: 794px; min-height: 1123px; margin: 0 auto; background: #fff; color: #1b2421; padding: 0 40px 26px; font-family: Tahoma, Arial, sans-serif; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.35); display: flex; flex-direction: column; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.printPaper::before { content: ""; display: block; height: 8px; margin: 0 -40px 28px; background: var(--ink); }
+.printHeader { display: flex; gap: 14px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--rule); padding-bottom: 16px; margin-bottom: 22px; }
+.printBrand { display: flex; gap: 14px; align-items: center; }
+.printHeader h1 { margin: 0 0 5px; font-size: 22px; color: var(--ink); }
+.printHeader p { margin: 0; color: #5b6b66; font-size: 11.5px; line-height: 1.8; }
 .printLogo { width: 64px; height: 64px; object-fit: contain; }
-.printTitle { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
-.printTitle h2 { margin: 0 0 6px; font-size: 20px; }
-.printMeta { font-size: 12px; color: #333; line-height: 1.8; }
-.printTable { width: 100%; border-collapse: collapse; margin-top: 8px; }
-.printTable th { background: #f1f3f2; font-weight: 700; font-size: 12px; }
-.printTable th, .printTable td { border: 1px solid #cfd6d3; padding: 7px 8px; text-align: right; }
+.printMonogram { width: 56px; height: 56px; border-radius: 14px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 26px; font-weight: 800; flex: none; }
+.printContacts { text-align: left; font-size: 11.5px; color: #5b6b66; line-height: 1.8; }
+.printTitle { display: flex; justify-content: space-between; align-items: stretch; gap: 16px; margin-bottom: 18px; }
+.printTitle > div { flex: 1; border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; background: #fff; }
+.printTitle > div:first-child { background: var(--tint); border-color: transparent; }
+.printTitle h2 { margin: 0 0 6px; font-size: 21px; color: var(--ink); }
+.printMeta { font-size: 12px; color: #33403c; line-height: 1.9; }
+.printTable { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.printTable th { background: var(--ink); color: #fff; font-weight: 700; font-size: 12px; }
+.printTable th, .printTable td { border-bottom: 1px solid var(--rule); padding: 8px 10px; text-align: right; }
+.printTable tbody tr:nth-child(even) td { background: #f7faf9; }
 .printTable td.num, .printTable th.num { text-align: left; direction: ltr; white-space: nowrap; }
-.printTotals { margin-top: 12px; margin-inline-start: auto; width: 280px; }
-.printTotals div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #ccc; }
-.printTotals .grand { font-weight: 700; font-size: 15px; border-bottom: 2px solid #111; }
-.printNote { margin-top: 22px; font-size: 11px; color: #555; }
+.printTable tr { break-inside: avoid; }
+.printTotals { margin-top: 16px; margin-inline-start: auto; width: 290px; }
+.printTotals div { display: flex; justify-content: space-between; padding: 6px 4px; border-bottom: 1px solid var(--rule); }
+.printTotals.printAmount { width: 100%; }
+.printTotals.printAmount .grand { font-size: 20px; padding: 14px 18px; }
+.printTotals .grand { font-weight: 800; font-size: 15px; background: var(--ink); color: #fff; border: 0; border-radius: 8px; padding: 10px 12px; margin: 4px 0; }
+.printNote { margin-top: 18px; font-size: 11.5px; color: #55635f; line-height: 1.8; }
+.printSigns { display: flex; justify-content: space-between; gap: 40px; margin-top: 56px; font-size: 12px; color: #33403c; }
+.printSigns span { flex: 1; max-width: 220px; border-top: 1px solid #8a9792; padding-top: 6px; text-align: center; }
+.printStamp { display: inline-block; margin-inline-start: 8px; padding: 2px 10px; border: 2px solid #b3261e; border-radius: 6px; color: #b3261e; font-size: 13px; vertical-align: middle; }
+.printFooter { margin-top: auto; padding-top: 26px; }
+.printFooter div { border-top: 1px solid var(--rule); padding-top: 10px; display: flex; justify-content: space-between; gap: 12px; font-size: 10.5px; color: #7a8884; }
 @media print {
   @page { size: A4; margin: 10mm; }
   .printPage { background: #fff; padding: 0; }
   .printToolbar { display: none !important; }
   .printPaper { box-shadow: none; max-width: none; min-height: 0; padding: 0; }
+  .printPaper::before { margin: 0 0 18px; }
+  .printFooter { margin-top: 30px; }
 }
 .printRange { display: inline-flex; gap: 6px; align-items: center; color: #cfe0da; font-size: 12px; }
 .printRange input { background: #0c1b17; color: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; }

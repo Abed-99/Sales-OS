@@ -81,12 +81,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
                 رقم الطلبية: {order.order_number}
               </>
             ) : null}
-            {invoice.status === "cancelled" ? (
-              <>
-                <br />
-                <strong style={{ color: "#b00" }}>ملغاة</strong>
-              </>
-            ) : null}
+            {invoice.status === "cancelled" ? <span className="printStamp">ملغاة</span> : null}
           </div>
         </div>
         <div className="printMeta">
