@@ -506,16 +506,10 @@ declare
   v_adjustment uuid;
   v_opening uuid;
 
-  v_lines jsonb;
+  v_lines jsonb := '[]'::jsonb;
   v_currency text;
+  v_diff numeric(18,2);
 begin
-  if new.movement_type in (
-    'transfer_in',
-    'transfer_out'
-  ) then
-    return new;
-  end if;
-
   v_amount :=
     round(
       abs(new.quantity) *
@@ -526,7 +520,16 @@ begin
       2
     );
 
-  if v_amount <= 0 then
+  -- فرق التقريب: التغيّر الفعلي بقيمة المخزون ناقص (الكمية × الكلفة). بيروح لحساب فروقات الشراء
+  -- مشان حساب المخزون يضل = قيمة البضاعة بالضبط.
+  v_diff := coalesce(new.value_change, sign(new.quantity) * v_amount) - sign(new.quantity) * v_amount;
+
+  -- التحويل بين مستودعين ما بيغيّر قيمة المخزون؛ بس فرق التقريب (إذا في) بينقيّد.
+  if new.movement_type in ('transfer_in', 'transfer_out') then
+    v_amount := 0;
+  end if;
+
+  if v_amount <= 0 and v_diff = 0 then
     return new;
   end if;
 
@@ -542,7 +545,9 @@ begin
       'inventory'
     );
 
-  if new.movement_type =
+  if v_amount <= 0 then
+    null;
+  elsif new.movement_type =
      'purchase_receipt'
   then
     v_clearing :=
@@ -767,8 +772,17 @@ begin
         )
       );
 
-  else
+  elsif v_diff = 0 then
     return new;
+  end if;
+
+  if v_diff <> 0 then
+    v_lines := v_lines || jsonb_build_array(
+      jsonb_build_object('account_id', v_inventory,
+                         'debit', greatest(v_diff, 0), 'credit', greatest(-v_diff, 0)),
+      jsonb_build_object('account_id', public.finance_system_account(new.company_id, 'purchase_variance'),
+                         'debit', greatest(-v_diff, 0), 'credit', greatest(v_diff, 0))
+    );
   end if;
 
   perform

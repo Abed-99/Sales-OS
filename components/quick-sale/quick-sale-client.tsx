@@ -39,6 +39,7 @@ type Done = {
   invoice_id: string;
   total: number;
   paid: number;
+  credit_used?: number;
   currency: string;
 };
 
@@ -252,8 +253,14 @@ export function QuickSaleClient({
           <div className="statValue">{money(Number(done.total), done.currency)}</div>
           <p>
             المدفوع: {money(Number(done.paid), done.currency)}
-            {Number(done.total) - Number(done.paid) > 0.001
-              ? ` • الباقي دين: ${money(Number(done.total) - Number(done.paid), done.currency)}`
+            {Number(done.credit_used ?? 0) > 0.001
+              ? ` • من رصيدو عنا: ${money(Number(done.credit_used), done.currency)}`
+              : ""}
+            {Number(done.total) - Number(done.paid) - Number(done.credit_used ?? 0) > 0.001
+              ? ` • الباقي دين: ${money(
+                  Number(done.total) - Number(done.paid) - Number(done.credit_used ?? 0),
+                  done.currency,
+                )}`
               : ""}
           </p>
           <div className="rowActions" style={{ justifyContent: "center", marginTop: 14 }}>

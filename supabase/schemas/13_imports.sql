@@ -537,12 +537,12 @@ begin
         for update
       loop
         v_delta := v_stock_share * v_stock.on_hand / v_on_hand_total;
-        v_old_value := v_stock.on_hand * v_stock.average_cost;
+        v_old_value := round(v_stock.on_hand * v_stock.average_cost, 2);
         v_new_avg := round((v_old_value + v_delta) / v_stock.on_hand, 4);
         update public.inventory_stock set average_cost = v_new_avg
         where warehouse_id = v_stock.warehouse_id and product_id = v_stock.product_id;
         -- القيمة الفعلية بعد التقريب هي اللي بتنقيّد (مشان حساب المخزون = قيمة البضاعة).
-        v_line_inventory := v_line_inventory + (v_stock.on_hand * v_new_avg - v_old_value);
+        v_line_inventory := v_line_inventory + (round(v_stock.on_hand * v_new_avg, 2) - v_old_value);
       end loop;
     end if;
 

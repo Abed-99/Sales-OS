@@ -4289,6 +4289,7 @@ declare
   v_total numeric(18,2);
   v_currency text;
   v_paid numeric(18,2);
+  v_due numeric(18,2);
   v_today date := (now() at time zone 'Asia/Damascus')::date;
 begin
   if not public.has_any_permission(target_company, array['sales.quick_sale']) then
@@ -4369,6 +4370,16 @@ begin
     raise exception 'Paid amount exceeds invoice total';
   end if;
 
+  -- إذا الزبون إلو رصيد عنا (مثلًا من مرتجع)، بيتخصم لحالو من الفاتورة،
+  -- فمنقبض بس الباقي، والمبلغ بعملة الصندوق بينزل بنفس النسبة.
+  select balance_due into v_due from public.sales_invoices where id = v_invoice;
+  if v_paid > v_due then
+    if target_cash_amount is not null and v_paid > 0 then
+      target_cash_amount := round(target_cash_amount * v_due / v_paid, 2);
+    end if;
+    v_paid := v_due;
+  end if;
+
   if v_paid > 0 then
     perform public.record_customer_payment(
       target_company,
@@ -4390,7 +4401,8 @@ begin
     'invoice_id', v_invoice,
     'total', v_total,
     'currency', v_currency,
-    'paid', v_paid
+    'paid', v_paid,
+    'credit_used', v_total - v_due
   );
 end;
 $function$;

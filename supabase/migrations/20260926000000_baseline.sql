@@ -6240,6 +6240,9 @@ create table public.inventory_movements (
   occurred_at timestamp with time zone default now() not null,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
+  -- التغيّر الفعلي بقيمة المخزون (بالقروش). كلفة القطعة متقرّبة لـ 4 خانات، فممكن يفرق قروش
+  -- عن الكمية × الكلفة؛ القيد بياخد الفرق مشان حساب المخزون يضل = قيمة البضاعة بالضبط.
+  value_change numeric(18,2),
   constraint inventory_movements_movement_type_check check ((movement_type = any (array['opening'::text, 'purchase_receipt'::text, 'sales_delivery'::text, 'sales_return'::text, 'purchase_return'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'transfer_in'::text, 'transfer_out'::text, 'damage'::text]))),
   constraint inventory_movements_quantity_check check ((quantity <> (0)::numeric)),
   constraint inventory_movements_unit_cost_check check (((unit_cost is null) or (unit_cost >= (0)::numeric)))
@@ -7118,6 +7121,7 @@ declare
   v_new_on_hand numeric(18,3);
   v_new_average numeric(18,4);
   v_new_value numeric(24,4);
+  v_value_change numeric(18,2);
   v_movement uuid;
   v_existing uuid;
 begin
@@ -7282,7 +7286,8 @@ begin
     source_line_id,
     reference_number,
     notes,
-    occurred_at
+    occurred_at,
+    value_change
   )
   values(
     target_company,
@@ -7299,7 +7304,8 @@ begin
     coalesce(
       target_occurred_at,
       now()
-    )
+    ),
+    round(v_new_on_hand * v_new_average, 2) - round(v_stock.on_hand * v_stock.average_cost, 2)
   )
   returning id
   into v_movement;
@@ -12604,6 +12610,7 @@ declare
   v_total numeric(18,2);
   v_currency text;
   v_paid numeric(18,2);
+  v_due numeric(18,2);
   v_today date := (now() at time zone 'Asia/Damascus')::date;
 begin
   if not public.has_any_permission(target_company, array['sales.quick_sale']) then
@@ -12684,6 +12691,16 @@ begin
     raise exception 'Paid amount exceeds invoice total';
   end if;
 
+  -- إذا الزبون إلو رصيد عنا (مثلًا من مرتجع)، بيتخصم لحالو من الفاتورة،
+  -- فمنقبض بس الباقي، والمبلغ بعملة الصندوق بينزل بنفس النسبة.
+  select balance_due into v_due from public.sales_invoices where id = v_invoice;
+  if v_paid > v_due then
+    if target_cash_amount is not null and v_paid > 0 then
+      target_cash_amount := round(target_cash_amount * v_due / v_paid, 2);
+    end if;
+    v_paid := v_due;
+  end if;
+
   if v_paid > 0 then
     perform public.record_customer_payment(
       target_company,
@@ -12705,7 +12722,8 @@ begin
     'invoice_id', v_invoice,
     'total', v_total,
     'currency', v_currency,
-    'paid', v_paid
+    'paid', v_paid,
+    'credit_used', v_total - v_due
   );
 end;
 $function$;
@@ -26376,16 +26394,10 @@ declare
   v_adjustment uuid;
   v_opening uuid;
 
-  v_lines jsonb;
+  v_lines jsonb := '[]'::jsonb;
   v_currency text;
+  v_diff numeric(18,2);
 begin
-  if new.movement_type in (
-    'transfer_in',
-    'transfer_out'
-  ) then
-    return new;
-  end if;
-
   v_amount :=
     round(
       abs(new.quantity) *
@@ -26396,7 +26408,16 @@ begin
       2
     );
 
-  if v_amount <= 0 then
+  -- فرق التقريب: التغيّر الفعلي بقيمة المخزون ناقص (الكمية × الكلفة). بيروح لحساب فروقات الشراء
+  -- مشان حساب المخزون يضل = قيمة البضاعة بالضبط.
+  v_diff := coalesce(new.value_change, sign(new.quantity) * v_amount) - sign(new.quantity) * v_amount;
+
+  -- التحويل بين مستودعين ما بيغيّر قيمة المخزون؛ بس فرق التقريب (إذا في) بينقيّد.
+  if new.movement_type in ('transfer_in', 'transfer_out') then
+    v_amount := 0;
+  end if;
+
+  if v_amount <= 0 and v_diff = 0 then
     return new;
   end if;
 
@@ -26412,7 +26433,9 @@ begin
       'inventory'
     );
 
-  if new.movement_type =
+  if v_amount <= 0 then
+    null;
+  elsif new.movement_type =
      'purchase_receipt'
   then
     v_clearing :=
@@ -26637,8 +26660,17 @@ begin
         )
       );
 
-  else
+  elsif v_diff = 0 then
     return new;
+  end if;
+
+  if v_diff <> 0 then
+    v_lines := v_lines || jsonb_build_array(
+      jsonb_build_object('account_id', v_inventory,
+                         'debit', greatest(v_diff, 0), 'credit', greatest(-v_diff, 0)),
+      jsonb_build_object('account_id', public.finance_system_account(new.company_id, 'purchase_variance'),
+                         'debit', greatest(-v_diff, 0), 'credit', greatest(v_diff, 0))
+    );
   end if;
 
   perform
@@ -29544,12 +29576,12 @@ begin
         for update
       loop
         v_delta := v_stock_share * v_stock.on_hand / v_on_hand_total;
-        v_old_value := v_stock.on_hand * v_stock.average_cost;
+        v_old_value := round(v_stock.on_hand * v_stock.average_cost, 2);
         v_new_avg := round((v_old_value + v_delta) / v_stock.on_hand, 4);
         update public.inventory_stock set average_cost = v_new_avg
         where warehouse_id = v_stock.warehouse_id and product_id = v_stock.product_id;
         -- القيمة الفعلية بعد التقريب هي اللي بتنقيّد (مشان حساب المخزون = قيمة البضاعة).
-        v_line_inventory := v_line_inventory + (v_stock.on_hand * v_new_avg - v_old_value);
+        v_line_inventory := v_line_inventory + (round(v_stock.on_hand * v_new_avg, 2) - v_old_value);
       end loop;
     end if;
 

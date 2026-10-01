@@ -55,6 +55,9 @@ create table public.inventory_movements (
   occurred_at timestamp with time zone default now() not null,
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
+  -- التغيّر الفعلي بقيمة المخزون (بالقروش). كلفة القطعة متقرّبة لـ 4 خانات، فممكن يفرق قروش
+  -- عن الكمية × الكلفة؛ القيد بياخد الفرق مشان حساب المخزون يضل = قيمة البضاعة بالضبط.
+  value_change numeric(18,2),
   constraint inventory_movements_movement_type_check check ((movement_type = any (array['opening'::text, 'purchase_receipt'::text, 'sales_delivery'::text, 'sales_return'::text, 'purchase_return'::text, 'adjustment_in'::text, 'adjustment_out'::text, 'transfer_in'::text, 'transfer_out'::text, 'damage'::text]))),
   constraint inventory_movements_quantity_check check ((quantity <> (0)::numeric)),
   constraint inventory_movements_unit_cost_check check (((unit_cost is null) or (unit_cost >= (0)::numeric)))
@@ -933,6 +936,7 @@ declare
   v_new_on_hand numeric(18,3);
   v_new_average numeric(18,4);
   v_new_value numeric(24,4);
+  v_value_change numeric(18,2);
   v_movement uuid;
   v_existing uuid;
 begin
@@ -1097,7 +1101,8 @@ begin
     source_line_id,
     reference_number,
     notes,
-    occurred_at
+    occurred_at,
+    value_change
   )
   values(
     target_company,
@@ -1114,7 +1119,8 @@ begin
     coalesce(
       target_occurred_at,
       now()
-    )
+    ),
+    round(v_new_on_hand * v_new_average, 2) - round(v_stock.on_hand * v_stock.average_cost, 2)
   )
   returning id
   into v_movement;
