@@ -24,7 +24,7 @@ create table public.whatsapp_outbox (
   sent_by uuid references auth.users(id) on delete set null,
   constraint whatsapp_outbox_kind_check check (kind in ('invoice','receipt','delivery','reminder','statement','custom')),
   constraint whatsapp_outbox_status_check check (status in ('pending','sent','skipped')),
-  constraint whatsapp_outbox_document_check check (document_type is null or document_type in ('invoice','statement')),
+  constraint whatsapp_outbox_document_check check (document_type is null or document_type in ('invoice','statement','receipt')),
   constraint whatsapp_outbox_dedupe_key unique (company_id, dedupe_key)
 );
 
@@ -176,7 +176,8 @@ begin
         'الرقم', new.payment_number,
         'المبلغ', public.whatsapp_money(new.amount, coalesce(new.payment_currency, (select currency from public.cashboxes where id = new.cashbox_id))),
         'الباقي', public.trader_balance_text(new.company_id, new.trader_id)
-      )
+      ),
+      'receipt', new.id
     );
   end if;
   return new;

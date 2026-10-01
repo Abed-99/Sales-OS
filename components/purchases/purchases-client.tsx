@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1690,6 +1691,11 @@ export function PurchasesClient({
                         >
                           <strong>{invoice.invoice_number}</strong>
                         </button>
+                        <div>
+                          <Link className="muted" href={`/print/purchase/${invoice.id}`}>
+                            طباعة
+                          </Link>
+                        </div>
                       </td>
 
                       <td>{supplier?.name || "—"}</td>
@@ -1901,6 +1907,12 @@ export function PurchasesClient({
                           <strong>{payment.payment_number}</strong>
 
                           <div className="muted">{payment.reference_number || ""}</div>
+                          <Link
+                            className="muted"
+                            href={`/print/receipt/${payment.id}?kind=supplier`}
+                          >
+                            سند دفع
+                          </Link>
                         </td>
 
                         <td>{supplier?.name || "—"}</td>

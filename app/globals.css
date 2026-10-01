@@ -1615,3 +1615,13 @@ body{
 .outboxCard { display: grid; gap: 8px; border: 1px solid rgba(255,255,255,.06); background: #0c1c18; border-radius: 14px; padding: 12px; }
 .outboxHead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .outboxCard textarea { width: 100%; border: 1px solid var(--line); background: #06110e; color: white; border-radius: 10px; padding: 9px 10px; font: inherit; resize: vertical; }
+
+/* تصدير التقارير PDF: نسخة فاتحة من الشاشة الغامقة */
+.exportLight{background:#fff!important;color:#111!important;padding:12px}
+.exportLight *{color:#111!important;border-color:#d5dbd9!important;box-shadow:none!important}
+.exportLight .panel,.exportLight .statCard,.exportLight .quickItem,.exportLight .count,.exportLight .chip{background:#fff!important}
+.exportLight .dataTable th{color:#555!important;font-size:11px}
+.exportLight .dataTable td{font-size:12px}
+.exportHeader{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding:4px 2px 10px;margin-bottom:10px}
+.exportHeader strong{font-size:20px}
+.exportHeader span{font-size:12px}

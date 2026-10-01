@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
+import { ReportExport } from "@/components/reports/report-export";
 
 function num(value: unknown) {
   const n = Number(value || 0);
@@ -240,6 +241,7 @@ export function ReportsClient({
               : "partners";
 
   const [tab, setTab] = useState<Tab>(firstTab);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const [startDate, setStartDate] = useState(from);
 
@@ -456,629 +458,647 @@ export function ReportsClient({
         ))}
       </div>
 
-      {tab === "overview" && financialReport && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini
-              title="صافي المبيعات / الإيرادات"
-              value={money(financialReport.profit_loss.revenue, baseCurrency)}
-            />
+      <div style={{ marginTop: 10 }}>
+        <ReportExport
+          target={reportRef}
+          fileName={`تقرير ${availableTabs.find((item) => item.key === tab)?.label ?? ""} ${from} - ${to}`}
+          title={`${availableTabs.find((item) => item.key === tab)?.label ?? "تقرير"}`}
+          subtitle={`${from} ← ${to}`}
+        />
+      </div>
 
-            <Mini
-              title="مجمل الربح"
-              value={money(financialReport.profit_loss.gross_profit, baseCurrency)}
-            />
+      <div ref={reportRef}>
+        {tab === "overview" && financialReport && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini
+                title="صافي المبيعات / الإيرادات"
+                value={money(financialReport.profit_loss.revenue, baseCurrency)}
+              />
 
-            <Mini
-              title="صافي الربح"
-              value={money(financialReport.profit_loss.net_profit, baseCurrency)}
-            />
+              <Mini
+                title="مجمل الربح"
+                value={money(financialReport.profit_loss.gross_profit, baseCurrency)}
+              />
 
-            <Mini
-              title="صافي التدفق النقدي"
-              value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
-            />
-          </section>
+              <Mini
+                title="صافي الربح"
+                value={money(financialReport.profit_loss.net_profit, baseCurrency)}
+              />
 
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini
-              title="ذمم العملاء"
-              value={money(financialReport.working_capital.accounts_receivable, baseCurrency)}
-            />
-
-            <Mini
-              title="ذمم الموردين"
-              value={money(financialReport.working_capital.accounts_payable, baseCurrency)}
-            />
-
-            <Mini
-              title="قيمة المخزون"
-              value={money(financialReport.working_capital.inventory_value, baseCurrency)}
-            />
-
-            <Mini
-              title="الأصول المحاسبية"
-              value={money(financialReport.balance_sheet.assets, baseCurrency)}
-            />
-          </section>
-
-          <div
-            className="pageGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <section className="panel panelPad">
-              <div className="panelHeader">
-                <div>
-                  <h2>الربحية</h2>
-                  <p>للفترة المختارة</p>
-                </div>
-              </div>
-
-              <ReportLines
-                currency={baseCurrency}
-                rows={[
-                  ["الإيرادات", financialReport.profit_loss.revenue],
-                  ["تكلفة البضاعة المباعة", financialReport.profit_loss.cost_of_goods_sold],
-                  ["مجمل الربح", financialReport.profit_loss.gross_profit],
-                  ["المصاريف التشغيلية", financialReport.profit_loss.operating_expenses],
-                  ["صافي الربح", financialReport.profit_loss.net_profit],
-                ]}
+              <Mini
+                title="صافي التدفق النقدي"
+                value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
               />
             </section>
 
-            <section className="panel panelPad">
-              <div className="panelHeader">
-                <div>
-                  <h2>المركز المالي</h2>
-                  <p>كما في {to}</p>
-                </div>
-              </div>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini
+                title="ذمم العملاء"
+                value={money(financialReport.working_capital.accounts_receivable, baseCurrency)}
+              />
 
-              <ReportLines
-                currency={baseCurrency}
-                rows={[
-                  ["الأصول", financialReport.balance_sheet.assets],
-                  ["الالتزامات", financialReport.balance_sheet.liabilities],
-                  ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
-                  ["الأرباح الحالية", financialReport.balance_sheet.current_earnings],
-                  [
-                    "حقوق الملكية مع الأرباح",
-                    financialReport.balance_sheet.equity_with_current_earnings,
-                  ],
-                ]}
+              <Mini
+                title="ذمم الموردين"
+                value={money(financialReport.working_capital.accounts_payable, baseCurrency)}
+              />
+
+              <Mini
+                title="قيمة المخزون"
+                value={money(financialReport.working_capital.inventory_value, baseCurrency)}
+              />
+
+              <Mini
+                title="الأصول المحاسبية"
+                value={money(financialReport.balance_sheet.assets, baseCurrency)}
               />
             </section>
-          </div>
-        </>
-      )}
 
-      {tab === "profit" && financialReport && (
-        <section
-          className="panel panelPad"
-          style={{
-            marginTop: 14,
-          }}
-        >
-          <div className="panelHeader">
-            <div>
-              <h2>قائمة الأرباح والخسائر</h2>
+            <div
+              className="pageGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <section className="panel panelPad">
+                <div className="panelHeader">
+                  <div>
+                    <h2>الربحية</h2>
+                    <p>للفترة المختارة</p>
+                  </div>
+                </div>
 
-              <p>
-                {from} → {to}
-              </p>
+                <ReportLines
+                  currency={baseCurrency}
+                  rows={[
+                    ["الإيرادات", financialReport.profit_loss.revenue],
+                    ["تكلفة البضاعة المباعة", financialReport.profit_loss.cost_of_goods_sold],
+                    ["مجمل الربح", financialReport.profit_loss.gross_profit],
+                    ["المصاريف التشغيلية", financialReport.profit_loss.operating_expenses],
+                    ["صافي الربح", financialReport.profit_loss.net_profit],
+                  ]}
+                />
+              </section>
+
+              <section className="panel panelPad">
+                <div className="panelHeader">
+                  <div>
+                    <h2>المركز المالي</h2>
+                    <p>كما في {to}</p>
+                  </div>
+                </div>
+
+                <ReportLines
+                  currency={baseCurrency}
+                  rows={[
+                    ["الأصول", financialReport.balance_sheet.assets],
+                    ["الالتزامات", financialReport.balance_sheet.liabilities],
+                    ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
+                    ["الأرباح الحالية", financialReport.balance_sheet.current_earnings],
+                    [
+                      "حقوق الملكية مع الأرباح",
+                      financialReport.balance_sheet.equity_with_current_earnings,
+                    ],
+                  ]}
+                />
+              </section>
             </div>
-          </div>
+          </>
+        )}
 
-          <ReportLines
-            currency={baseCurrency}
-            rows={[
-              ["الإيرادات", financialReport.profit_loss.revenue],
-              ["تكلفة البضاعة المباعة", -num(financialReport.profit_loss.cost_of_goods_sold)],
-              ["مجمل الربح", financialReport.profit_loss.gross_profit],
-              ["المصاريف التشغيلية", -num(financialReport.profit_loss.operating_expenses)],
-              ["صافي الربح", financialReport.profit_loss.net_profit],
-            ]}
-            emphasizeLast
-          />
-        </section>
-      )}
-
-      {tab === "balance" && financialReport && (
-        <section
-          className="panel panelPad"
-          style={{
-            marginTop: 14,
-          }}
-        >
-          <div className="panelHeader">
-            <div>
-              <h2>الميزانية العمومية</h2>
-
-              <p>كما في {to}</p>
-            </div>
-          </div>
-
-          <ReportLines
-            currency={baseCurrency}
-            rows={[
-              ["إجمالي الأصول", financialReport.balance_sheet.assets],
-              ["إجمالي الالتزامات", financialReport.balance_sheet.liabilities],
-              ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
-              ["أرباح الفترة والحالية", financialReport.balance_sheet.current_earnings],
-              [
-                "حقوق الملكية الإجمالية",
-                financialReport.balance_sheet.equity_with_current_earnings,
-              ],
-            ]}
-          />
-        </section>
-      )}
-
-      {tab === "cash" && financialReport && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini
-              title="التدفقات الداخلة"
-              value={money(financialReport.cash_flow.cash_in, baseCurrency)}
-            />
-
-            <Mini
-              title="التدفقات الخارجة"
-              value={money(financialReport.cash_flow.cash_out, baseCurrency)}
-            />
-
-            <Mini
-              title="صافي التدفق"
-              value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
-            />
-          </section>
-
+        {tab === "profit" && financialReport && (
           <section
             className="panel panelPad"
             style={{
               marginTop: 14,
             }}
           >
+            <div className="panelHeader">
+              <div>
+                <h2>قائمة الأرباح والخسائر</h2>
+
+                <p>
+                  {from} → {to}
+                </p>
+              </div>
+            </div>
+
             <ReportLines
               currency={baseCurrency}
               rows={[
-                ["النقد الداخل", financialReport.cash_flow.cash_in],
-                ["النقد الخارج", -num(financialReport.cash_flow.cash_out)],
-                ["صافي حركة النقد", financialReport.cash_flow.net_cash_flow],
+                ["الإيرادات", financialReport.profit_loss.revenue],
+                ["تكلفة البضاعة المباعة", -num(financialReport.profit_loss.cost_of_goods_sold)],
+                ["مجمل الربح", financialReport.profit_loss.gross_profit],
+                ["المصاريف التشغيلية", -num(financialReport.profit_loss.operating_expenses)],
+                ["صافي الربح", financialReport.profit_loss.net_profit],
               ]}
               emphasizeLast
             />
           </section>
-        </>
-      )}
+        )}
 
-      {tab === "receivables" && (
-        <AgingTable type="customer" rows={receivables} currency={baseCurrency} />
-      )}
-
-      {tab === "payables" && <AgingTable type="supplier" rows={payables} currency={baseCurrency} />}
-
-      {tab === "inventory" && (
-        <>
+        {tab === "balance" && financialReport && (
           <section
-            className="statsGrid"
+            className="panel panelPad"
             style={{
               marginTop: 14,
             }}
           >
-            <Mini title="قيمة المخزون" value={money(inventoryTotal, baseCurrency)} />
-
-            <Mini
-              title="عدد الأصناف بالمستودعات"
-              value={String(inventoryLines ?? inventory.length)}
-            />
-          </section>
-
-          <section
-            className="panel"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>المستودع</th>
-                    <th>المنتج</th>
-                    <th>SKU</th>
-                    <th>موجود</th>
-                    <th>محجوز</th>
-                    <th>متاح</th>
-                    <th>متوسط التكلفة</th>
-                    <th>قيمة المخزون</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {inventory.map((row) => (
-                    <tr key={`${row.warehouse_id}-${row.product_id}`}>
-                      <td>{row.warehouse_name}</td>
-
-                      <td>
-                        <strong>{row.product_name}</strong>
-                      </td>
-
-                      <td>{row.sku || "—"}</td>
-
-                      <td>{num(row.on_hand).toFixed(3)}</td>
-
-                      <td>{num(row.reserved).toFixed(3)}</td>
-
-                      <td>{num(row.available).toFixed(3)}</td>
-
-                      <td>{num(row.average_cost).toFixed(4)}</td>
-
-                      <td>
-                        <strong>{money(row.stock_value, baseCurrency)}</strong>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-
-      {tab === "sales" && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini title="صافي المبيعات" value={money(totalSales, baseCurrency)} />
-
-            <Mini title="عدد الأشهر" value={String(salesMonthly.length)} />
-          </section>
-
-          <MonthlySalesTable rows={salesMonthly} currency={baseCurrency} />
-        </>
-      )}
-
-      {tab === "purchases" && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini title="صافي المشتريات" value={money(totalPurchases, baseCurrency)} />
-
-            <Mini title="عدد الأشهر" value={String(purchaseMonthly.length)} />
-          </section>
-
-          <MonthlyPurchaseTable rows={purchaseMonthly} currency={baseCurrency} />
-        </>
-      )}
-
-      {tab === "payroll" && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini
-              title="صافي الرواتب"
-              value={
-                mixedPayrollCurrencies
-                  ? "حسب العملة"
-                  : money(totalPayroll, payrollCurrencies[0] ?? baseCurrency)
-              }
-            />
-
-            <Mini title="عدد المسيرات" value={String(payrollRuns.length)} />
-          </section>
-
-          <section
-            className="panel"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>الفترة</th>
-                    <th>الحالة</th>
-                    <th>الإجمالي</th>
-                    <th>الخصومات</th>
-                    <th>الصافي</th>
-                    <th>المدفوع</th>
-                    <th>المتبقي</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {payrollRuns.map((run) => (
-                    <tr key={run.id}>
-                      <td>
-                        <strong>{run.period_start}</strong>
-                        {" → "}
-                        {run.period_end}
-                      </td>
-
-                      <td>{payrollStatus(run.status)}</td>
-
-                      <td>{money(run.total_gross, run.currency)}</td>
-
-                      <td>{money(run.total_deductions, run.currency)}</td>
-
-                      <td>
-                        <strong>{money(run.total_net, run.currency)}</strong>
-                      </td>
-
-                      <td>{money(run.total_paid, run.currency)}</td>
-
-                      <td>
-                        {money(Math.max(num(run.total_net) - num(run.total_paid), 0), run.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-
-      {tab === "assets" && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini
-              title="تكلفة الأصول"
-              value={
-                mixedAssetCurrencies
-                  ? "حسب العملة"
-                  : money(assetCost, assetCurrencies[0] ?? baseCurrency)
-              }
-            />
-
-            <Mini
-              title="القيمة الدفترية"
-              value={
-                mixedAssetCurrencies
-                  ? "حسب العملة"
-                  : money(assetBookValue, assetCurrencies[0] ?? baseCurrency)
-              }
-            />
-
-            <Mini title="عدد الأصول" value={String(assets.length)} />
-          </section>
-
-          <section
-            className="panel"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>الأصل</th>
-                    <th>التصنيف</th>
-                    <th>التكلفة</th>
-                    <th>الإهلاك المتراكم</th>
-                    <th>القيمة الدفترية</th>
-                    <th>إهلاك شهري</th>
-                    <th>الحالة</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {assets.map((asset) => (
-                    <tr key={asset.id}>
-                      <td>
-                        <strong>{asset.name}</strong>
-
-                        <div className="muted">{asset.asset_number}</div>
-                      </td>
-
-                      <td>{asset.category || "—"}</td>
-
-                      <td>{money(asset.purchase_cost, asset.currency)}</td>
-
-                      <td>{money(asset.accumulated_depreciation, asset.currency)}</td>
-
-                      <td>
-                        <strong>{money(asset.book_value, asset.currency)}</strong>
-                      </td>
-
-                      <td>{money(asset.monthly_depreciation, asset.currency)}</td>
-
-                      <td>{assetStatus(asset.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-
-      {tab === "team" && team ? (
-        <>
-          <section className="panel" style={{ marginTop: 14 }}>
-            <div className="panelHeader panelPad">
+            <div className="panelHeader">
               <div>
-                <h2>المندوبين</h2>
-                <p>صافي مبيعات زبائن كل مندوب بالفترة وعمولتو</p>
+                <h2>الميزانية العمومية</h2>
+
+                <p>كما في {to}</p>
               </div>
             </div>
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>المندوب</th>
-                    <th>الزبائن</th>
-                    <th>المبيعات</th>
-                    <th>المرتجعات</th>
-                    <th>الصافي</th>
-                    <th>المحصّل</th>
-                    <th>العمولة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {team.reps.map((rep) => (
-                    <tr key={rep.id}>
-                      <td>
-                        <strong>{rep.full_name}</strong>
-                        <div className="muted">{Number(rep.commission_rate)}%</div>
-                      </td>
-                      <td>{rep.customers}</td>
-                      <td>{money(rep.sales, baseCurrency)}</td>
-                      <td>{money(rep.returns, baseCurrency)}</td>
-                      <td>{money(rep.net_sales, baseCurrency)}</td>
-                      <td>{money(rep.collected, baseCurrency)}</td>
-                      <td>
-                        <strong>{money(rep.commission, baseCurrency)}</strong>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!team.reps.length ? (
-                <p className="muted panelPad">
-                  ما في مندوبين. علّم الموظف «مندوب مبيعات» من صفحة الرواتب وعيّنو للزبائن.
-                </p>
-              ) : null}
-            </div>
-          </section>
 
-          <section className="panel" style={{ marginTop: 14 }}>
-            <div className="panelHeader panelPad">
-              <div>
-                <h2>السائقين</h2>
-                <p>التوصيلات بالفترة</p>
-              </div>
-            </div>
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>السائق</th>
-                    <th>انسلّمت</th>
-                    <th>فشلت</th>
-                    <th>بالطريق</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {team.drivers.map((driver) => (
-                    <tr key={driver.id}>
-                      <td>
-                        <strong>{driver.full_name}</strong>
-                      </td>
-                      <td>{driver.delivered}</td>
-                      <td>{driver.failed}</td>
-                      <td>{driver.open}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!team.drivers.length ? (
-                <p className="muted panelPad">ما في سائقين. علّم الموظف «سائق» من صفحة الرواتب.</p>
-              ) : null}
-            </div>
-          </section>
-        </>
-      ) : null}
-
-      {tab === "partners" && (
-        <>
-          <section
-            className="statsGrid"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <Mini title="إجمالي رأس المال المدخل" value={money(partnerCapital, baseCurrency)} />
-
-            <Mini
-              title="عدد الشركاء"
-              value={String(partners.filter((partner) => partner.active).length)}
+            <ReportLines
+              currency={baseCurrency}
+              rows={[
+                ["إجمالي الأصول", financialReport.balance_sheet.assets],
+                ["إجمالي الالتزامات", financialReport.balance_sheet.liabilities],
+                ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
+                ["أرباح الفترة والحالية", financialReport.balance_sheet.current_earnings],
+                [
+                  "حقوق الملكية الإجمالية",
+                  financialReport.balance_sheet.equity_with_current_earnings,
+                ],
+              ]}
             />
           </section>
+        )}
 
-          <section
-            className="panel"
-            style={{
-              marginTop: 14,
-            }}
-          >
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>الشريك</th>
-                    <th>الملكية</th>
-                    <th>حصة الربح</th>
-                    <th>رأس المال</th>
-                    <th>المسحوبات</th>
-                    <th>رصيد القرض</th>
-                    <th>توزيعات الأرباح</th>
-                  </tr>
-                </thead>
+        {tab === "cash" && financialReport && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini
+                title="التدفقات الداخلة"
+                value={money(financialReport.cash_flow.cash_in, baseCurrency)}
+              />
 
-                <tbody>
-                  {partners.map((partner) => (
-                    <tr key={partner.id}>
-                      <td>
-                        <strong>{partner.name}</strong>
-                      </td>
+              <Mini
+                title="التدفقات الخارجة"
+                value={money(financialReport.cash_flow.cash_out, baseCurrency)}
+              />
 
-                      <td>{num(partner.ownership_percent).toFixed(2)}%</td>
+              <Mini
+                title="صافي التدفق"
+                value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
+              />
+            </section>
 
-                      <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
+            <section
+              className="panel panelPad"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <ReportLines
+                currency={baseCurrency}
+                rows={[
+                  ["النقد الداخل", financialReport.cash_flow.cash_in],
+                  ["النقد الخارج", -num(financialReport.cash_flow.cash_out)],
+                  ["صافي حركة النقد", financialReport.cash_flow.net_cash_flow],
+                ]}
+                emphasizeLast
+              />
+            </section>
+          </>
+        )}
 
-                      <td>{money(partner.capital_contributions, baseCurrency)}</td>
+        {tab === "receivables" && (
+          <AgingTable type="customer" rows={receivables} currency={baseCurrency} />
+        )}
 
-                      <td>{money(partner.drawings, baseCurrency)}</td>
+        {tab === "payables" && (
+          <AgingTable type="supplier" rows={payables} currency={baseCurrency} />
+        )}
 
-                      <td>{money(partner.partner_loan_balance, baseCurrency)}</td>
+        {tab === "inventory" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini title="قيمة المخزون" value={money(inventoryTotal, baseCurrency)} />
 
-                      <td>{money(partner.profit_distributions, baseCurrency)}</td>
+              <Mini
+                title="عدد الأصناف بالمستودعات"
+                value={String(inventoryLines ?? inventory.length)}
+              />
+            </section>
+
+            <section
+              className="panel"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>المستودع</th>
+                      <th>المنتج</th>
+                      <th>SKU</th>
+                      <th>موجود</th>
+                      <th>محجوز</th>
+                      <th>متاح</th>
+                      <th>متوسط التكلفة</th>
+                      <th>قيمة المخزون</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
+                  </thead>
+
+                  <tbody>
+                    {inventory.map((row) => (
+                      <tr key={`${row.warehouse_id}-${row.product_id}`}>
+                        <td>{row.warehouse_name}</td>
+
+                        <td>
+                          <strong>{row.product_name}</strong>
+                        </td>
+
+                        <td>{row.sku || "—"}</td>
+
+                        <td>{num(row.on_hand).toFixed(3)}</td>
+
+                        <td>{num(row.reserved).toFixed(3)}</td>
+
+                        <td>{num(row.available).toFixed(3)}</td>
+
+                        <td>{num(row.average_cost).toFixed(4)}</td>
+
+                        <td>
+                          <strong>{money(row.stock_value, baseCurrency)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "sales" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini title="صافي المبيعات" value={money(totalSales, baseCurrency)} />
+
+              <Mini title="عدد الأشهر" value={String(salesMonthly.length)} />
+            </section>
+
+            <MonthlySalesTable rows={salesMonthly} currency={baseCurrency} />
+          </>
+        )}
+
+        {tab === "purchases" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini title="صافي المشتريات" value={money(totalPurchases, baseCurrency)} />
+
+              <Mini title="عدد الأشهر" value={String(purchaseMonthly.length)} />
+            </section>
+
+            <MonthlyPurchaseTable rows={purchaseMonthly} currency={baseCurrency} />
+          </>
+        )}
+
+        {tab === "payroll" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini
+                title="صافي الرواتب"
+                value={
+                  mixedPayrollCurrencies
+                    ? "حسب العملة"
+                    : money(totalPayroll, payrollCurrencies[0] ?? baseCurrency)
+                }
+              />
+
+              <Mini title="عدد المسيرات" value={String(payrollRuns.length)} />
+            </section>
+
+            <section
+              className="panel"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الفترة</th>
+                      <th>الحالة</th>
+                      <th>الإجمالي</th>
+                      <th>الخصومات</th>
+                      <th>الصافي</th>
+                      <th>المدفوع</th>
+                      <th>المتبقي</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {payrollRuns.map((run) => (
+                      <tr key={run.id}>
+                        <td>
+                          <strong>{run.period_start}</strong>
+                          {" → "}
+                          {run.period_end}
+                        </td>
+
+                        <td>{payrollStatus(run.status)}</td>
+
+                        <td>{money(run.total_gross, run.currency)}</td>
+
+                        <td>{money(run.total_deductions, run.currency)}</td>
+
+                        <td>
+                          <strong>{money(run.total_net, run.currency)}</strong>
+                        </td>
+
+                        <td>{money(run.total_paid, run.currency)}</td>
+
+                        <td>
+                          {money(
+                            Math.max(num(run.total_net) - num(run.total_paid), 0),
+                            run.currency,
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "assets" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini
+                title="تكلفة الأصول"
+                value={
+                  mixedAssetCurrencies
+                    ? "حسب العملة"
+                    : money(assetCost, assetCurrencies[0] ?? baseCurrency)
+                }
+              />
+
+              <Mini
+                title="القيمة الدفترية"
+                value={
+                  mixedAssetCurrencies
+                    ? "حسب العملة"
+                    : money(assetBookValue, assetCurrencies[0] ?? baseCurrency)
+                }
+              />
+
+              <Mini title="عدد الأصول" value={String(assets.length)} />
+            </section>
+
+            <section
+              className="panel"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الأصل</th>
+                      <th>التصنيف</th>
+                      <th>التكلفة</th>
+                      <th>الإهلاك المتراكم</th>
+                      <th>القيمة الدفترية</th>
+                      <th>إهلاك شهري</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {assets.map((asset) => (
+                      <tr key={asset.id}>
+                        <td>
+                          <strong>{asset.name}</strong>
+
+                          <div className="muted">{asset.asset_number}</div>
+                        </td>
+
+                        <td>{asset.category || "—"}</td>
+
+                        <td>{money(asset.purchase_cost, asset.currency)}</td>
+
+                        <td>{money(asset.accumulated_depreciation, asset.currency)}</td>
+
+                        <td>
+                          <strong>{money(asset.book_value, asset.currency)}</strong>
+                        </td>
+
+                        <td>{money(asset.monthly_depreciation, asset.currency)}</td>
+
+                        <td>{assetStatus(asset.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "team" && team ? (
+          <>
+            <section className="panel" style={{ marginTop: 14 }}>
+              <div className="panelHeader panelPad">
+                <div>
+                  <h2>المندوبين</h2>
+                  <p>صافي مبيعات زبائن كل مندوب بالفترة وعمولتو</p>
+                </div>
+              </div>
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>المندوب</th>
+                      <th>الزبائن</th>
+                      <th>المبيعات</th>
+                      <th>المرتجعات</th>
+                      <th>الصافي</th>
+                      <th>المحصّل</th>
+                      <th>العمولة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {team.reps.map((rep) => (
+                      <tr key={rep.id}>
+                        <td>
+                          <strong>{rep.full_name}</strong>
+                          <div className="muted">{Number(rep.commission_rate)}%</div>
+                        </td>
+                        <td>{rep.customers}</td>
+                        <td>{money(rep.sales, baseCurrency)}</td>
+                        <td>{money(rep.returns, baseCurrency)}</td>
+                        <td>{money(rep.net_sales, baseCurrency)}</td>
+                        <td>{money(rep.collected, baseCurrency)}</td>
+                        <td>
+                          <strong>{money(rep.commission, baseCurrency)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!team.reps.length ? (
+                  <p className="muted panelPad">
+                    ما في مندوبين. علّم الموظف «مندوب مبيعات» من صفحة الرواتب وعيّنو للزبائن.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="panel" style={{ marginTop: 14 }}>
+              <div className="panelHeader panelPad">
+                <div>
+                  <h2>السائقين</h2>
+                  <p>التوصيلات بالفترة</p>
+                </div>
+              </div>
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>السائق</th>
+                      <th>انسلّمت</th>
+                      <th>فشلت</th>
+                      <th>بالطريق</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {team.drivers.map((driver) => (
+                      <tr key={driver.id}>
+                        <td>
+                          <strong>{driver.full_name}</strong>
+                        </td>
+                        <td>{driver.delivered}</td>
+                        <td>{driver.failed}</td>
+                        <td>{driver.open}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!team.drivers.length ? (
+                  <p className="muted panelPad">
+                    ما في سائقين. علّم الموظف «سائق» من صفحة الرواتب.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          </>
+        ) : null}
+
+        {tab === "partners" && (
+          <>
+            <section
+              className="statsGrid"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Mini title="إجمالي رأس المال المدخل" value={money(partnerCapital, baseCurrency)} />
+
+              <Mini
+                title="عدد الشركاء"
+                value={String(partners.filter((partner) => partner.active).length)}
+              />
+            </section>
+
+            <section
+              className="panel"
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <div className="tableWrap">
+                <table className="dataTable">
+                  <thead>
+                    <tr>
+                      <th>الشريك</th>
+                      <th>الملكية</th>
+                      <th>حصة الربح</th>
+                      <th>رأس المال</th>
+                      <th>المسحوبات</th>
+                      <th>رصيد القرض</th>
+                      <th>توزيعات الأرباح</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {partners.map((partner) => (
+                      <tr key={partner.id}>
+                        <td>
+                          <strong>{partner.name}</strong>
+                        </td>
+
+                        <td>{num(partner.ownership_percent).toFixed(2)}%</td>
+
+                        <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
+
+                        <td>{money(partner.capital_contributions, baseCurrency)}</td>
+
+                        <td>{money(partner.drawings, baseCurrency)}</td>
+
+                        <td>{money(partner.partner_loan_balance, baseCurrency)}</td>
+
+                        <td>{money(partner.profit_distributions, baseCurrency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -1293,7 +1313,7 @@ function ReportLines({
   emphasizeLast?: boolean;
 }) {
   return (
-    <div className="quickList">
+    <div className="quickList" data-lines>
       {rows.map(([label, value], index) => (
         <div className="quickItem" key={label}>
           <div>

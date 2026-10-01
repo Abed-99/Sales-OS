@@ -19,7 +19,7 @@ export type OutboxMessage = {
   trader_id: string | null;
   phone: string | null;
   message: string;
-  document_type: "invoice" | "statement" | null;
+  document_type: "invoice" | "statement" | "receipt" | null;
   document_id: string | null;
   status: "pending" | "sent" | "skipped";
   created_at: string;
@@ -53,6 +53,8 @@ function documentUrl(row: OutboxMessage) {
     return `/print/invoice/${row.document_id}`;
   if (row.document_type === "statement" && row.document_id)
     return `/print/customer/${row.document_id}`;
+  if (row.document_type === "receipt" && row.document_id)
+    return `/print/receipt/${row.document_id}`;
   return null;
 }
 

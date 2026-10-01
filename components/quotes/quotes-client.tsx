@@ -979,6 +979,10 @@ export function QuotesClient({
                           تفاصيل
                         </button>
 
+                        <Link className="softButton" href={`/print/quote/${row.id}`}>
+                          طباعة / واتساب
+                        </Link>
+
                         {canUpdate && row.status === "draft" ? (
                           <>
                             <button

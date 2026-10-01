@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -479,6 +480,11 @@ export function OrderDetails({
                     <tr key={row.allocationId}>
                       <td>
                         <strong>{row.payment.payment_number}</strong>
+                        <div>
+                          <Link className="muted" href={`/print/receipt/${row.payment.id}`}>
+                            سند قبض
+                          </Link>
+                        </div>
                         {row.payment.payment_currency &&
                         row.payment.payment_currency !== row.invoiceCurrency ? (
                           <div className="muted">
