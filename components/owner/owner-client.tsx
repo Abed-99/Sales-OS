@@ -88,7 +88,7 @@ function readableError(message: string) {
 function formatDate(value: string | null) {
   if (!value) return "—";
 
-  return new Intl.DateTimeFormat("ar-SY", {
+  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
     dateStyle: "medium",
     timeStyle: "short",

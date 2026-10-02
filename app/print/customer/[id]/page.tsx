@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { PrintNoAccess } from "@/components/print/no-access";
 import { PrintShell } from "@/components/print/print-shell";
 import { money } from "@/lib/print-format";
 import { StatementRange } from "@/components/print/statement-range";
@@ -33,7 +34,9 @@ export default async function PrintCustomerStatement({
   const context = await getCurrentContext();
   const supabase = await createClient();
 
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Damascus",
+  });
   const from = validDate(query.from);
   const to = validDate(query.to) ?? today;
 
@@ -55,6 +58,15 @@ export default async function PrintCustomerStatement({
     }),
     loadLetterhead(supabase, context.companyId, context.companyName),
   ]);
+
+  if (error) {
+    return (
+      <PrintNoAccess
+        backHref={`/customers/${trader.id}`}
+        message="ما عندك صلاحية تشوف كشف حساب العميل. اطلبها من صاحب الشركة."
+      />
+    );
+  }
 
   const rows = (data ?? []) as Row[];
   const closing = rows.length ? Number(rows[rows.length - 1].balance) : 0;
@@ -86,11 +98,13 @@ export default async function PrintCustomerStatement({
             <bdi dir="ltr">{money(Math.abs(closing), currency)}</bdi>
           </strong>
           <br />
-          {closing > 0 ? "مطلوب من العميل" : closing < 0 ? "رصيد للعميل عنا" : "مسدّد"}
+          {closing > 0
+            ? "مطلوب من العميل"
+            : closing < 0
+              ? "رصيد للعميل عنا"
+              : "مسدّد"}
         </div>
       </div>
-
-      {error ? <p>تعذر تحميل الكشف.</p> : null}
 
       <table className="printTable">
         <thead>
@@ -106,11 +120,17 @@ export default async function PrintCustomerStatement({
         <tbody>
           {rows.map((row, index) => (
             <tr key={`${row.reference}-${index}`}>
-              <td>{row.row_type === "opening" ? (from ?? "") : row.event_date}</td>
+              <td>
+                {row.row_type === "opening" ? (from ?? "") : row.event_date}
+              </td>
               <td>{row.description}</td>
               <td>{row.reference ?? ""}</td>
-              <td className="num">{row.debit ? money(row.debit, currency) : ""}</td>
-              <td className="num">{row.credit ? money(row.credit, currency) : ""}</td>
+              <td className="num">
+                {row.debit ? money(row.debit, currency) : ""}
+              </td>
+              <td className="num">
+                {row.credit ? money(row.credit, currency) : ""}
+              </td>
               <td className="num">
                 <strong>{money(row.balance, currency)}</strong>
               </td>

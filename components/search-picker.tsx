@@ -24,6 +24,7 @@ export function SearchPicker<T>({
   disabled,
   emptyText = "ما في نتائج",
   autoFocus,
+  openOnFocus = true,
 }: {
   value: string;
   options: PickerOption<T>[];
@@ -33,6 +34,8 @@ export function SearchPicker<T>({
   disabled?: boolean;
   emptyText?: string;
   autoFocus?: boolean;
+  /** false: القائمة ما بتنفتح غير لما يكتب (مثلًا البيع السريع، لحتى ما تغطّي السلة). */
+  openOnFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
@@ -128,9 +131,11 @@ export function SearchPicker<T>({
         disabled={disabled}
         autoFocus={autoFocus}
         onFocus={() => {
-          setOpen(true);
+          if (openOnFocus) setOpen(true);
           setActive(0);
         }}
+        // كبسة مقصودة عالخانة بتفتح القائمة دايمًا.
+        onClick={() => setOpen(true)}
         onChange={(event) => {
           setTerm(event.target.value);
           setOpen(true);

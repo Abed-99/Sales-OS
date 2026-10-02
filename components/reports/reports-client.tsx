@@ -174,7 +174,13 @@ type TeamPerformance = {
     collected: number;
     commission: number;
   }[];
-  drivers: { id: string; full_name: string; delivered: number; failed: number; open: number }[];
+  drivers: {
+    id: string;
+    full_name: string;
+    delivered: number;
+    failed: number;
+    open: number;
+  }[];
 };
 
 export function ReportsClient({
@@ -260,11 +266,18 @@ export function ReportsClient({
     router.push(`/reports?${query.toString()}`);
   }
   const inventoryTotal =
-    inventoryValue ?? inventory.reduce((sum, row) => sum + num(row.stock_value), 0);
+    inventoryValue ??
+    inventory.reduce((sum, row) => sum + num(row.stock_value), 0);
 
-  const totalSales = salesMonthly.reduce((sum, row) => sum + num(row.net_sales), 0);
+  const totalSales = salesMonthly.reduce(
+    (sum, row) => sum + num(row.net_sales),
+    0,
+  );
 
-  const totalPurchases = purchaseMonthly.reduce((sum, row) => sum + num(row.net_purchases), 0);
+  const totalPurchases = purchaseMonthly.reduce(
+    (sum, row) => sum + num(row.net_purchases),
+    0,
+  );
 
   const totalPayroll = payrollRuns
     .filter((run) => run.status !== "cancelled")
@@ -280,18 +293,29 @@ export function ReportsClient({
 
   const mixedPayrollCurrencies = payrollCurrencies.length > 1;
 
-  const assetCurrencies = [...new Set(assets.map((asset) => asset.currency.trim().toUpperCase()))];
+  const assetCurrencies = [
+    ...new Set(assets.map((asset) => asset.currency.trim().toUpperCase())),
+  ];
 
   const mixedAssetCurrencies = assetCurrencies.length > 1;
 
   // الأصول المبيوعة أو المشطوبة ما بتنحسب بالمجموع.
   const ownedAssets = assets.filter((asset) => asset.status !== "disposed");
 
-  const assetCost = ownedAssets.reduce((sum, row) => sum + num(row.purchase_cost), 0);
+  const assetCost = ownedAssets.reduce(
+    (sum, row) => sum + num(row.purchase_cost),
+    0,
+  );
 
-  const assetBookValue = ownedAssets.reduce((sum, row) => sum + num(row.book_value), 0);
+  const assetBookValue = ownedAssets.reduce(
+    (sum, row) => sum + num(row.book_value),
+    0,
+  );
 
-  const partnerCapital = partners.reduce((sum, row) => sum + num(row.capital_contributions), 0);
+  const partnerCapital = partners.reduce(
+    (sum, row) => sum + num(row.capital_contributions),
+    0,
+  );
 
   const availableTabs = useMemo(() => {
     const rows: {
@@ -483,17 +507,26 @@ export function ReportsClient({
 
               <Mini
                 title="مجمل الربح"
-                value={money(financialReport.profit_loss.gross_profit, baseCurrency)}
+                value={money(
+                  financialReport.profit_loss.gross_profit,
+                  baseCurrency,
+                )}
               />
 
               <Mini
                 title="صافي الربح"
-                value={money(financialReport.profit_loss.net_profit, baseCurrency)}
+                value={money(
+                  financialReport.profit_loss.net_profit,
+                  baseCurrency,
+                )}
               />
 
               <Mini
                 title="صافي التدفق النقدي"
-                value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
+                value={money(
+                  financialReport.cash_flow.net_cash_flow,
+                  baseCurrency,
+                )}
               />
             </section>
 
@@ -505,22 +538,34 @@ export function ReportsClient({
             >
               <Mini
                 title="ذمم العملاء"
-                value={money(financialReport.working_capital.accounts_receivable, baseCurrency)}
+                value={money(
+                  financialReport.working_capital.accounts_receivable,
+                  baseCurrency,
+                )}
               />
 
               <Mini
                 title="ذمم الموردين"
-                value={money(financialReport.working_capital.accounts_payable, baseCurrency)}
+                value={money(
+                  financialReport.working_capital.accounts_payable,
+                  baseCurrency,
+                )}
               />
 
               <Mini
                 title="قيمة المخزون"
-                value={money(financialReport.working_capital.inventory_value, baseCurrency)}
+                value={money(
+                  financialReport.working_capital.inventory_value,
+                  baseCurrency,
+                )}
               />
 
               <Mini
                 title="الأصول المحاسبية"
-                value={money(financialReport.balance_sheet.assets, baseCurrency)}
+                value={money(
+                  financialReport.balance_sheet.assets,
+                  baseCurrency,
+                )}
               />
             </section>
 
@@ -542,9 +587,15 @@ export function ReportsClient({
                   currency={baseCurrency}
                   rows={[
                     ["الإيرادات", financialReport.profit_loss.revenue],
-                    ["تكلفة البضاعة المباعة", financialReport.profit_loss.cost_of_goods_sold],
+                    [
+                      "تكلفة البضاعة المباعة",
+                      financialReport.profit_loss.cost_of_goods_sold,
+                    ],
                     ["مجمل الربح", financialReport.profit_loss.gross_profit],
-                    ["المصاريف التشغيلية", financialReport.profit_loss.operating_expenses],
+                    [
+                      "المصاريف التشغيلية",
+                      financialReport.profit_loss.operating_expenses,
+                    ],
                     ["صافي الربح", financialReport.profit_loss.net_profit],
                   ]}
                 />
@@ -563,11 +614,18 @@ export function ReportsClient({
                   rows={[
                     ["الأصول", financialReport.balance_sheet.assets],
                     ["الالتزامات", financialReport.balance_sheet.liabilities],
-                    ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
-                    ["الأرباح الحالية", financialReport.balance_sheet.current_earnings],
+                    [
+                      "حقوق الملكية المرحلة",
+                      financialReport.balance_sheet.equity_posted,
+                    ],
+                    [
+                      "الأرباح الحالية",
+                      financialReport.balance_sheet.current_earnings,
+                    ],
                     [
                       "حقوق الملكية مع الأرباح",
-                      financialReport.balance_sheet.equity_with_current_earnings,
+                      financialReport.balance_sheet
+                        .equity_with_current_earnings,
                     ],
                   ]}
                 />
@@ -597,9 +655,15 @@ export function ReportsClient({
               currency={baseCurrency}
               rows={[
                 ["الإيرادات", financialReport.profit_loss.revenue],
-                ["تكلفة البضاعة المباعة", -num(financialReport.profit_loss.cost_of_goods_sold)],
+                [
+                  "تكلفة البضاعة المباعة",
+                  -num(financialReport.profit_loss.cost_of_goods_sold),
+                ],
                 ["مجمل الربح", financialReport.profit_loss.gross_profit],
-                ["المصاريف التشغيلية", -num(financialReport.profit_loss.operating_expenses)],
+                [
+                  "المصاريف التشغيلية",
+                  -num(financialReport.profit_loss.operating_expenses),
+                ],
                 ["صافي الربح", financialReport.profit_loss.net_profit],
               ]}
               emphasizeLast
@@ -626,9 +690,18 @@ export function ReportsClient({
               currency={baseCurrency}
               rows={[
                 ["إجمالي الأصول", financialReport.balance_sheet.assets],
-                ["إجمالي الالتزامات", financialReport.balance_sheet.liabilities],
-                ["حقوق الملكية المرحلة", financialReport.balance_sheet.equity_posted],
-                ["أرباح الفترة والحالية", financialReport.balance_sheet.current_earnings],
+                [
+                  "إجمالي الالتزامات",
+                  financialReport.balance_sheet.liabilities,
+                ],
+                [
+                  "حقوق الملكية المرحلة",
+                  financialReport.balance_sheet.equity_posted,
+                ],
+                [
+                  "أرباح الفترة والحالية",
+                  financialReport.balance_sheet.current_earnings,
+                ],
                 [
                   "حقوق الملكية الإجمالية",
                   financialReport.balance_sheet.equity_with_current_earnings,
@@ -658,7 +731,10 @@ export function ReportsClient({
 
               <Mini
                 title="صافي التدفق"
-                value={money(financialReport.cash_flow.net_cash_flow, baseCurrency)}
+                value={money(
+                  financialReport.cash_flow.net_cash_flow,
+                  baseCurrency,
+                )}
               />
             </section>
 
@@ -682,7 +758,11 @@ export function ReportsClient({
         )}
 
         {tab === "receivables" && (
-          <AgingTable type="customer" rows={receivables} currency={baseCurrency} />
+          <AgingTable
+            type="customer"
+            rows={receivables}
+            currency={baseCurrency}
+          />
         )}
 
         {tab === "payables" && (
@@ -697,7 +777,10 @@ export function ReportsClient({
                 marginTop: 14,
               }}
             >
-              <Mini title="قيمة المخزون" value={money(inventoryTotal, baseCurrency)} />
+              <Mini
+                title="قيمة المخزون"
+                value={money(inventoryTotal, baseCurrency)}
+              />
 
               <Mini
                 title="عدد الأصناف بالمستودعات"
@@ -737,16 +820,18 @@ export function ReportsClient({
 
                         <td>{row.sku || "—"}</td>
 
-                        <td>{num(row.on_hand).toFixed(3)}</td>
+                        <td>{Number(num(row.on_hand).toFixed(3))}</td>
 
-                        <td>{num(row.reserved).toFixed(3)}</td>
+                        <td>{Number(num(row.reserved).toFixed(3))}</td>
 
-                        <td>{num(row.available).toFixed(3)}</td>
+                        <td>{Number(num(row.available).toFixed(3))}</td>
 
                         <td>{num(row.average_cost).toFixed(4)}</td>
 
                         <td>
-                          <strong>{money(row.stock_value, baseCurrency)}</strong>
+                          <strong>
+                            {money(row.stock_value, baseCurrency)}
+                          </strong>
                         </td>
                       </tr>
                     ))}
@@ -765,7 +850,10 @@ export function ReportsClient({
                 marginTop: 14,
               }}
             >
-              <Mini title="صافي المبيعات" value={money(totalSales, baseCurrency)} />
+              <Mini
+                title="صافي المبيعات"
+                value={money(totalSales, baseCurrency)}
+              />
 
               <Mini title="عدد الأشهر" value={String(salesMonthly.length)} />
             </section>
@@ -782,12 +870,18 @@ export function ReportsClient({
                 marginTop: 14,
               }}
             >
-              <Mini title="صافي المشتريات" value={money(totalPurchases, baseCurrency)} />
+              <Mini
+                title="صافي المشتريات"
+                value={money(totalPurchases, baseCurrency)}
+              />
 
               <Mini title="عدد الأشهر" value={String(purchaseMonthly.length)} />
             </section>
 
-            <MonthlyPurchaseTable rows={purchaseMonthly} currency={baseCurrency} />
+            <MonthlyPurchaseTable
+              rows={purchaseMonthly}
+              currency={baseCurrency}
+            />
           </>
         )}
 
@@ -854,7 +948,10 @@ export function ReportsClient({
 
                         <td>
                           {money(
-                            Math.max(num(run.total_net) - num(run.total_paid), 0),
+                            Math.max(
+                              num(run.total_net) - num(run.total_paid),
+                              0,
+                            ),
                             run.currency,
                           )}
                         </td>
@@ -929,13 +1026,22 @@ export function ReportsClient({
 
                         <td>{money(asset.purchase_cost, asset.currency)}</td>
 
-                        <td>{money(asset.accumulated_depreciation, asset.currency)}</td>
-
                         <td>
-                          <strong>{money(asset.book_value, asset.currency)}</strong>
+                          {money(
+                            asset.accumulated_depreciation,
+                            asset.currency,
+                          )}
                         </td>
 
-                        <td>{money(asset.monthly_depreciation, asset.currency)}</td>
+                        <td>
+                          <strong>
+                            {money(asset.book_value, asset.currency)}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {money(asset.monthly_depreciation, asset.currency)}
+                        </td>
 
                         <td>{assetStatus(asset.status)}</td>
                       </tr>
@@ -974,7 +1080,9 @@ export function ReportsClient({
                       <tr key={rep.id}>
                         <td>
                           <strong>{rep.full_name}</strong>
-                          <div className="muted">{Number(rep.commission_rate)}%</div>
+                          <div className="muted">
+                            {Number(rep.commission_rate)}%
+                          </div>
                         </td>
                         <td>{rep.customers}</td>
                         <td>{money(rep.sales, baseCurrency)}</td>
@@ -990,7 +1098,8 @@ export function ReportsClient({
                 </table>
                 {!team.reps.length ? (
                   <p className="muted panelPad">
-                    ما في مندوبين. علّم الموظف «مندوب مبيعات» من صفحة الرواتب وعيّنو للزبائن.
+                    ما في مندوبين. علّم الموظف «مندوب مبيعات» من صفحة الرواتب
+                    وعيّنو للزبائن.
                   </p>
                 ) : null}
               </div>
@@ -1044,11 +1153,16 @@ export function ReportsClient({
                 marginTop: 14,
               }}
             >
-              <Mini title="إجمالي رأس المال المدخل" value={money(partnerCapital, baseCurrency)} />
+              <Mini
+                title="إجمالي رأس المال المدخل"
+                value={money(partnerCapital, baseCurrency)}
+              />
 
               <Mini
                 title="عدد الشركاء"
-                value={String(partners.filter((partner) => partner.active).length)}
+                value={String(
+                  partners.filter((partner) => partner.active).length,
+                )}
               />
             </section>
 
@@ -1083,13 +1197,19 @@ export function ReportsClient({
 
                         <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
 
-                        <td>{money(partner.capital_contributions, baseCurrency)}</td>
+                        <td>
+                          {money(partner.capital_contributions, baseCurrency)}
+                        </td>
 
                         <td>{money(partner.drawings, baseCurrency)}</td>
 
-                        <td>{money(partner.partner_loan_balance, baseCurrency)}</td>
+                        <td>
+                          {money(partner.partner_loan_balance, baseCurrency)}
+                        </td>
 
-                        <td>{money(partner.profit_distributions, baseCurrency)}</td>
+                        <td>
+                          {money(partner.profit_distributions, baseCurrency)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1123,7 +1243,9 @@ function AgingTable({
         }}
       >
         <Mini
-          title={type === "customer" ? "إجمالي ذمم العملاء" : "إجمالي ذمم الموردين"}
+          title={
+            type === "customer" ? "إجمالي ذمم العملاء" : "إجمالي ذمم الموردين"
+          }
           value={money(total, currency)}
         />
 
@@ -1195,7 +1317,13 @@ function AgingTable({
   );
 }
 
-function MonthlySalesTable({ rows, currency }: { rows: SalesMonthlyReport[]; currency: string }) {
+function MonthlySalesTable({
+  rows,
+  currency,
+}: {
+  rows: SalesMonthlyReport[];
+  currency: string;
+}) {
   return (
     <section
       className="panel"

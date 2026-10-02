@@ -72,13 +72,13 @@ const orderStatusLabels: Record<string, string> = {
 };
 
 function formatDamascusDateTime(value: string) {
-  return new Date(value).toLocaleString("ar-SY", {
+  return new Date(value).toLocaleString("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
   });
 }
 
 function formatDamascusDate(value: string) {
-  return new Date(value).toLocaleDateString("ar-SY", {
+  return new Date(value).toLocaleDateString("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
   });
 }

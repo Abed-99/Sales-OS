@@ -206,7 +206,7 @@ declare
   v_currency text;
   v_date date := coalesce(target_date, (now() at time zone 'Asia/Damascus')::date);
   v_entry uuid;
-  v_labels jsonb := '{"freight":"شحن بحري","customs":"جمارك","clearance":"تخليص","transport":"نقل","insurance":"تأمين","other":"مصاريف أخرى"}';
+  v_labels jsonb := '{"freight":"شحن بحري","customs":"جمارك","clearance":"تخليص","transport":"نقل","insurance":"تأمين","other":"مصاريف أخرى"}'::jsonb;
 begin
   if not public.has_any_permission(target_company, array['purchases.create','purchase_invoices.create']) then
     raise exception 'Not allowed';

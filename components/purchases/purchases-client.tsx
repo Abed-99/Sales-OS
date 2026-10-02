@@ -9,7 +9,12 @@ import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
 import { UnitToggle } from "@/components/unit-toggle";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
-import { convertPrice, toBasePrice, toBaseQuantity, type UnitMode } from "@/lib/units";
+import {
+  convertPrice,
+  toBasePrice,
+  toBaseQuantity,
+  type UnitMode,
+} from "@/lib/units";
 import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 
@@ -187,7 +192,8 @@ function businessDateInput() {
     day: "2-digit",
   }).formatToParts(new Date());
 
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
@@ -218,11 +224,17 @@ function friendlyError(
     return "ما عندك صلاحية لتنفيذ هذه العملية.";
   }
 
-  if (message.includes("archived supplier") || message.includes("invalid supplier")) {
+  if (
+    message.includes("archived supplier") ||
+    message.includes("invalid supplier")
+  ) {
     return "المورد غير صالح أو مؤرشف.";
   }
 
-  if (message.includes("archived product") || message.includes("invalid product")) {
+  if (
+    message.includes("archived product") ||
+    message.includes("invalid product")
+  ) {
     return "أحد الأصناف غير صالح أو مؤرشف.";
   }
 
@@ -254,7 +266,11 @@ function friendlyError(
     return "سبب عكس الدفعة مطلوب.";
   }
 
-  if (message.includes("currency") || message.includes("exchange") || message.includes("rate")) {
+  if (
+    message.includes("currency") ||
+    message.includes("exchange") ||
+    message.includes("rate")
+  ) {
     return "تعذر احتساب سعر الصرف لهذه العملية.";
   }
 
@@ -394,11 +410,13 @@ export function PurchasesClient({
 
   const [invoiceSearch, setInvoiceSearch] = useState(invoiceSearchQuery);
 
-  const [invoiceFilter, setInvoiceFilter] = useState<InvoiceStatusFilter>(invoiceStatusFilter);
+  const [invoiceFilter, setInvoiceFilter] =
+    useState<InvoiceStatusFilter>(invoiceStatusFilter);
 
   const [paymentSearch, setPaymentSearch] = useState(paymentSearchQuery);
 
-  const [paymentFilter, setPaymentFilter] = useState<PaymentStatusFilter>(paymentStatusFilter);
+  const [paymentFilter, setPaymentFilter] =
+    useState<PaymentStatusFilter>(paymentStatusFilter);
 
   useEffect(() => {
     setInvoices(initialInvoices);
@@ -473,13 +491,16 @@ export function PurchasesClient({
 
   const [paymentNotes, setPaymentNotes] = useState("");
 
-  const [paymentAllocations, setPaymentAllocations] = useState<Record<string, string>>({});
+  const [paymentAllocations, setPaymentAllocations] = useState<
+    Record<string, string>
+  >({});
 
   const [paymentCashAmount, setPaymentCashAmount] = useState("");
 
   const [paymentCashCurrency, setPaymentCashCurrency] = useState(currency);
 
-  const [paymentInvoiceCurrency, setPaymentInvoiceCurrency] = useState(currency);
+  const [paymentInvoiceCurrency, setPaymentInvoiceCurrency] =
+    useState(currency);
 
   const [paymentQuoteError, setPaymentQuoteError] = useState("");
 
@@ -493,7 +514,9 @@ export function PurchasesClient({
   // CANCEL / REVERSE MODALS
   // ==========================================================
 
-  const [cancelTarget, setCancelTarget] = useState<PurchaseInvoiceRow | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<PurchaseInvoiceRow | null>(
+    null,
+  );
 
   const [cancelReason, setCancelReason] = useState("");
 
@@ -501,7 +524,9 @@ export function PurchasesClient({
 
   const [cancelling, setCancelling] = useState(false);
 
-  const [reverseTarget, setReverseTarget] = useState<SupplierPaymentRow | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<SupplierPaymentRow | null>(
+    null,
+  );
 
   const [reverseReason, setReverseReason] = useState("");
 
@@ -521,7 +546,10 @@ export function PurchasesClient({
         continue;
       }
 
-      map.set(`${row.supplier_id}:${row.product_id}`, Number(row.purchase_price));
+      map.set(
+        `${row.supplier_id}:${row.product_id}`,
+        Number(row.purchase_price),
+      );
     }
 
     return map;
@@ -571,7 +599,9 @@ export function PurchasesClient({
 
   // كل فواتير المورد المفتوحة من القاعدة، مش بس اللي ظاهرين بالصفحة الحالية
   // (القائمة بتعرض آخر 50 فاتورة، فالفواتير القديمة ما كانت تطلع للدفع).
-  const [paymentInvoices, setPaymentInvoices] = useState<PurchaseInvoiceRow[]>([]);
+  const [paymentInvoices, setPaymentInvoices] = useState<PurchaseInvoiceRow[]>(
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -607,7 +637,10 @@ export function PurchasesClient({
   }, [paymentSupplierId, companyId, supabase]);
 
   const paymentAllocated = useMemo(() => {
-    return Object.values(paymentAllocations).reduce((sum, value) => sum + Number(value || 0), 0);
+    return Object.values(paymentAllocations).reduce(
+      (sum, value) => sum + Number(value || 0),
+      0,
+    );
   }, [paymentAllocations]);
 
   const invoicePageCount = Math.max(1, Math.ceil(invoiceTotalCount / pageSize));
@@ -618,7 +651,11 @@ export function PurchasesClient({
   // URL NAVIGATION
   // ==========================================================
 
-  function navigateInvoices(nextSearch: string, nextFilter: InvoiceStatusFilter, nextPage = 1) {
+  function navigateInvoices(
+    nextSearch: string,
+    nextFilter: InvoiceStatusFilter,
+    nextPage = 1,
+  ) {
     const params = new URLSearchParams(searchParams.toString());
 
     const clean = nextSearch.trim();
@@ -641,10 +678,16 @@ export function PurchasesClient({
       params.delete("ipage");
     }
 
-    router.push(`/purchases${params.toString() ? `?${params.toString()}` : ""}`);
+    router.push(
+      `/purchases${params.toString() ? `?${params.toString()}` : ""}`,
+    );
   }
 
-  function navigatePayments(nextSearch: string, nextFilter: PaymentStatusFilter, nextPage = 1) {
+  function navigatePayments(
+    nextSearch: string,
+    nextFilter: PaymentStatusFilter,
+    nextPage = 1,
+  ) {
     const params = new URLSearchParams(searchParams.toString());
 
     const clean = nextSearch.trim();
@@ -667,7 +710,9 @@ export function PurchasesClient({
       params.delete("ppage");
     }
 
-    router.push(`/purchases${params.toString() ? `?${params.toString()}` : ""}`);
+    router.push(
+      `/purchases${params.toString() ? `?${params.toString()}` : ""}`,
+    );
   }
 
   // ==========================================================
@@ -766,9 +811,15 @@ export function PurchasesClient({
     line: DraftLine,
     productId: string,
     productName?: string,
-    picked?: { unit?: string | null; pack_size?: number | null; pack_unit?: string | null },
+    picked?: {
+      unit?: string | null;
+      pack_size?: number | null;
+      pack_unit?: string | null;
+    },
   ) {
-    const price = supplierId ? priceMap.get(`${supplierId}:${productId}`) : null;
+    const price = supplierId
+      ? priceMap.get(`${supplierId}:${productId}`)
+      : null;
     const product = products.find((row) => row.id === productId) ?? picked;
 
     updateLine(line.key, {
@@ -841,13 +892,20 @@ export function PurchasesClient({
         return;
       }
 
-      if (!Number.isFinite(discount) || discount < 0 || !Number.isFinite(tax) || tax < 0) {
+      if (
+        !Number.isFinite(discount) ||
+        discount < 0 ||
+        !Number.isFinite(tax) ||
+        tax < 0
+      ) {
         setInvoiceMessage("راجع الخصم والضريبة.");
         return;
       }
 
       if (discount > quantity * cost + 0.001) {
-        setInvoiceMessage("الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر.");
+        setInvoiceMessage(
+          "الخصم لا يمكن أن يكون أكبر من قيمة البضاعة في السطر.",
+        );
         return;
       }
     }
@@ -923,7 +981,8 @@ export function PurchasesClient({
   function resetPaymentForm() {
     setPaymentSupplierId("");
 
-    const preferred = cashboxes.find((row) => row.currency === currency) ?? cashboxes[0];
+    const preferred =
+      cashboxes.find((row) => row.currency === currency) ?? cashboxes[0];
 
     setPaymentCashboxId(preferred?.id ?? "");
 
@@ -962,7 +1021,9 @@ export function PurchasesClient({
 
       const balance = Number(invoice.balance_due || 0);
 
-      const matchingCashbox = cashboxes.find((row) => row.currency === invoice.currency);
+      const matchingCashbox = cashboxes.find(
+        (row) => row.currency === invoice.currency,
+      );
 
       setPaymentSupplierId(supplier?.id ?? "");
 
@@ -1003,7 +1064,8 @@ export function PurchasesClient({
     const balance = Number(invoice.balance_due || 0);
 
     const other = Object.entries(paymentAllocations).reduce(
-      (sum, [id, value]) => (id === invoice.id ? sum : sum + Number(value || 0)),
+      (sum, [id, value]) =>
+        id === invoice.id ? sum : sum + Number(value || 0),
       0,
     );
 
@@ -1011,7 +1073,9 @@ export function PurchasesClient({
 
     setAllocation(
       invoice.id,
-      Math.min(available, balance) > 0 ? Math.min(available, balance).toFixed(2) : "",
+      Math.min(available, balance) > 0
+        ? Math.min(available, balance).toFixed(2)
+        : "",
     );
   }
 
@@ -1039,8 +1103,12 @@ export function PurchasesClient({
 
       const invoiceCurrency = paymentInvoices[0]?.currency ?? currency;
 
-      if (paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)) {
-        setPaymentQuoteError("لا يمكن توزيع دفعة واحدة على فواتير بعملات مختلفة.");
+      if (
+        paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)
+      ) {
+        setPaymentQuoteError(
+          "لا يمكن توزيع دفعة واحدة على فواتير بعملات مختلفة.",
+        );
 
         setPaymentCashAmount("");
 
@@ -1163,7 +1231,9 @@ export function PurchasesClient({
 
     const invoiceCurrency = paymentInvoices[0]?.currency ?? currency;
 
-    if (paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)) {
+    if (
+      paymentInvoices.some((invoice) => invoice.currency !== invoiceCurrency)
+    ) {
       setPaymentMessage("لا يمكن دفع فواتير بعملات مختلفة في نفس العملية.");
       return;
     }
@@ -1186,7 +1256,9 @@ export function PurchasesClient({
       }
 
       if (value > Number(invoice.balance_due) + 0.01) {
-        setPaymentMessage(`المبلغ الموزع على ${invoice.invoice_number} أكبر من رصيد الفاتورة.`);
+        setPaymentMessage(
+          `المبلغ الموزع على ${invoice.invoice_number} أكبر من رصيد الفاتورة.`,
+        );
         return;
       }
 
@@ -1194,6 +1266,22 @@ export function PurchasesClient({
         purchase_invoice_id: invoice.id,
         amount: Number(value.toFixed(2)),
       });
+    }
+
+    // إذا ما وزّع المستخدم شي: الدفعة بتنزل من أقدم الفواتير المفتوحة،
+    // والزايد بس بيضل دفعة مقدمة. هيك دين المورد بينزل متل ما بيتوقع.
+    if (!allocations.length) {
+      let left = amount;
+      for (const invoice of paymentInvoices) {
+        const take = Math.min(left, Number(invoice.balance_due || 0));
+        if (take <= 0) continue;
+        allocations.push({
+          purchase_invoice_id: invoice.id,
+          amount: Number(take.toFixed(2)),
+        });
+        left = Number((left - take).toFixed(2));
+        if (left <= 0) break;
+      }
     }
 
     setSavingPayment(true);
@@ -1287,7 +1375,9 @@ export function PurchasesClient({
   // INVOICE DETAILS
   // ==========================================================
 
-  const [detailInvoice, setDetailInvoice] = useState<PurchaseInvoiceRow | null>(null);
+  const [detailInvoice, setDetailInvoice] = useState<PurchaseInvoiceRow | null>(
+    null,
+  );
   const [detailLines, setDetailLines] = useState<InvoiceDetailLine[]>([]);
   const [detailMessage, setDetailMessage] = useState("");
 
@@ -1319,7 +1409,9 @@ export function PurchasesClient({
     if (rows.length) {
       const result = await supabase
         .from("goods_receipt_items")
-        .select("purchase_invoice_item_id,quantity,goods_receipts!inner(status)")
+        .select(
+          "purchase_invoice_item_id,quantity,goods_receipts!inner(status)",
+        )
         .in(
           "purchase_invoice_item_id",
           rows.map((row) => row.id),
@@ -1495,19 +1587,29 @@ export function PurchasesClient({
 
           <h2>المشتريات والموردون</h2>
 
-          <p className="muted">احتياجات الشراء، فواتير الموردين، الدفعات والرصيد المستحق.</p>
+          <p className="muted">
+            احتياجات الشراء، فواتير الموردين، الدفعات والرصيد المستحق.
+          </p>
         </div>
 
         <div className="rowActions">
           {canPaySupplier ? (
-            <button type="button" className="softButton" onClick={() => startPayment()}>
+            <button
+              type="button"
+              className="softButton"
+              onClick={() => startPayment()}
+            >
               <Icons.money size={15} />
               دفع لمورد
             </button>
           ) : null}
 
           {canCreateInvoice ? (
-            <button type="button" className="primaryButton" onClick={startInvoice}>
+            <button
+              type="button"
+              className="primaryButton"
+              onClick={startInvoice}
+            >
               <Icons.plus size={15} />
               فاتورة شراء جديدة
             </button>
@@ -1530,11 +1632,20 @@ export function PurchasesClient({
       <section className="statsGrid">
         <Mini title="بنود مطلوبة" value={String(initialStats.needCount)} />
 
-        <Mini title="كميات متبقية" value={initialStats.remainingUnits.toFixed(3)} />
+        <Mini
+          title="كميات متبقية"
+          value={String(Number(initialStats.remainingUnits.toFixed(3)))}
+        />
 
-        <Mini title="مستحق للموردين" value={money(initialStats.outstandingTotal, currency)} />
+        <Mini
+          title="مستحق للموردين"
+          value={money(initialStats.outstandingTotal, currency)}
+        />
 
-        <Mini title="دفعات مقدمة" value={money(initialStats.supplierCreditTotal, currency)} />
+        <Mini
+          title="دفعات مقدمة"
+          value={money(initialStats.supplierCreditTotal, currency)}
+        />
       </section>
 
       <section
@@ -1692,7 +1803,10 @@ export function PurchasesClient({
                           <strong>{invoice.invoice_number}</strong>
                         </button>
                         <div>
-                          <Link className="muted" href={`/print/purchase/${invoice.id}`}>
+                          <Link
+                            className="muted"
+                            href={`/print/purchase/${invoice.id}`}
+                          >
                             طباعة
                           </Link>
                         </div>
@@ -1709,7 +1823,9 @@ export function PurchasesClient({
                       <td>{money(invoice.paid_total, invoice.currency)}</td>
 
                       <td>
-                        <strong>{money(invoice.balance_due, invoice.currency)}</strong>
+                        <strong>
+                          {money(invoice.balance_due, invoice.currency)}
+                        </strong>
                       </td>
 
                       <td>
@@ -1718,7 +1834,9 @@ export function PurchasesClient({
                             <span className="chip gray">ملغاة</span>
 
                             {invoice.cancellation_reason ? (
-                              <div className="muted">{invoice.cancellation_reason}</div>
+                              <div className="muted">
+                                {invoice.cancellation_reason}
+                              </div>
                             ) : null}
                           </>
                         ) : (
@@ -1786,7 +1904,11 @@ export function PurchasesClient({
               className="softButton"
               disabled={invoicePage <= 1}
               onClick={() =>
-                navigateInvoices(invoiceSearchQuery, invoiceStatusFilter, invoicePage - 1)
+                navigateInvoices(
+                  invoiceSearchQuery,
+                  invoiceStatusFilter,
+                  invoicePage - 1,
+                )
               }
             >
               السابق
@@ -1801,7 +1923,11 @@ export function PurchasesClient({
               className="softButton"
               disabled={invoicePage >= invoicePageCount}
               onClick={() =>
-                navigateInvoices(invoiceSearchQuery, invoiceStatusFilter, invoicePage + 1)
+                navigateInvoices(
+                  invoiceSearchQuery,
+                  invoiceStatusFilter,
+                  invoicePage + 1,
+                )
               }
             >
               التالي
@@ -1906,7 +2032,9 @@ export function PurchasesClient({
                         <td>
                           <strong>{payment.payment_number}</strong>
 
-                          <div className="muted">{payment.reference_number || ""}</div>
+                          <div className="muted">
+                            {payment.reference_number || ""}
+                          </div>
                           <Link
                             className="muted"
                             href={`/print/receipt/${payment.id}?kind=supplier`}
@@ -1920,14 +2048,21 @@ export function PurchasesClient({
                         <td>
                           {money(payment.amount, paymentCurrency)}
 
-                          {payment.base_amount != null && paymentCurrency !== currency ? (
-                            <div className="muted">≈ {money(payment.base_amount, currency)}</div>
+                          {payment.base_amount != null &&
+                          paymentCurrency !== currency ? (
+                            <div className="muted">
+                              ≈ {money(payment.base_amount, currency)}
+                            </div>
                           ) : null}
                         </td>
 
-                        <td>{money(payment.allocated_total, paymentCurrency)}</td>
+                        <td>
+                          {money(payment.allocated_total, paymentCurrency)}
+                        </td>
 
-                        <td>{money(payment.unallocated_total, paymentCurrency)}</td>
+                        <td>
+                          {money(payment.unallocated_total, paymentCurrency)}
+                        </td>
 
                         <td>{cashbox?.name || "—"}</td>
 
@@ -1940,8 +2075,11 @@ export function PurchasesClient({
                             {payment.status === "posted" ? "مثبتة" : "معكوسة"}
                           </span>
 
-                          {payment.status === "reversed" && payment.reversal_reason ? (
-                            <div className="muted">{payment.reversal_reason}</div>
+                          {payment.status === "reversed" &&
+                          payment.reversal_reason ? (
+                            <div className="muted">
+                              {payment.reversal_reason}
+                            </div>
                           ) : null}
                         </td>
 
@@ -1977,7 +2115,11 @@ export function PurchasesClient({
                 className="softButton"
                 disabled={paymentPage <= 1}
                 onClick={() =>
-                  navigatePayments(paymentSearchQuery, paymentStatusFilter, paymentPage - 1)
+                  navigatePayments(
+                    paymentSearchQuery,
+                    paymentStatusFilter,
+                    paymentPage - 1,
+                  )
                 }
               >
                 السابق
@@ -1992,7 +2134,11 @@ export function PurchasesClient({
                 className="softButton"
                 disabled={paymentPage >= paymentPageCount}
                 onClick={() =>
-                  navigatePayments(paymentSearchQuery, paymentStatusFilter, paymentPage + 1)
+                  navigatePayments(
+                    paymentSearchQuery,
+                    paymentStatusFilter,
+                    paymentPage + 1,
+                  )
                 }
               >
                 التالي
@@ -2045,7 +2191,9 @@ export function PurchasesClient({
 
                   <input
                     value={supplierInvoiceNumber}
-                    onChange={(event) => setSupplierInvoiceNumber(event.target.value)}
+                    onChange={(event) =>
+                      setSupplierInvoiceNumber(event.target.value)
+                    }
                   />
                 </label>
 
@@ -2104,10 +2252,14 @@ export function PurchasesClient({
                               <button
                                 type="button"
                                 className="softButton"
-                                disabled={selectedNeedIds.has(need.sales_order_item_id)}
+                                disabled={selectedNeedIds.has(
+                                  need.sales_order_item_id,
+                                )}
                                 onClick={() => addNeed(need)}
                               >
-                                {selectedNeedIds.has(need.sales_order_item_id) ? "مضاف" : "إضافة"}
+                                {selectedNeedIds.has(need.sales_order_item_id)
+                                  ? "مضاف"
+                                  : "إضافة"}
                               </button>
                             </td>
                           </tr>
@@ -2127,7 +2279,11 @@ export function PurchasesClient({
                 <div className="panelHeader">
                   <h3>بنود الفاتورة</h3>
 
-                  <button type="button" className="softButton" onClick={addManualLine}>
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={addManualLine}
+                  >
                     <Icons.plus size={14} />
                     بند يدوي
                   </button>
@@ -2166,12 +2322,16 @@ export function PurchasesClient({
                                 {line.salesOrderItemId ? (
                                   <>
                                     <strong>
-                                      {products.find((product) => product.id === line.productId)
-                                        ?.name ?? line.productName}
+                                      {products.find(
+                                        (product) =>
+                                          product.id === line.productId,
+                                      )?.name ?? line.productName}
                                     </strong>
 
                                     <div className="muted">
-                                      {line.traderName ? `للعميل: ${line.traderName}` : ""}
+                                      {line.traderName
+                                        ? `للعميل: ${line.traderName}`
+                                        : ""}
                                     </div>
                                   </>
                                 ) : (
@@ -2276,7 +2436,10 @@ export function PurchasesClient({
                               </td>
 
                               <td>
-                                {money(Math.max(quantity * cost - discount + tax, 0), currency)}
+                                {money(
+                                  Math.max(quantity * cost - discount + tax, 0),
+                                  currency,
+                                )}
                               </td>
 
                               <td>
@@ -2285,7 +2448,9 @@ export function PurchasesClient({
                                   className="dangerButton"
                                   onClick={() =>
                                     setLines((current) =>
-                                      current.filter((row) => row.key !== line.key),
+                                      current.filter(
+                                        (row) => row.key !== line.key,
+                                      ),
                                     )
                                   }
                                 >
@@ -2305,7 +2470,9 @@ export function PurchasesClient({
                     marginTop: 14,
                   }}
                 >
-                  <strong>الإجمالي: {money(invoiceTotals.total, currency)}</strong>
+                  <strong>
+                    الإجمالي: {money(invoiceTotals.total, currency)}
+                  </strong>
                 </div>
               </div>
 
@@ -2403,7 +2570,9 @@ export function PurchasesClient({
 
                   <select
                     value={paymentCashboxId}
-                    onChange={(event) => setPaymentCashboxId(event.target.value)}
+                    onChange={(event) =>
+                      setPaymentCashboxId(event.target.value)
+                    }
                   >
                     <option value="">اختر الصندوق</option>
 
@@ -2419,7 +2588,8 @@ export function PurchasesClient({
                   supabase={supabase}
                   companyId={companyId}
                   currency={
-                    cashboxes.find((cashbox) => cashbox.id === paymentCashboxId)?.currency ?? ""
+                    cashboxes.find((cashbox) => cashbox.id === paymentCashboxId)
+                      ?.currency ?? ""
                   }
                   baseCurrency={currency}
                   date={paymentDate}
@@ -2442,13 +2612,17 @@ export function PurchasesClient({
 
                   <select
                     value={paymentMethod}
-                    onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
+                    onChange={(event) =>
+                      setPaymentMethod(event.target.value as PaymentMethod)
+                    }
                   >
-                    {Object.entries(paymentMethodLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
+                    {Object.entries(paymentMethodLabels).map(
+                      ([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </label>
 
@@ -2457,7 +2631,9 @@ export function PurchasesClient({
 
                   <input
                     value={paymentReference}
-                    onChange={(event) => setPaymentReference(event.target.value)}
+                    onChange={(event) =>
+                      setPaymentReference(event.target.value)
+                    }
                   />
                 </label>
               </div>
@@ -2500,7 +2676,9 @@ export function PurchasesClient({
                           <tr key={invoice.id}>
                             <td>{invoice.invoice_number}</td>
 
-                            <td>{money(invoice.balance_due, invoice.currency)}</td>
+                            <td>
+                              {money(invoice.balance_due, invoice.currency)}
+                            </td>
 
                             <td>
                               <input
@@ -2508,7 +2686,9 @@ export function PurchasesClient({
                                 min="0"
                                 step="0.01"
                                 value={paymentAllocations[invoice.id] || ""}
-                                onChange={(event) => setAllocation(invoice.id, event.target.value)}
+                                onChange={(event) =>
+                                  setAllocation(invoice.id, event.target.value)
+                                }
                               />
                             </td>
 
@@ -2527,7 +2707,15 @@ export function PurchasesClient({
                     </table>
                   </div>
 
-                  <p className="muted">موزع: {money(paymentAllocated, paymentInvoiceCurrency)}</p>
+                  <p className="muted">
+                    موزع: {money(paymentAllocated, paymentInvoiceCurrency)}
+                  </p>
+                  {!paymentAllocated ? (
+                    <p className="muted">
+                      إذا ما وزّعت، الدفعة بتنزل لحالها من أقدم فاتورة، والزايد
+                      بيضل دفعة مقدمة.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -2563,7 +2751,9 @@ export function PurchasesClient({
 
                 <button
                   className="primaryButton"
-                  disabled={savingPayment || quoteLoading || Boolean(paymentQuoteError)}
+                  disabled={
+                    savingPayment || quoteLoading || Boolean(paymentQuoteError)
+                  }
                 >
                   {savingPayment ? "جارٍ التسجيل..." : "تسجيل الدفعة"}
                 </button>
@@ -2594,10 +2784,14 @@ export function PurchasesClient({
                     ? ` • فاتورة المورد ${detailInvoice.supplier_invoice_number}`
                     : ""}
                 </span>
-                <h2 id="purchase-detail-title">{detailInvoice.invoice_number}</h2>
+                <h2 id="purchase-detail-title">
+                  {detailInvoice.invoice_number}
+                </h2>
                 <p className="muted">
                   {detailInvoice.invoice_date}
-                  {detailInvoice.due_date ? ` • الاستحقاق ${detailInvoice.due_date}` : ""}
+                  {detailInvoice.due_date
+                    ? ` • الاستحقاق ${detailInvoice.due_date}`
+                    : ""}
                 </p>
               </div>
               <button
@@ -2633,19 +2827,28 @@ export function PurchasesClient({
                         <tr key={line.id}>
                           <td>
                             <strong>{product?.name || "صنف"}</strong>
-                            {line.notes ? <div className="muted">{line.notes}</div> : null}
+                            {line.notes ? (
+                              <div className="muted">{line.notes}</div>
+                            ) : null}
                           </td>
                           <td>
                             {quantity} {product?.unit || ""}
                           </td>
-                          <td>{money(line.unit_cost, detailInvoice.currency)}</td>
+                          <td>
+                            {money(line.unit_cost, detailInvoice.currency)}
+                          </td>
                           <td>
                             {Number(line.discount_amount) > 0
-                              ? money(line.discount_amount, detailInvoice.currency)
+                              ? money(
+                                  line.discount_amount,
+                                  detailInvoice.currency,
+                                )
                               : "—"}
                           </td>
                           <td>
-                            <strong>{money(line.line_total, detailInvoice.currency)}</strong>
+                            <strong>
+                              {money(line.line_total, detailInvoice.currency)}
+                            </strong>
                           </td>
                           <td>
                             {line.received == null ? (
@@ -2670,11 +2873,17 @@ export function PurchasesClient({
 
             <div className="modalActions">
               <span className="muted">
-                الإجمالي {money(detailInvoice.total, detailInvoice.currency)} • المدفوع{" "}
-                {money(detailInvoice.paid_total, detailInvoice.currency)} • الباقي{" "}
+                الإجمالي {money(detailInvoice.total, detailInvoice.currency)} •
+                المدفوع{" "}
+                {money(detailInvoice.paid_total, detailInvoice.currency)} •
+                الباقي{" "}
                 {money(detailInvoice.balance_due, detailInvoice.currency)}
               </span>
-              <button type="button" className="softButton" onClick={() => setDetailInvoice(null)}>
+              <button
+                type="button"
+                className="softButton"
+                onClick={() => setDetailInvoice(null)}
+              >
                 إغلاق
               </button>
             </div>
@@ -2703,7 +2912,9 @@ export function PurchasesClient({
                 />
               </label>
 
-              {cancelMessage ? <div className="toastError">{cancelMessage}</div> : null}
+              {cancelMessage ? (
+                <div className="toastError">{cancelMessage}</div>
+              ) : null}
 
               <div className="modalActions">
                 <button
@@ -2745,7 +2956,9 @@ export function PurchasesClient({
                 />
               </label>
 
-              {reverseMessage ? <div className="toastError">{reverseMessage}</div> : null}
+              {reverseMessage ? (
+                <div className="toastError">{reverseMessage}</div>
+              ) : null}
 
               <div className="modalActions">
                 <button

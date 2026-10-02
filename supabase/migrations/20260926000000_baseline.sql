@@ -7129,7 +7129,6 @@ declare
   v_new_on_hand numeric(18,3);
   v_new_average numeric(18,4);
   v_new_value numeric(24,4);
-  v_value_change numeric(18,2);
   v_movement uuid;
   v_existing uuid;
 begin
@@ -15043,6 +15042,75 @@ begin
 end;
 $function$;
 
+create or replace function public.apply_supplier_credit_to_invoice(target_invoice uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+-- دفعة مقدمة للمورد (ما انربطت بفاتورة) بتنخصم لحالها من أول فاتورة شراء جديدة منو،
+-- بنفس العملة، من الأقدم للأحدث. متل رصيد الزبون مع فواتير البيع.
+declare
+  v_supplier uuid;
+  v_company uuid;
+  v_balance numeric(20,2);
+  v_invoice_currency text;
+  v_payment record;
+  v_apply numeric(20,2);
+begin
+  select supplier_id, company_id, balance_due, upper(currency)
+  into v_supplier, v_company, v_balance, v_invoice_currency
+  from public.purchase_invoices
+  where id = target_invoice
+    and status = 'posted';
+
+  if v_supplier is null or coalesce(v_balance, 0) <= 0 then
+    return;
+  end if;
+
+  for v_payment in
+    select
+      p.id,
+      p.unallocated_total,
+      upper(coalesce(p.payment_currency, cb.currency)) as payment_currency,
+      case when p.base_amount is not null and p.amount > 0
+        then round(p.base_amount / p.amount, 18) end as rate
+    from public.supplier_payments p
+    join public.cashboxes cb on cb.id = p.cashbox_id
+    where p.company_id = v_company
+      and p.supplier_id = v_supplier
+      and p.status = 'posted'
+      and p.unallocated_total > 0
+      and upper(coalesce(p.payment_currency, cb.currency)) = v_invoice_currency
+    order by p.payment_date, p.created_at
+    for update of p
+  loop
+    select balance_due into v_balance
+    from public.purchase_invoices
+    where id = target_invoice
+    for update;
+
+    exit when coalesce(v_balance, 0) <= 0;
+
+    v_apply := least(v_balance, v_payment.unallocated_total);
+
+    if v_apply > 0 then
+      insert into public.supplier_payment_allocations(
+        company_id, payment_id, purchase_invoice_id, amount,
+        payment_amount, payment_currency, invoice_currency, payment_rate_to_base
+      )
+      values(
+        v_company, v_payment.id, target_invoice, round(v_apply, 2),
+        round(v_apply, 2), v_payment.payment_currency, v_invoice_currency,
+        -- نفس سعر قيد الدفعة الأصلي، لحتى حساب "دفعات مقدمة للموردين" يتصفّر صح.
+        v_payment.rate
+      )
+      on conflict (payment_id, purchase_invoice_id) do nothing;
+    end if;
+  end loop;
+end;
+$function$;
+
 create or replace function public.create_purchase_invoice(target_company uuid, target_supplier uuid, target_supplier_invoice_number text, target_invoice_date date, target_due_date date, target_notes text, items_payload jsonb)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -15376,6 +15444,8 @@ begin
         else 'unpaid'
       end
   where id = v_invoice;
+
+  perform public.apply_supplier_credit_to_invoice(v_invoice);
 
   return v_invoice;
 end;
@@ -17694,6 +17764,7 @@ create policy supplier_payments_read on public.supplier_payments
 -- الصلاحيات
 -- ----------------------------------------------------------------------
 
+revoke execute on function public.apply_supplier_credit_to_invoice(uuid) from public, anon, authenticated;
 revoke insert, update, delete on public.purchase_invoices from authenticated;
 revoke insert, update, delete on public.purchase_invoice_items from authenticated;
 revoke insert, update, delete on public.purchase_invoice_item_sources from authenticated;
@@ -27581,6 +27652,7 @@ declare
 
   v_recent_customers jsonb := '[]'::jsonb;
   v_can_view_traders boolean := false;
+  v_can_view_invoices boolean := false;
 begin
   -- Dashboard access is checked here, not only in the UI.
   if not public.has_permission(
@@ -27617,6 +27689,13 @@ begin
       at time zone 'Asia/Damascus'
     );
 
+  -- Invoice money (today's sales, unpaid invoices) only for users who may
+  -- read sales invoices; the same rule as the sales_invoices read policy.
+  v_can_view_invoices := public.has_any_permission(
+    target_company,
+    array['sales_invoices.view', 'payments.sales_view', 'payments.sales_create', 'traders.view_balance', 'reports.sales', 'reports.finance', 'reports.profit']
+  );
+
   -- ----------------------------------------------------------
   -- TODAY'S ACTUAL INVOICED SALES
   -- Uses posted sales invoices, not newly-created orders.
@@ -27633,7 +27712,8 @@ begin
     v_today_sales,
     v_today_invoice_count
   from public.sales_invoices si
-  where si.company_id = target_company
+  where v_can_view_invoices
+    and si.company_id = target_company
     and si.status = 'posted'
     and si.posted_at >= v_day_start
     and si.posted_at < v_day_end;
@@ -27699,7 +27779,8 @@ begin
   into
     v_unpaid_invoices
   from public.sales_invoices si
-  where si.company_id = target_company
+  where v_can_view_invoices
+    and si.company_id = target_company
     and si.status = 'posted'
     and public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date) > 0;
 
@@ -27774,8 +27855,8 @@ begin
     'business_date', v_business_date,
     'currency', v_currency,
 
-    'today_sales', v_today_sales,
-    'today_invoice_count', v_today_invoice_count,
+    'today_sales', case when v_can_view_invoices then v_today_sales end,
+    'today_invoice_count', case when v_can_view_invoices then v_today_invoice_count end,
 
     'open_orders', v_open_orders,
     'purchasing_orders', v_purchasing_orders,
@@ -27783,7 +27864,7 @@ begin
     'delivery_orders', v_delivery_orders,
     'delivered_today', v_delivered_today,
 
-    'unpaid_invoices', v_unpaid_invoices,
+    'unpaid_invoices', case when v_can_view_invoices then v_unpaid_invoices end,
 
     'customer_count', v_customer_count,
     'active_product_count', v_product_count,
@@ -29257,7 +29338,7 @@ declare
   v_currency text;
   v_date date := coalesce(target_date, (now() at time zone 'Asia/Damascus')::date);
   v_entry uuid;
-  v_labels jsonb := '{"freight":"شحن بحري","customs":"جمارك","clearance":"تخليص","transport":"نقل","insurance":"تأمين","other":"مصاريف أخرى"}';
+  v_labels jsonb := '{"freight":"شحن بحري","customs":"جمارك","clearance":"تخليص","transport":"نقل","insurance":"تأمين","other":"مصاريف أخرى"}'::jsonb;
 begin
   if not public.has_any_permission(target_company, array['purchases.create','purchase_invoices.create']) then
     raise exception 'Not allowed';

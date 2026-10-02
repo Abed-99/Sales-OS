@@ -90,7 +90,7 @@ function formatDateTime(
   }
 
   return new Intl.DateTimeFormat(
-    "ar-SY",
+    "ar-SY-u-nu-latn",
     {
       timeZone:
         "Asia/Damascus",

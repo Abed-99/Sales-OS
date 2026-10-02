@@ -516,6 +516,21 @@ else {
   check("صندوق الدولار: الحسابات = شاشة الصندوق", await byCode("1110"), usd?.balance ?? 0);
   check("صندوق الليرة: شاشة الصندوق (ليرة)", syp?.balance ?? 0, 0);
 }
+// دفعة مقدمة لمورد (بلا فاتورة)، وبعدين فاتورة منو: المقدّم لازم ينخصم لحالو.
+{
+  const sup2 = (await u.from("suppliers").insert({ company_id: company, name: "مورد محلي" }).select("id").single()).data.id;
+  const adv = must("دفعة مقدمة 50$ لمورد محلي", await u.rpc("record_supplier_payment", { target_company: company, target_supplier: sup2, target_cashbox: usdBox, target_amount: 50, target_payment_date: today, target_method: "cash", target_reference: null, target_notes: null, allocations_payload: [] }));
+  const advId = typeof adv === "string" ? adv : adv?.payment_id ?? adv?.id;
+  const inv2 = must("فاتورة 20×4 من المورد المحلي", await u.rpc("create_purchase_invoice", { target_company: company, target_supplier: sup2, target_supplier_invoice_number: "L-1", target_invoice_date: today, target_due_date: null, target_notes: null, items_payload: [{ product_id: cable, quantity: 20, unit_cost: 4 }] }));
+  const inv2Id = typeof inv2 === "string" ? inv2 : inv2?.invoice_id ?? inv2?.id;
+  const pi2 = (await admin.from("purchase_invoices").select("paid_total, balance_due").eq("id", inv2Id).single()).data;
+  check("المقدّم انخصم من الفاتورة: المدفوع", pi2.paid_total, 50);
+  check("المقدّم انخصم من الفاتورة: الباقي", pi2.balance_due, 30);
+  const sp2 = (await admin.from("supplier_payments").select("unallocated_total").eq("id", advId).single()).data;
+  check("الدفعة المقدمة ما ضل منها شي", sp2.unallocated_total, 0);
+  const { data: openAdv } = await admin.from("supplier_payments").select("unallocated_total").eq("company_id", company).eq("status", "posted");
+  check("حساب دفعات مقدمة للموردين = الدفعات غير الموزعة", await byKey("supplier_advances"), openAdv.reduce((t, r) => t + Number(r.unallocated_total), 0));
+}
 const ledger = await u.rpc("get_supplier_ledger", { target_company: company, target_supplier: supplier, target_limit: 1 });
 const summary = await u.rpc("get_supplier_financial_summary", { target_company: company, target_supplier: supplier });
 if (ledger.error || summary.error) { failures++; log("   ❌ كشف/ملخص المورد: " + (ledger.error ?? summary.error).message); }

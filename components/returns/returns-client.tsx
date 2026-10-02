@@ -12,7 +12,8 @@ export type ReturnsTab = "sales" | "purchases" | "history";
 
 export type ReturnHistoryKindFilter = "all" | "sales" | "purchases";
 
-export type ReturnHistoryStatusFilter = "all" | "posted" | "reversed" | "cancelled";
+export type ReturnHistoryStatusFilter =
+  "all" | "posted" | "reversed" | "cancelled";
 
 export type ReturnWarehouse = {
   id: string;
@@ -135,7 +136,7 @@ function numeric(value: unknown) {
 }
 
 function quantity(value: unknown) {
-  return numeric(value).toFixed(3);
+  return String(Number(numeric(value).toFixed(3)));
 }
 
 function money(value: unknown, currency: string) {
@@ -242,7 +243,10 @@ function friendlyError(
     return "يمكن عكس المرتجعات المرحلة فقط.";
   }
 
-  if (message.includes("already reserved") || message.includes("transferred or used")) {
+  if (
+    message.includes("already reserved") ||
+    message.includes("transferred or used")
+  ) {
     return "لا يمكن عكس مرتجع المبيعات لأن البضاعة المرتجعة تم حجزها أو نقلها أو استخدامها.";
   }
 
@@ -250,7 +254,10 @@ function friendlyError(
     return "تعذر العثور على حركة المخزون الأصلية لهذا المرتجع.";
   }
 
-  if (message.includes("financial journal") || message.includes("original journal")) {
+  if (
+    message.includes("financial journal") ||
+    message.includes("original journal")
+  ) {
     return "تعذر عكس القيد المحاسبي المرتبط بالمرتجع.";
   }
 
@@ -339,9 +346,11 @@ export function ReturnsClient({
 
   const [search, setSearch] = useState(searchQuery);
 
-  const [kindFilter, setKindFilter] = useState<ReturnHistoryKindFilter>(historyKind);
+  const [kindFilter, setKindFilter] =
+    useState<ReturnHistoryKindFilter>(historyKind);
 
-  const [statusFilter, setStatusFilter] = useState<ReturnHistoryStatusFilter>(historyStatus);
+  const [statusFilter, setStatusFilter] =
+    useState<ReturnHistoryStatusFilter>(historyStatus);
 
   const [notice, setNotice] = useState<Notice | null>(
     initialError
@@ -354,7 +363,9 @@ export function ReturnsClient({
   );
 
   const [warehouseId, setWarehouseId] = useState(
-    warehouses.find((warehouse) => warehouse.is_default)?.id ?? warehouses[0]?.id ?? "",
+    warehouses.find((warehouse) => warehouse.is_default)?.id ??
+      warehouses[0]?.id ??
+      "",
   );
 
   const [returnDate, setReturnDate] = useState(businessDate());
@@ -363,16 +374,21 @@ export function ReturnsClient({
 
   const [quantities, setQuantities] = useState<Record<string, string>>({});
 
-  const [salesTarget, setSalesTarget] = useState<SalesReturnCandidate | null>(null);
+  const [salesTarget, setSalesTarget] = useState<SalesReturnCandidate | null>(
+    null,
+  );
 
-  const [purchaseTarget, setPurchaseTarget] = useState<PurchaseReturnCandidate | null>(null);
+  const [purchaseTarget, setPurchaseTarget] =
+    useState<PurchaseReturnCandidate | null>(null);
 
   // أسطر المرتجع اللي رجعت خربانة.
   const [damagedLines, setDamagedLines] = useState<Record<string, boolean>>({});
 
   const ownerPin = useOwnerPin(supabase, companyId);
 
-  const [reverseTarget, setReverseTarget] = useState<ReturnHistoryRow | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<ReturnHistoryRow | null>(
+    null,
+  );
 
   const [reverseReason, setReverseReason] = useState("");
 
@@ -413,7 +429,10 @@ export function ReturnsClient({
       return;
     }
 
-    setWarehouseId(warehouses.find((warehouse) => warehouse.is_default)?.id ?? warehouses[0].id);
+    setWarehouseId(
+      warehouses.find((warehouse) => warehouse.is_default)?.id ??
+        warehouses[0].id,
+    );
   }, [warehouses, warehouseId]);
 
   const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -686,7 +705,9 @@ export function ReturnsClient({
       }
 
       if (value > available + 0.0005) {
-        setFormMessage(`كمية ${item.product_name} أكبر من الكمية المستلمة المتاحة للإرجاع.`);
+        setFormMessage(
+          `كمية ${item.product_name} أكبر من الكمية المستلمة المتاحة للإرجاع.`,
+        );
         return;
       }
 
@@ -773,7 +794,9 @@ export function ReturnsClient({
     try {
       const run = () =>
         supabase.rpc(
-          reverseTarget.kind === "sales" ? "reverse_sales_return" : "reverse_purchase_return",
+          reverseTarget.kind === "sales"
+            ? "reverse_sales_return"
+            : "reverse_purchase_return",
           {
             target_company: companyId,
             target_return: reverseTarget.id,
@@ -785,7 +808,12 @@ export function ReturnsClient({
 
       // بدون صلاحية العكس: المالك بيكتب رمزو قدام الموظف.
       if (error?.message.toLowerCase().includes("not allowed") && !canReverse) {
-        if (await ownerPin.ask("reverse_return", "عكس مرتجع بدو صلاحية أو موافقة المالك.")) {
+        if (
+          await ownerPin.ask(
+            "reverse_return",
+            "عكس مرتجع بدو صلاحية أو موافقة المالك.",
+          )
+        ) {
           ({ error } = await run());
         }
       }
@@ -818,7 +846,9 @@ export function ReturnsClient({
 
           <h2>المرتجعات</h2>
 
-          <p className="muted">مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائياً.</p>
+          <p className="muted">
+            مرتجعات العملاء والموردين مرتبطة بالمخزون والمحاسبة تلقائياً.
+          </p>
         </div>
       </div>
 
@@ -1070,7 +1100,7 @@ export function ReturnsClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">Sales Return</span>
+                <span className="eyebrow">مرتجع مبيعات</span>
 
                 <h2>مرتجع فاتورة {salesTarget.invoice_number}</h2>
 
@@ -1121,7 +1151,9 @@ export function ReturnsClient({
                         <td>
                           <strong>{item.product_name}</strong>
 
-                          <div className="muted">{item.sku || item.unit || item.description}</div>
+                          <div className="muted">
+                            {item.sku || item.unit || item.description}
+                          </div>
                         </td>
 
                         <td>{quantity(item.invoiced_quantity)}</td>
@@ -1187,7 +1219,11 @@ export function ReturnsClient({
                   إلغاء
                 </button>
 
-                <button type="submit" className="primaryButton" disabled={saving}>
+                <button
+                  type="submit"
+                  className="primaryButton"
+                  disabled={saving}
+                >
                   {saving ? "جارٍ الترحيل..." : "ترحيل مرتجع المبيعات"}
                 </button>
               </div>
@@ -1209,11 +1245,13 @@ export function ReturnsClient({
           >
             <div className="modalHeader">
               <div>
-                <span className="eyebrow">Purchase Return</span>
+                <span className="eyebrow">مرتجع مشتريات</span>
 
                 <h2>مرتجع فاتورة {purchaseTarget.invoice_number}</h2>
 
-                <p className="muted">{purchaseTarget.supplier?.name || "مورد"}</p>
+                <p className="muted">
+                  {purchaseTarget.supplier?.name || "مورد"}
+                </p>
               </div>
 
               <button
@@ -1260,7 +1298,9 @@ export function ReturnsClient({
                         <td>
                           <strong>{item.product_name}</strong>
 
-                          <div className="muted">{item.sku || item.description || ""}</div>
+                          <div className="muted">
+                            {item.sku || item.description || ""}
+                          </div>
                         </td>
 
                         <td>{quantity(item.invoiced_quantity)}</td>
@@ -1314,7 +1354,11 @@ export function ReturnsClient({
                   إلغاء
                 </button>
 
-                <button type="submit" className="primaryButton" disabled={saving}>
+                <button
+                  type="submit"
+                  className="primaryButton"
+                  disabled={saving}
+                >
                   {saving ? "جارٍ الترحيل..." : "ترحيل مرتجع المشتريات"}
                 </button>
               </div>
@@ -1338,8 +1382,10 @@ export function ReturnsClient({
               <p>سيتم عكس حركة المخزون والقيد المحاسبي للمرتجع.</p>
 
               <p className="muted">
-                {reverseTarget.kind === "sales" ? "مرتجع مبيعات" : "مرتجع مشتريات"} • فاتورة{" "}
-                {reverseTarget.invoice_number}
+                {reverseTarget.kind === "sales"
+                  ? "مرتجع مبيعات"
+                  : "مرتجع مشتريات"}{" "}
+                • فاتورة {reverseTarget.invoice_number}
               </p>
 
               <label className="field">
@@ -1373,7 +1419,9 @@ export function ReturnsClient({
                   className="dangerButton"
                   disabled={busyReturn === reverseTarget.id}
                 >
-                  {busyReturn === reverseTarget.id ? "جارٍ العكس..." : "تأكيد عكس المرتجع"}
+                  {busyReturn === reverseTarget.id
+                    ? "جارٍ العكس..."
+                    : "تأكيد عكس المرتجع"}
                 </button>
               </div>
             </form>
@@ -1443,7 +1491,11 @@ function SalesCandidatesTable({
 
               <td>
                 {canCreate ? (
-                  <button type="button" className="primaryButton" onClick={() => onReturn(row)}>
+                  <button
+                    type="button"
+                    className="primaryButton"
+                    onClick={() => onReturn(row)}
+                  >
                     إنشاء مرتجع
                   </button>
                 ) : (
@@ -1476,7 +1528,10 @@ function PurchaseCandidatesTable({
 
         <h3>لا توجد فواتير شراء قابلة للإرجاع</h3>
 
-        <p>تظهر هنا فقط الكميات التي تم استلامها فعلياً وما زالت قابلة للإرجاع للمورد.</p>
+        <p>
+          تظهر هنا فقط الكميات التي تم استلامها فعلياً وما زالت قابلة للإرجاع
+          للمورد.
+        </p>
       </div>
     );
   }
@@ -1521,7 +1576,11 @@ function PurchaseCandidatesTable({
 
               <td>
                 {canCreate ? (
-                  <button type="button" className="primaryButton" onClick={() => onReturn(row)}>
+                  <button
+                    type="button"
+                    className="primaryButton"
+                    onClick={() => onReturn(row)}
+                  >
                     إنشاء مرتجع
                   </button>
                 ) : (
@@ -1609,7 +1668,9 @@ function HistoryTable({
               <td>{money(row.total, row.currency)}</td>
 
               <td>
-                <span className={`chip ${statusColor(row.status)}`}>{statusLabel(row.status)}</span>
+                <span className={`chip ${statusColor(row.status)}`}>
+                  {statusLabel(row.status)}
+                </span>
               </td>
 
               <td>
@@ -1659,7 +1720,10 @@ function ReturnHeader({
       <label className="field">
         <span>المستودع</span>
 
-        <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+        <select
+          value={warehouseId}
+          onChange={(event) => setWarehouseId(event.target.value)}
+        >
           <option value="">اختر المستودع</option>
 
           {warehouses.map((warehouse) => (
@@ -1712,7 +1776,15 @@ function Notes({
   );
 }
 
-function Mini({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
+function Mini({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: string;
+  subtitle?: string;
+}) {
   return (
     <div className="statCard">
       <div className="statLabel">{title}</div>

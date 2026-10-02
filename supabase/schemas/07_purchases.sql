@@ -600,6 +600,75 @@ begin
 end;
 $function$;
 
+create or replace function public.apply_supplier_credit_to_invoice(target_invoice uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+-- دفعة مقدمة للمورد (ما انربطت بفاتورة) بتنخصم لحالها من أول فاتورة شراء جديدة منو،
+-- بنفس العملة، من الأقدم للأحدث. متل رصيد الزبون مع فواتير البيع.
+declare
+  v_supplier uuid;
+  v_company uuid;
+  v_balance numeric(20,2);
+  v_invoice_currency text;
+  v_payment record;
+  v_apply numeric(20,2);
+begin
+  select supplier_id, company_id, balance_due, upper(currency)
+  into v_supplier, v_company, v_balance, v_invoice_currency
+  from public.purchase_invoices
+  where id = target_invoice
+    and status = 'posted';
+
+  if v_supplier is null or coalesce(v_balance, 0) <= 0 then
+    return;
+  end if;
+
+  for v_payment in
+    select
+      p.id,
+      p.unallocated_total,
+      upper(coalesce(p.payment_currency, cb.currency)) as payment_currency,
+      case when p.base_amount is not null and p.amount > 0
+        then round(p.base_amount / p.amount, 18) end as rate
+    from public.supplier_payments p
+    join public.cashboxes cb on cb.id = p.cashbox_id
+    where p.company_id = v_company
+      and p.supplier_id = v_supplier
+      and p.status = 'posted'
+      and p.unallocated_total > 0
+      and upper(coalesce(p.payment_currency, cb.currency)) = v_invoice_currency
+    order by p.payment_date, p.created_at
+    for update of p
+  loop
+    select balance_due into v_balance
+    from public.purchase_invoices
+    where id = target_invoice
+    for update;
+
+    exit when coalesce(v_balance, 0) <= 0;
+
+    v_apply := least(v_balance, v_payment.unallocated_total);
+
+    if v_apply > 0 then
+      insert into public.supplier_payment_allocations(
+        company_id, payment_id, purchase_invoice_id, amount,
+        payment_amount, payment_currency, invoice_currency, payment_rate_to_base
+      )
+      values(
+        v_company, v_payment.id, target_invoice, round(v_apply, 2),
+        round(v_apply, 2), v_payment.payment_currency, v_invoice_currency,
+        -- نفس سعر قيد الدفعة الأصلي، لحتى حساب "دفعات مقدمة للموردين" يتصفّر صح.
+        v_payment.rate
+      )
+      on conflict (payment_id, purchase_invoice_id) do nothing;
+    end if;
+  end loop;
+end;
+$function$;
+
 create or replace function public.create_purchase_invoice(target_company uuid, target_supplier uuid, target_supplier_invoice_number text, target_invoice_date date, target_due_date date, target_notes text, items_payload jsonb)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -933,6 +1002,8 @@ begin
         else 'unpaid'
       end
   where id = v_invoice;
+
+  perform public.apply_supplier_credit_to_invoice(v_invoice);
 
   return v_invoice;
 end;
@@ -3251,6 +3322,7 @@ create policy supplier_payments_read on public.supplier_payments
 -- الصلاحيات
 -- ----------------------------------------------------------------------
 
+revoke execute on function public.apply_supplier_credit_to_invoice(uuid) from public, anon, authenticated;
 revoke insert, update, delete on public.purchase_invoices from authenticated;
 revoke insert, update, delete on public.purchase_invoice_items from authenticated;
 revoke insert, update, delete on public.purchase_invoice_item_sources from authenticated;

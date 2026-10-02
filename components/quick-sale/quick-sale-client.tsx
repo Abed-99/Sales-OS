@@ -297,6 +297,7 @@ export function QuickSaleClient({
               <SearchPicker
                 key={lines.length}
                 autoFocus
+                openOnFocus={false}
                 value={scan}
                 placeholder="باركود أو اسم الصنف..."
                 options={productOptions}

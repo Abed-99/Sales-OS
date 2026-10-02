@@ -114,6 +114,10 @@ ok("ما بيضيف زبون", !!addTrader.error);
 await refused("ما بيعمل رابط كتالوج", viewer.rpc("save_catalog_link", { target_company: companyA, target_link: null, settings: {} }));
 const invoices = await viewer.from("sales_invoices").select("id", { count: "exact", head: true }).eq("company_id", companyA);
 ok("ما بيشوف فواتير البيع (مبالغ)", !!invoices.error || invoices.count === 0);
+const dash = (await viewer.rpc("get_dashboard_summary", { target_company: companyA })).data ?? {};
+ok("الرئيسية بلا مبيعات اليوم ولا الفواتير غير المسددة", dash.today_sales == null && dash.unpaid_invoices == null && dash.open_orders != null, JSON.stringify(dash).slice(0, 160));
+const salesDash = (await sales.rpc("get_dashboard_summary", { target_company: companyA })).data ?? {};
+ok("موظف المبيعات بيشوف مبيعات اليوم بالرئيسية", salesDash.today_sales != null);
 
 log(failures ? `\n❌ ${failures} مشكلة` : "\n✅ كل الفحوصات نجحت");
 process.exit(failures ? 1 : 0);

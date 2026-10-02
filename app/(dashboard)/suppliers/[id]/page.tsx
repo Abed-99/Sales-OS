@@ -138,7 +138,7 @@ function formatDate(value: string | null) {
     ? new Date(`${value}T00:00:00+03:00`)
     : new Date(value);
 
-  return new Intl.DateTimeFormat("ar-SY", {
+  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
     year: "numeric",
     month: "2-digit",
@@ -151,7 +151,7 @@ function formatDateTime(value: string | null) {
     return "—";
   }
 
-  return new Intl.DateTimeFormat("ar-SY", {
+  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
     year: "numeric",
     month: "2-digit",

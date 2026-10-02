@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { PrintNoAccess } from "@/components/print/no-access";
 import { PrintShell } from "@/components/print/print-shell";
 import { money } from "@/lib/print-format";
 import { getCurrentContext } from "@/lib/current-context";
@@ -52,13 +53,27 @@ export default async function PrintSupplierStatement({
     loadLetterhead(supabase, context.companyId, context.companyName),
   ]);
 
+  if (error) {
+    return (
+      <PrintNoAccess
+        backHref={`/suppliers/${supplier.id}`}
+        message="ما عندك صلاحية تشوف كشف حساب المورد. اطلبها من صاحب الشركة."
+      />
+    );
+  }
+
   // الدالة بترجّع الأحدث أول؛ الكشف بينقرا من الأقدم للأحدث.
   const rows = [...((data ?? []) as Row[])].sort((a, b) =>
-    `${a.event_date}${a.event_created_at}`.localeCompare(`${b.event_date}${b.event_created_at}`),
+    `${a.event_date}${a.event_created_at}`.localeCompare(
+      `${b.event_date}${b.event_created_at}`,
+    ),
   );
   const closing = rows.length ? Number(rows[rows.length - 1].balance) : 0;
-  const currency = rows.find((row) => row.currency)?.currency ?? context.currency;
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
+  const currency =
+    rows.find((row) => row.currency)?.currency ?? context.currency;
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Damascus",
+  });
 
   return (
     <PrintShell
@@ -84,11 +99,13 @@ export default async function PrintSupplierStatement({
             <bdi dir="ltr">{money(Math.abs(closing), currency)}</bdi>
           </strong>
           <br />
-          {closing > 0 ? "علينا للمورد" : closing < 0 ? "إلنا عند المورد" : "مسدّد"}
+          {closing > 0
+            ? "علينا للمورد"
+            : closing < 0
+              ? "إلنا عند المورد"
+              : "مسدّد"}
         </div>
       </div>
-
-      {error ? <p>تعذر تحميل الكشف.</p> : null}
 
       <table className="printTable">
         <thead>
@@ -105,10 +122,16 @@ export default async function PrintSupplierStatement({
           {rows.map((row) => (
             <tr key={`${row.row_type}-${row.source_id}`}>
               <td>{row.event_date}</td>
-              <td>{row.description || typeLabels[row.row_type] || row.row_type}</td>
+              <td>
+                {row.description || typeLabels[row.row_type] || row.row_type}
+              </td>
               <td>{row.reference ?? ""}</td>
-              <td className="num">{Number(row.debit) ? money(row.debit, currency) : ""}</td>
-              <td className="num">{Number(row.credit) ? money(row.credit, currency) : ""}</td>
+              <td className="num">
+                {Number(row.debit) ? money(row.debit, currency) : ""}
+              </td>
+              <td className="num">
+                {Number(row.credit) ? money(row.credit, currency) : ""}
+              </td>
               <td className="num">
                 <strong>{money(row.balance, currency)}</strong>
               </td>

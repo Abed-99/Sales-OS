@@ -86,7 +86,9 @@ export function PrintShell({
     const margin = 36; // فراغ فوق وتحت بالصفحات اللي بعد الأولى
     const total = node.offsetHeight;
     const cuts = Array.from(
-      node.querySelectorAll("tr, .printTotals, .printNote, .printSigns, .printFooter"),
+      node.querySelectorAll(
+        "tr, .printTotals, .printNote, .printSigns, .printFooter",
+      ),
     )
       .map((el) => el.getBoundingClientRect().bottom - top)
       .sort((a, b) => a - b);
@@ -102,14 +104,19 @@ export function PrintShell({
       };
     });
     const headerAt = (y: number) =>
-      tables.find((t) => t.headHeight && y > t.headTop + t.headHeight && y < t.bottom - 1);
+      tables.find(
+        (t) => t.headHeight && y > t.headTop + t.headHeight && y < t.bottom - 1,
+      );
 
     const slices: [number, number][] = [];
     let start = 0;
     while (start < total - 1) {
       const repeat = slices.length ? headerAt(start) : undefined;
       const room =
-        pagePx - (slices.length ? margin : 0) - margin - (repeat ? repeat.headHeight : 0);
+        pagePx -
+        (slices.length ? margin : 0) -
+        margin -
+        (repeat ? repeat.headHeight : 0);
       let end = start + room;
       if (!slices.length && total <= pagePx + 1) end = total;
       else if (end >= total) end = total;
@@ -131,7 +138,17 @@ export function PrintShell({
       const repeat = index ? headerAt(from) : undefined;
       if (repeat) {
         const h = Math.round(repeat.headHeight * scale);
-        ctx.drawImage(canvas, 0, Math.round(repeat.headTop * scale), canvas.width, h, 0, offsetY, canvas.width, h);
+        ctx.drawImage(
+          canvas,
+          0,
+          Math.round(repeat.headTop * scale),
+          canvas.width,
+          h,
+          0,
+          offsetY,
+          canvas.width,
+          h,
+        );
         offsetY += h;
       }
       ctx.drawImage(
@@ -150,7 +167,11 @@ export function PrintShell({
         ctx.font = `${11 * scale}px Tahoma, Arial, sans-serif`;
         ctx.textAlign = "center";
         ctx.direction = "rtl";
-        ctx.fillText(`صفحة ${index + 1} من ${slices.length}`, page.width / 2, page.height - 14 * scale);
+        ctx.fillText(
+          `صفحة ${index + 1} من ${slices.length}`,
+          page.width / 2,
+          page.height - 14 * scale,
+        );
       }
       if (index) pdf.addPage();
       pdf.addImage(page.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 210, 297);
@@ -181,10 +202,16 @@ export function PrintShell({
     setMessage("");
     try {
       const blob = await makePdf();
-      const file = new File([blob], `${fileName}.pdf`, { type: "application/pdf" });
+      const file = new File([blob], `${fileName}.pdf`, {
+        type: "application/pdf",
+      });
       // الموبايل: بتنفتح المشاركة، بتختار واتساب والزبون، والملف بيروح متل ما هو.
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], text: shareText, title: fileName });
+        await navigator.share({
+          files: [file],
+          text: shareText,
+          title: fileName,
+        });
         return;
       }
       // الكمبيوتر: بينزل الملف وبتنفتح محادثة الزبون، بتسحب الملف عالمحادثة.
@@ -202,7 +229,8 @@ export function PrintShell({
       );
       setMessage("نزل الملف. اسحبو لمحادثة واتساب اللي انفتحت.");
     } catch (error) {
-      if ((error as Error)?.name !== "AbortError") setMessage("ما قدرنا نجهّز الإرسال.");
+      if ((error as Error)?.name !== "AbortError")
+        setMessage("ما قدرنا نجهّز الإرسال.");
     } finally {
       setBusy(false);
     }
@@ -222,7 +250,11 @@ export function PrintShell({
           />
           ترويسة الشركة (رسمي)
         </label>
-        <button type="button" className="softButton" onClick={() => window.print()}>
+        <button
+          type="button"
+          className="softButton"
+          onClick={() => window.print()}
+        >
           طباعة
         </button>
         <button
@@ -251,9 +283,16 @@ export function PrintShell({
             <div className="printBrand">
               {company.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={company.logo_url} alt="" className="printLogo" crossOrigin="anonymous" />
+                <img
+                  src={company.logo_url}
+                  alt=""
+                  className="printLogo"
+                  crossOrigin="anonymous"
+                />
               ) : (
-                <span className="printMonogram">{company.name.trim().charAt(0)}</span>
+                <span className="printMonogram">
+                  {company.name.trim().charAt(0)}
+                </span>
               )}
               <div>
                 <h1>{company.name}</h1>

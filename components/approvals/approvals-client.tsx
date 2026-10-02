@@ -70,7 +70,7 @@ function friendlyError(raw: string | undefined) {
 }
 
 function formatDate(value: string, withTime = false) {
-  return new Intl.DateTimeFormat("ar-SY", {
+  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
     timeZone: "Asia/Damascus",
     year: "numeric",
     month: "2-digit",

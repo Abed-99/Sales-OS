@@ -202,6 +202,7 @@ declare
 
   v_recent_customers jsonb := '[]'::jsonb;
   v_can_view_traders boolean := false;
+  v_can_view_invoices boolean := false;
 begin
   -- Dashboard access is checked here, not only in the UI.
   if not public.has_permission(
@@ -238,6 +239,13 @@ begin
       at time zone 'Asia/Damascus'
     );
 
+  -- Invoice money (today's sales, unpaid invoices) only for users who may
+  -- read sales invoices; the same rule as the sales_invoices read policy.
+  v_can_view_invoices := public.has_any_permission(
+    target_company,
+    array['sales_invoices.view', 'payments.sales_view', 'payments.sales_create', 'traders.view_balance', 'reports.sales', 'reports.finance', 'reports.profit']
+  );
+
   -- ----------------------------------------------------------
   -- TODAY'S ACTUAL INVOICED SALES
   -- Uses posted sales invoices, not newly-created orders.
@@ -254,7 +262,8 @@ begin
     v_today_sales,
     v_today_invoice_count
   from public.sales_invoices si
-  where si.company_id = target_company
+  where v_can_view_invoices
+    and si.company_id = target_company
     and si.status = 'posted'
     and si.posted_at >= v_day_start
     and si.posted_at < v_day_end;
@@ -320,7 +329,8 @@ begin
   into
     v_unpaid_invoices
   from public.sales_invoices si
-  where si.company_id = target_company
+  where v_can_view_invoices
+    and si.company_id = target_company
     and si.status = 'posted'
     and public.finance_to_base(target_company, si.currency, si.balance_due, si.invoice_date) > 0;
 
@@ -395,8 +405,8 @@ begin
     'business_date', v_business_date,
     'currency', v_currency,
 
-    'today_sales', v_today_sales,
-    'today_invoice_count', v_today_invoice_count,
+    'today_sales', case when v_can_view_invoices then v_today_sales end,
+    'today_invoice_count', case when v_can_view_invoices then v_today_invoice_count end,
 
     'open_orders', v_open_orders,
     'purchasing_orders', v_purchasing_orders,
@@ -404,7 +414,7 @@ begin
     'delivery_orders', v_delivery_orders,
     'delivered_today', v_delivered_today,
 
-    'unpaid_invoices', v_unpaid_invoices,
+    'unpaid_invoices', case when v_can_view_invoices then v_unpaid_invoices end,
 
     'customer_count', v_customer_count,
     'active_product_count', v_product_count,

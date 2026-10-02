@@ -936,7 +936,6 @@ declare
   v_new_on_hand numeric(18,3);
   v_new_average numeric(18,4);
   v_new_value numeric(24,4);
-  v_value_change numeric(18,2);
   v_movement uuid;
   v_existing uuid;
 begin

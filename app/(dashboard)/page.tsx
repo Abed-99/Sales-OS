@@ -19,6 +19,8 @@ type DashboardSummary = {
   business_date: string;
   currency: string;
 
+  /** false إذا المستخدم ما بيحق لو يشوف مبالغ الفواتير. */
+  can_view_invoices: boolean;
   today_sales: number;
   today_invoice_count: number;
 
@@ -62,7 +64,10 @@ function toSafeNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeSummary(data: unknown, fallbackCurrency: string): DashboardSummary {
+function normalizeSummary(
+  data: unknown,
+  fallbackCurrency: string,
+): DashboardSummary {
   const raw =
     data && typeof data === "object" && !Array.isArray(data)
       ? (data as Record<string, unknown>)
@@ -71,14 +76,21 @@ function normalizeSummary(data: unknown, fallbackCurrency: string): DashboardSum
   const recentCustomers = Array.isArray(raw.recent_customers)
     ? (raw.recent_customers as RecentCustomer[]).filter(
         (customer) =>
-          customer && typeof customer.id === "string" && typeof customer.name === "string",
+          customer &&
+          typeof customer.id === "string" &&
+          typeof customer.name === "string",
       )
     : [];
 
   return {
-    business_date: typeof raw.business_date === "string" ? raw.business_date : "",
+    business_date:
+      typeof raw.business_date === "string" ? raw.business_date : "",
 
-    currency: typeof raw.currency === "string" ? raw.currency : fallbackCurrency,
+    currency:
+      typeof raw.currency === "string" ? raw.currency : fallbackCurrency,
+
+    can_view_invoices:
+      raw.today_sales !== null && raw.today_sales !== undefined,
 
     today_sales: toSafeNumber(raw.today_sales),
 
@@ -111,12 +123,20 @@ function normalizeSummary(data: unknown, fallbackCurrency: string): DashboardSum
 export default async function DashboardPage() {
   const context = await getCurrentContext();
 
-  const canViewDashboard = hasPermission(context.permissions, "dashboard.view", context.isOwner);
+  const canViewDashboard = hasPermission(
+    context.permissions,
+    "dashboard.view",
+    context.isOwner,
+  );
 
   if (!canViewDashboard) {
     return (
       <>
-        <Topbar title="الرئيسية" subtitle="لوحة التحكم" companyName={context.companyName} />
+        <Topbar
+          title="الرئيسية"
+          subtitle="لوحة التحكم"
+          companyName={context.companyName}
+        />
 
         <div className="page">
           <section className="panel panelPad">
@@ -125,7 +145,10 @@ export default async function DashboardPage() {
 
               <h3>لا تملك صلاحية عرض لوحة التحكم</h3>
 
-              <p>تواصل مع مالك الشركة أو مدير الصلاحيات إذا كنت تحتاج إلى الوصول لهذه الصفحة.</p>
+              <p>
+                تواصل مع مالك الشركة أو مدير الصلاحيات إذا كنت تحتاج إلى الوصول
+                لهذه الصفحة.
+              </p>
             </div>
           </section>
         </div>
@@ -149,7 +172,11 @@ export default async function DashboardPage() {
 
     return (
       <>
-        <Topbar title="الرئيسية" subtitle="لوحة التحكم" companyName={context.companyName} />
+        <Topbar
+          title="الرئيسية"
+          subtitle="لوحة التحكم"
+          companyName={context.companyName}
+        />
 
         <div className="page">
           <section className="panel panelPad">
@@ -168,22 +195,47 @@ export default async function DashboardPage() {
 
   const summary = normalizeSummary(data, context.currency);
 
-  const canViewOrders = hasPermission(context.permissions, "orders.view", context.isOwner);
+  const canViewOrders = hasPermission(
+    context.permissions,
+    "orders.view",
+    context.isOwner,
+  );
 
-  const canCreateOrders = hasPermission(context.permissions, "orders.create", context.isOwner);
+  const canCreateOrders = hasPermission(
+    context.permissions,
+    "orders.create",
+    context.isOwner,
+  );
 
-  const canViewCustomers = hasPermission(context.permissions, "traders.view", context.isOwner);
+  const canViewCustomers = hasPermission(
+    context.permissions,
+    "traders.view",
+    context.isOwner,
+  );
 
-  const canViewPurchases = hasPermission(context.permissions, "purchases.view", context.isOwner);
+  const canViewPurchases = hasPermission(
+    context.permissions,
+    "purchases.view",
+    context.isOwner,
+  );
 
-  const canViewProducts = hasPermission(context.permissions, "products.view", context.isOwner);
+  const canViewProducts = hasPermission(
+    context.permissions,
+    "products.view",
+    context.isOwner,
+  );
 
-  const canViewSuppliers = hasPermission(context.permissions, "suppliers.view", context.isOwner);
+  const canViewSuppliers = hasPermission(
+    context.permissions,
+    "suppliers.view",
+    context.isOwner,
+  );
 
   const hasWelcomeActions =
     (canViewOrders && canCreateOrders) || canViewCustomers || canViewPurchases;
 
-  const hasQuickLinks = canViewCustomers || canViewProducts || canViewSuppliers || canViewOrders;
+  const hasQuickLinks =
+    canViewCustomers || canViewProducts || canViewSuppliers || canViewOrders;
 
   const fmt = (value: number) =>
     new Intl.NumberFormat("en-US", {
@@ -207,7 +259,10 @@ export default async function DashboardPage() {
 
             <h2>كل أعمال الشركة أمامك في مكان واحد</h2>
 
-            <p>تابع المبيعات والعملاء والمشتريات والتوصيل بسرعة ومن دون التنقل بين صفحات متعددة.</p>
+            <p>
+              تابع المبيعات والعملاء والمشتريات والتوصيل بسرعة ومن دون التنقل
+              بين صفحات متعددة.
+            </p>
           </div>
 
           {hasWelcomeActions ? (
@@ -237,12 +292,14 @@ export default async function DashboardPage() {
         </section>
 
         <section className="dashboardStats">
-          <Stat
-            icon={<Icons.money size={18} />}
-            label="المبيعات المفوترة اليوم"
-            value={`${fmt(summary.today_sales)} ${summary.currency}`}
-            trend={`${summary.today_invoice_count} فاتورة اليوم`}
-          />
+          {summary.can_view_invoices ? (
+            <Stat
+              icon={<Icons.money size={18} />}
+              label="المبيعات المفوترة اليوم"
+              value={`${fmt(summary.today_sales)} ${summary.currency}`}
+              trend={`${summary.today_invoice_count} فاتورة اليوم`}
+            />
+          ) : null}
 
           <Stat
             icon={<Icons.cart size={18} />}
@@ -251,12 +308,14 @@ export default async function DashboardPage() {
             trend="تحتاج متابعة"
           />
 
-          <Stat
-            icon={<Icons.wallet size={18} />}
-            label="فواتير غير مسددة"
-            value={String(summary.unpaid_invoices)}
-            trend="بانتظار التحصيل"
-          />
+          {summary.can_view_invoices ? (
+            <Stat
+              icon={<Icons.wallet size={18} />}
+              label="فواتير غير مسددة"
+              value={String(summary.unpaid_invoices)}
+              trend="بانتظار التحصيل"
+            />
+          ) : null}
 
           <Stat
             icon={<Icons.users size={18} />}
@@ -290,7 +349,11 @@ export default async function DashboardPage() {
                 icon={<Icons.store size={18} />}
               />
 
-              <FlowCard label="جاهزة" value={summary.ready_orders} icon={<Icons.box size={18} />} />
+              <FlowCard
+                label="جاهزة"
+                value={summary.ready_orders}
+                icon={<Icons.box size={18} />}
+              />
 
               <FlowCard
                 label="قيد التوصيل"
@@ -392,7 +455,9 @@ export default async function DashboardPage() {
                     key={customer.id}
                     className="dashboardCustomerCard"
                   >
-                    <div className="merchantLogo">{customer.name.charAt(0)}</div>
+                    <div className="merchantLogo">
+                      {customer.name.charAt(0)}
+                    </div>
 
                     <div className="dashboardCustomerInfo">
                       <strong>{customer.name}</strong>
@@ -436,10 +501,26 @@ function OwnerPanel({
       text: `فاتورة متأخرة الدفع (${fmt(toSafeNumber(overview.overdue_receivables))} ${currency})`,
       href: "/orders",
     },
-    { count: overview.alerts?.low_stock, text: "صنف وصل للحد الأدنى بالمخزون", href: "/inventory" },
-    { count: overview.alerts?.catalog_orders, text: "طلب جديد من الكتالوج", href: "/quotes?status=draft" },
-    { count: overview.alerts?.ready_to_deliver, text: "طلبية جاهزة للتوصيل", href: "/deliveries" },
-    { count: overview.alerts?.loans_to_disburse, text: "سلفة بانتظار الصرف", href: "/payroll" },
+    {
+      count: overview.alerts?.low_stock,
+      text: "صنف وصل للحد الأدنى بالمخزون",
+      href: "/inventory",
+    },
+    {
+      count: overview.alerts?.catalog_orders,
+      text: "طلب جديد من الكتالوج",
+      href: "/quotes?status=draft",
+    },
+    {
+      count: overview.alerts?.ready_to_deliver,
+      text: "طلبية جاهزة للتوصيل",
+      href: "/deliveries",
+    },
+    {
+      count: overview.alerts?.loans_to_disburse,
+      text: "سلفة بانتظار الصرف",
+      href: "/payroll",
+    },
   ].filter((alert) => toSafeNumber(alert.count) > 0);
 
   const hasMoney =
@@ -478,7 +559,8 @@ function OwnerPanel({
                 {fmt(toSafeNumber(overview.month_profit))} {currency}
               </div>
               <div className="muted">
-                المبيعات والإيرادات: {fmt(toSafeNumber(overview.month_revenue))} {currency}
+                المبيعات والإيرادات: {fmt(toSafeNumber(overview.month_revenue))}{" "}
+                {currency}
               </div>
             </div>
           ) : null}
@@ -491,7 +573,8 @@ function OwnerPanel({
               </div>
               {toSafeNumber(overview.overdue_receivables) > 0 ? (
                 <div className="muted kpiNegative">
-                  متأخر: {fmt(toSafeNumber(overview.overdue_receivables))} {currency}
+                  متأخر: {fmt(toSafeNumber(overview.overdue_receivables))}{" "}
+                  {currency}
                 </div>
               ) : null}
             </div>
@@ -505,7 +588,8 @@ function OwnerPanel({
               </div>
               {toSafeNumber(overview.overdue_payables) > 0 ? (
                 <div className="muted kpiNegative">
-                  مستحق: {fmt(toSafeNumber(overview.overdue_payables))} {currency}
+                  مستحق: {fmt(toSafeNumber(overview.overdue_payables))}{" "}
+                  {currency}
                 </div>
               ) : null}
             </div>
@@ -565,7 +649,15 @@ function Stat({
   );
 }
 
-function FlowCard({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
+function FlowCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: ReactNode;
+}) {
   return (
     <div className="orderFlowCard">
       <div className="orderFlowIcon">{icon}</div>

@@ -50,6 +50,7 @@ type CashTransactionRow = {
   amount: number | string;
   notes: string | null;
   occurred_at: string;
+  created_at?: string | null;
   suppliers: RelatedSupplier | RelatedSupplier[] | null;
   traders?: RelatedSupplier | RelatedSupplier[] | null;
   cashboxes: RelatedCashbox | RelatedCashbox[] | null;
@@ -109,6 +110,25 @@ function formatDamascusDateTime(value: string) {
   }).format(new Date(value));
 }
 
+/**
+ * بعض الحركات (قبض، دفعة مورد، رواتب) محفوظ إلها التاريخ بس، فساعتها بتطلع 12:00.
+ * إذا انسجلت بنفس اليوم منفرجي ساعة التسجيل الحقيقية، وإلا التاريخ بس.
+ */
+function formatMovementTime(occurredAt: string, createdAt?: string | null) {
+  const day = (value: string) =>
+    new Date(value).toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
+  const time = new Date(occurredAt).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Damascus",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (time !== "00:00" && time !== "12:00")
+    return formatDamascusDateTime(occurredAt);
+  if (createdAt && day(createdAt) === day(occurredAt))
+    return formatDamascusDateTime(createdAt);
+  return formatDamascusDate(occurredAt);
+}
+
 function formatDamascusDate(value: string) {
   return new Intl.DateTimeFormat("ar", {
     timeZone: "Asia/Damascus",
@@ -126,7 +146,9 @@ function formatSummary(
     return `0.00 ${fallbackCurrency}`;
   }
 
-  return rows.map((row) => `${Number(row[field] || 0).toFixed(2)} ${row.currency}`).join(" • ");
+  return rows
+    .map((row) => `${Number(row[field] || 0).toFixed(2)} ${row.currency}`)
+    .join(" • ");
 }
 
 export function CashboxClient({
@@ -173,8 +195,10 @@ export function CashboxClient({
 
   const defaultCashboxId = useMemo(() => {
     return (
-      cashboxes.find((cashbox) => cashbox.currency.toUpperCase() === defaultCurrency.toUpperCase())
-        ?.id ??
+      cashboxes.find(
+        (cashbox) =>
+          cashbox.currency.toUpperCase() === defaultCurrency.toUpperCase(),
+      )?.id ??
       cashboxes[0]?.id ??
       ""
     );
@@ -202,7 +226,11 @@ export function CashboxClient({
 
   function openNewBox() {
     setBoxMessage("");
-    setBoxForm({ id: null, name: "", currency: defaultCurrency === "USD" ? "SYP" : "USD" });
+    setBoxForm({
+      id: null,
+      name: "",
+      currency: defaultCurrency === "USD" ? "SYP" : "USD",
+    });
   }
 
   async function saveBox(event: React.FormEvent<HTMLFormElement>) {
@@ -221,7 +249,9 @@ export function CashboxClient({
           .update({ name })
           .eq("id", boxForm.id)
           .eq("company_id", companyId)
-      : await supabase.from("cashboxes").insert({ company_id: companyId, name, currency });
+      : await supabase
+          .from("cashboxes")
+          .insert({ company_id: companyId, name, currency });
     setSaving(false);
 
     if (error) {
@@ -323,7 +353,9 @@ export function CashboxClient({
     setSaving(false);
 
     if (error) {
-      setFeedback("تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.");
+      setFeedback(
+        "تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.",
+      );
       return;
     }
 
@@ -375,7 +407,9 @@ export function CashboxClient({
     setSaving(false);
 
     if (error) {
-      setFeedback("تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.");
+      setFeedback(
+        "تعذر حفظ العملية. تأكد من البيانات والصلاحيات وحاول مرة ثانية.",
+      );
       return;
     }
 
@@ -427,7 +461,9 @@ export function CashboxClient({
         <div>
           <span className="eyebrow">المحاسبة اليومية</span>
           <h2>الصندوق</h2>
-          <p className="muted">كل عملة محسوبة لحالها، بدون خلط أرصدة الصناديق.</p>
+          <p className="muted">
+            كل عملة محسوبة لحالها، بدون خلط أرصدة الصناديق.
+          </p>
         </div>
 
         <div className="rowActions">
@@ -483,10 +519,14 @@ export function CashboxClient({
               </div>
               <div>
                 <strong>{box.name}</strong>
-                <span>{box.active ? box.currency : `${box.currency} • موقوف`}</span>
+                <span>
+                  {box.active ? box.currency : `${box.currency} • موقوف`}
+                </span>
               </div>
               <div className="count">
-                {Number(box.balance || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}
+                {Number(box.balance || 0).toLocaleString("en-US", {
+                  maximumFractionDigits: 2,
+                })}{" "}
                 {box.currency}
               </div>
               {canWriteCashbox ? (
@@ -496,12 +536,20 @@ export function CashboxClient({
                     className="softButton"
                     onClick={() => {
                       setBoxMessage("");
-                      setBoxForm({ id: box.id, name: box.name, currency: box.currency });
+                      setBoxForm({
+                        id: box.id,
+                        name: box.name,
+                        currency: box.currency,
+                      });
                     }}
                   >
                     <Icons.edit size={13} />
                   </button>
-                  <button type="button" className="softButton" onClick={() => void toggleBox(box)}>
+                  <button
+                    type="button"
+                    className="softButton"
+                    onClick={() => void toggleBox(box)}
+                  >
                     {box.active ? "إيقاف" : "تفعيل"}
                   </button>
                 </div>
@@ -512,9 +560,18 @@ export function CashboxClient({
       </section>
 
       <section className="statsGrid">
-        <Mini title="الرصيد الحالي" value={formatSummary(summary, "balance", defaultCurrency)} />
-        <Mini title="داخل اليوم" value={formatSummary(summary, "today_in", defaultCurrency)} />
-        <Mini title="خارج اليوم" value={formatSummary(summary, "today_out", defaultCurrency)} />
+        <Mini
+          title="الرصيد الحالي"
+          value={formatSummary(summary, "balance", defaultCurrency)}
+        />
+        <Mini
+          title="داخل اليوم"
+          value={formatSummary(summary, "today_in", defaultCurrency)}
+        />
+        <Mini
+          title="خارج اليوم"
+          value={formatSummary(summary, "today_out", defaultCurrency)}
+        />
         <Mini
           title="مصاريف الشهر"
           value={formatSummary(summary, "month_expense", defaultCurrency)}
@@ -552,15 +609,19 @@ export function CashboxClient({
                 <tbody>
                   {initialTransactions.map((transaction) => {
                     const cashbox = one(transaction.cashboxes);
-                    const supplier = one(transaction.suppliers) ?? one(transaction.traders);
-                    const transactionCurrency = cashbox?.currency || defaultCurrency;
+                    const supplier =
+                      one(transaction.suppliers) ?? one(transaction.traders);
+                    const transactionCurrency =
+                      cashbox?.currency || defaultCurrency;
 
                     return (
                       <tr key={transaction.id}>
                         <td>
                           <span
                             className={`chip ${
-                              transaction.direction === "in" ? "green" : "orange"
+                              transaction.direction === "in"
+                                ? "green"
+                                : "orange"
                             }`}
                           >
                             {transaction.direction === "in" ? "داخل" : "خارج"}
@@ -568,20 +629,35 @@ export function CashboxClient({
                         </td>
 
                         <td>
-                          <strong>{movementLabels[transaction.type] || transaction.type}</strong>
-                          <div className="muted">{transaction.notes || supplier?.name || ""}</div>
+                          <strong>
+                            {movementLabels[transaction.type] ||
+                              transaction.type}
+                          </strong>
+                          <div className="muted">
+                            {transaction.notes || supplier?.name || ""}
+                          </div>
                         </td>
 
                         <td>{cashbox?.name || "—"}</td>
 
                         <td
-                          className={transaction.direction === "in" ? "kpiPositive" : "kpiNegative"}
+                          className={
+                            transaction.direction === "in"
+                              ? "kpiPositive"
+                              : "kpiNegative"
+                          }
                         >
                           {transaction.direction === "in" ? "+" : "-"}
-                          {Number(transaction.amount).toFixed(2)} {transactionCurrency}
+                          {Number(transaction.amount).toFixed(2)}{" "}
+                          {transactionCurrency}
                         </td>
 
-                        <td>{formatDamascusDateTime(transaction.occurred_at)}</td>
+                        <td>
+                          {formatMovementTime(
+                            transaction.occurred_at,
+                            transaction.created_at,
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -642,13 +718,15 @@ export function CashboxClient({
                       <div>
                         <strong>{expense.category}</strong>
                         <span>
-                          {expense.notes || formatDamascusDate(expense.occurred_at)}
+                          {expense.notes ||
+                            formatDamascusDate(expense.occurred_at)}
                           {cashbox?.name ? ` • ${cashbox.name}` : ""}
                         </span>
                       </div>
 
                       <div className="count">
-                        {Number(expense.amount).toFixed(2)} {cashbox?.currency || defaultCurrency}
+                        {Number(expense.amount).toFixed(2)}{" "}
+                        {cashbox?.currency || defaultCurrency}
                       </div>
                     </div>
                   );
@@ -662,7 +740,9 @@ export function CashboxClient({
                   type="button"
                   className="softButton"
                   disabled={expensePage <= 1}
-                  onClick={() => router.push(pageHref("expense", expensePage - 1))}
+                  onClick={() =>
+                    router.push(pageHref("expense", expensePage - 1))
+                  }
                 >
                   السابق
                 </button>
@@ -675,7 +755,9 @@ export function CashboxClient({
                   type="button"
                   className="softButton"
                   disabled={expensePage >= expenseTotalPages}
-                  onClick={() => router.push(pageHref("expense", expensePage + 1))}
+                  onClick={() =>
+                    router.push(pageHref("expense", expensePage + 1))
+                  }
                 >
                   التالي
                 </button>
@@ -714,12 +796,19 @@ export function CashboxClient({
 
             <form onSubmit={addExpense}>
               <div className="formGrid">
-                <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
+                <CashboxField
+                  cashboxes={cashboxes}
+                  value={cashboxId}
+                  onChange={setCashboxId}
+                />
 
                 <RateField
                   supabase={supabase}
                   companyId={companyId}
-                  currency={cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? ""}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === cashboxId)
+                      ?.currency ?? ""
+                  }
                   baseCurrency={defaultCurrency}
                   date={todayDamascus()}
                   value={txRate}
@@ -728,7 +817,10 @@ export function CashboxClient({
 
                 <label className="field">
                   <span>الفئة</span>
-                  <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                  <select
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                  >
                     {expenseCategories.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
@@ -807,12 +899,19 @@ export function CashboxClient({
 
             <form onSubmit={addMovement}>
               <div className="formGrid">
-                <CashboxField cashboxes={cashboxes} value={cashboxId} onChange={setCashboxId} />
+                <CashboxField
+                  cashboxes={cashboxes}
+                  value={cashboxId}
+                  onChange={setCashboxId}
+                />
 
                 <RateField
                   supabase={supabase}
                   companyId={companyId}
-                  currency={cashboxes.find((cashbox) => cashbox.id === cashboxId)?.currency ?? ""}
+                  currency={
+                    cashboxes.find((cashbox) => cashbox.id === cashboxId)
+                      ?.currency ?? ""
+                  }
                   baseCurrency={defaultCurrency}
                   date={todayDamascus()}
                   value={txRate}
@@ -825,11 +924,16 @@ export function CashboxClient({
                     value={movementType}
                     onChange={(event) => setMovementType(event.target.value)}
                   >
-                    <option value="adjustment_in">رصيد افتتاحي / زيادة بالصندوق</option>
-                    <option value="adjustment_out">نقص بالصندوق (بينحسب مصروف)</option>
+                    <option value="adjustment_in">
+                      رصيد افتتاحي / زيادة بالصندوق
+                    </option>
+                    <option value="adjustment_out">
+                      نقص بالصندوق (بينحسب مصروف)
+                    </option>
                   </select>
                   <small className="helpText">
-                    لإيداع رأس مال أو سحب شريك استعمل صفحة الشركاء، مشان يتسجل على حسابه.
+                    لإيداع رأس مال أو سحب شريك استعمل صفحة الشركاء، مشان يتسجل
+                    على حسابه.
                   </small>
                 </label>
 
@@ -877,9 +981,16 @@ export function CashboxClient({
       )}
       {boxForm ? (
         <div className="modalOverlay">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="box-title">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="box-title"
+          >
             <div className="modalHeader">
-              <h2 id="box-title">{boxForm.id ? "تعديل الصندوق" : "صندوق جديد"}</h2>
+              <h2 id="box-title">
+                {boxForm.id ? "تعديل الصندوق" : "صندوق جديد"}
+              </h2>
               <button
                 type="button"
                 className="closeButton"
@@ -896,18 +1007,27 @@ export function CashboxClient({
                   <input
                     value={boxForm.name}
                     placeholder="مثلًا: صندوق الليرة"
-                    onChange={(event) => setBoxForm({ ...boxForm, name: event.target.value })}
+                    onChange={(event) =>
+                      setBoxForm({ ...boxForm, name: event.target.value })
+                    }
                   />
                 </label>
                 <label className="field">
                   <span>العملة</span>
                   <select
-                    value={["USD", "SYP"].includes(boxForm.currency) ? boxForm.currency : "OTHER"}
+                    value={
+                      ["USD", "SYP"].includes(boxForm.currency)
+                        ? boxForm.currency
+                        : "OTHER"
+                    }
                     disabled={Boolean(boxForm.id)}
                     onChange={(event) =>
                       setBoxForm({
                         ...boxForm,
-                        currency: event.target.value === "OTHER" ? "" : event.target.value,
+                        currency:
+                          event.target.value === "OTHER"
+                            ? ""
+                            : event.target.value,
                       })
                     }
                   >
@@ -922,18 +1042,29 @@ export function CashboxClient({
                       placeholder="مثلًا CNY"
                       value={boxForm.currency}
                       onChange={(event) =>
-                        setBoxForm({ ...boxForm, currency: event.target.value.toUpperCase() })
+                        setBoxForm({
+                          ...boxForm,
+                          currency: event.target.value.toUpperCase(),
+                        })
                       }
                     />
                   ) : null}
                   {boxForm.id ? (
-                    <small className="helpText">عملة الصندوق ما بتتغيّر بعد ما ينعمل.</small>
+                    <small className="helpText">
+                      عملة الصندوق ما بتتغيّر بعد ما ينعمل.
+                    </small>
                   ) : null}
                 </label>
               </div>
-              {boxMessage ? <div className="toastError">{boxMessage}</div> : null}
+              {boxMessage ? (
+                <div className="toastError">{boxMessage}</div>
+              ) : null}
               <div className="modalActions">
-                <button type="button" className="softButton" onClick={() => setBoxForm(null)}>
+                <button
+                  type="button"
+                  className="softButton"
+                  onClick={() => setBoxForm(null)}
+                >
                   إلغاء
                 </button>
                 <button className="primaryButton" disabled={saving}>
@@ -964,7 +1095,11 @@ function CashboxField({
   return (
     <label className="field">
       <span>الصندوق</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} required>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required
+      >
         {cashboxes.map((cashbox) => (
           <option key={cashbox.id} value={cashbox.id}>
             {cashbox.name} — {cashbox.currency}
