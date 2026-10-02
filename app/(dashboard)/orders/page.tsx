@@ -355,16 +355,6 @@ export default async function OrdersPage({
         canCancel={canCancel}
         canCollect={canCollect}
         canViewDeliveries={canViewDeliveries}
-        canCancelInvoice={hasPermission(
-          context.permissions,
-          "sales_invoices.cancel",
-          context.isOwner,
-        )}
-        canReversePayment={hasPermission(
-          context.permissions,
-          "payments.sales_reverse",
-          context.isOwner,
-        )}
       />
     </>
   );

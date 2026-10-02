@@ -2036,32 +2036,6 @@ $function$;
 
 
 -- ----------------------------------------------------------------------
--- العروض (Views)
--- ----------------------------------------------------------------------
-
-create view public.inventory_movement_history as
- select id,
-    company_id,
-    warehouse_id,
-    product_id,
-    movement_type,
-    quantity,
-        case
-            when public.can_view_inventory_cost(company_id) then unit_cost
-            else null::numeric
-        end as unit_cost,
-    source_table,
-    source_id,
-    source_line_id,
-    reference_number,
-    notes,
-    occurred_at,
-    created_at
-   from public.inventory_movements m
-  where public.has_any_permission(company_id, array['inventory.view'::text, 'inventory.adjust'::text, 'reports.finance'::text, 'reports.profit'::text]);
-
-
--- ----------------------------------------------------------------------
 -- المشغّلات (Triggers)
 -- ----------------------------------------------------------------------
 

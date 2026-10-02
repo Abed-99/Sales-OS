@@ -2961,35 +2961,6 @@ $function$;
 -- العروض (Views)
 -- ----------------------------------------------------------------------
 
-create view public.finance_general_ledger with (security_invoker=true) as
- select je.company_id,
-    je.id as journal_entry_id,
-    je.entry_number,
-    je.entry_date,
-    je.description,
-    je.status,
-    je.currency,
-    je.exchange_rate_to_base,
-    je.source_type,
-    je.source_id,
-    jl.id as journal_line_id,
-    a.id as account_id,
-    a.code as account_code,
-    a.name as account_name,
-    a.account_type,
-    a.account_group,
-    jl.debit,
-    jl.credit,
-    jl.base_debit,
-    jl.base_credit,
-    jl.party_type,
-    jl.party_id,
-    jl.memo,
-    je.created_at
-   from public.journal_entries je
-     join public.journal_lines jl on jl.journal_entry_id = je.id
-     join public.finance_accounts a on a.id = jl.account_id;
-
 create view public.finance_trial_balance with (security_invoker=true) as
  select a.company_id,
     a.id as account_id,

@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:core": "node scripts/core-tests.mjs",
     "test:db": "node scripts/db-tests/cycle-1.mjs && node scripts/db-tests/cycle-2.mjs && node scripts/db-tests/cycle-3.mjs && node scripts/db-tests/cycle-5.mjs",
     "test:db:stress": "node scripts/db-tests/cycle-4.mjs"
   },
@@ -23,7 +22,6 @@
     "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
     "@types/leaflet": "^1.9.20",
     "@types/node": "22.14.1",
     "@types/react": "19.0.12",

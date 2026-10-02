@@ -24,6 +24,3 @@ export async function loadLetterhead(
   };
 }
 
-export function printDate(value: string | null | undefined) {
-  return value ? value.slice(0, 10) : "";
-}

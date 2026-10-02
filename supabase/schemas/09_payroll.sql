@@ -2411,38 +2411,6 @@ $function$;
 
 
 -- ----------------------------------------------------------------------
--- العروض (Views)
--- ----------------------------------------------------------------------
-
-create view public.payroll_employee_summary with (security_invoker=true) as
- select e.company_id,
-    e.id as employee_id,
-    e.employee_number,
-    e.full_name,
-    e.job_title,
-    e.department,
-    e.status,
-    e.salary_currency,
-    e.base_salary,
-    e.fixed_allowances,
-    coalesce(loans.active_loan_balance, 0::numeric)::numeric(18,2) as active_loan_balance,
-    coalesce(payroll.total_net, 0::numeric)::numeric(18,2) as payroll_net_total,
-    coalesce(payroll.total_paid, 0::numeric)::numeric(18,2) as payroll_paid_total,
-    coalesce(payroll.total_due, 0::numeric)::numeric(18,2) as payroll_due_total
-   from public.employees e
-     left join lateral ( select coalesce(sum(employee_loans.balance_due), 0::numeric) as active_loan_balance
-           from public.employee_loans
-          where employee_loans.employee_id = e.id and employee_loans.status = 'active'::text
-            and exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = employee_loans.id)) loans on true
-     left join lateral ( select coalesce(sum(pi.net_pay), 0::numeric) as total_net,
-            coalesce(sum(pi.paid_total), 0::numeric) as total_paid,
-            coalesce(sum(pi.balance_due), 0::numeric) as total_due
-           from public.payroll_items pi
-             join public.payroll_runs pr on pr.id = pi.payroll_run_id
-          where pi.employee_id = e.id and (pr.status = any (array['posted'::text, 'partial'::text, 'paid'::text]))) payroll on true;
-
-
--- ----------------------------------------------------------------------
 -- المشغّلات (Triggers)
 -- ----------------------------------------------------------------------
 

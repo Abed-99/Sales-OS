@@ -88,16 +88,12 @@ export function OrderDetails({
   order,
   companyId,
   currency,
-  canCancelInvoice,
-  canReversePayment,
   onClose,
   onChanged,
 }: {
   order: OrderDetailsOrder;
   companyId: string;
   currency: string;
-  canCancelInvoice: boolean;
-  canReversePayment: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {

@@ -5357,35 +5357,6 @@ $function$;
 -- العروض (Views)
 -- ----------------------------------------------------------------------
 
-create view public.finance_general_ledger with (security_invoker=true) as
- select je.company_id,
-    je.id as journal_entry_id,
-    je.entry_number,
-    je.entry_date,
-    je.description,
-    je.status,
-    je.currency,
-    je.exchange_rate_to_base,
-    je.source_type,
-    je.source_id,
-    jl.id as journal_line_id,
-    a.id as account_id,
-    a.code as account_code,
-    a.name as account_name,
-    a.account_type,
-    a.account_group,
-    jl.debit,
-    jl.credit,
-    jl.base_debit,
-    jl.base_credit,
-    jl.party_type,
-    jl.party_id,
-    jl.memo,
-    je.created_at
-   from public.journal_entries je
-     join public.journal_lines jl on jl.journal_entry_id = je.id
-     join public.finance_accounts a on a.id = jl.account_id;
-
 create view public.finance_trial_balance with (security_invoker=true) as
  select a.company_id,
     a.id as account_id,
@@ -8226,32 +8197,6 @@ AS $function$
   order by x.occurred_at desc
   limit least(greatest(coalesce(target_limit, 200), 1), 1000);
 $function$;
-
-
--- ----------------------------------------------------------------------
--- العروض (Views)
--- ----------------------------------------------------------------------
-
-create view public.inventory_movement_history as
- select id,
-    company_id,
-    warehouse_id,
-    product_id,
-    movement_type,
-    quantity,
-        case
-            when public.can_view_inventory_cost(company_id) then unit_cost
-            else null::numeric
-        end as unit_cost,
-    source_table,
-    source_id,
-    source_line_id,
-    reference_number,
-    notes,
-    occurred_at,
-    created_at
-   from public.inventory_movements m
-  where public.has_any_permission(company_id, array['inventory.view'::text, 'inventory.adjust'::text, 'reports.finance'::text, 'reports.profit'::text]);
 
 
 -- ----------------------------------------------------------------------
@@ -24505,38 +24450,6 @@ $function$;
 
 
 -- ----------------------------------------------------------------------
--- العروض (Views)
--- ----------------------------------------------------------------------
-
-create view public.payroll_employee_summary with (security_invoker=true) as
- select e.company_id,
-    e.id as employee_id,
-    e.employee_number,
-    e.full_name,
-    e.job_title,
-    e.department,
-    e.status,
-    e.salary_currency,
-    e.base_salary,
-    e.fixed_allowances,
-    coalesce(loans.active_loan_balance, 0::numeric)::numeric(18,2) as active_loan_balance,
-    coalesce(payroll.total_net, 0::numeric)::numeric(18,2) as payroll_net_total,
-    coalesce(payroll.total_paid, 0::numeric)::numeric(18,2) as payroll_paid_total,
-    coalesce(payroll.total_due, 0::numeric)::numeric(18,2) as payroll_due_total
-   from public.employees e
-     left join lateral ( select coalesce(sum(employee_loans.balance_due), 0::numeric) as active_loan_balance
-           from public.employee_loans
-          where employee_loans.employee_id = e.id and employee_loans.status = 'active'::text
-            and exists (select 1 from public.employee_loan_disbursements d where d.employee_loan_id = employee_loans.id)) loans on true
-     left join lateral ( select coalesce(sum(pi.net_pay), 0::numeric) as total_net,
-            coalesce(sum(pi.paid_total), 0::numeric) as total_paid,
-            coalesce(sum(pi.balance_due), 0::numeric) as total_due
-           from public.payroll_items pi
-             join public.payroll_runs pr on pr.id = pi.payroll_run_id
-          where pi.employee_id = e.id and (pr.status = any (array['posted'::text, 'partial'::text, 'paid'::text]))) payroll on true;
-
-
--- ----------------------------------------------------------------------
 -- المشغّلات (Triggers)
 -- ----------------------------------------------------------------------
 
@@ -30038,31 +29951,6 @@ begin
       sent_at = case when target_status = 'sent' then now() end,
       sent_by = case when target_status = 'sent' then auth.uid() end
   where id = target_message and company_id = target_company;
-end;
-$function$;
-
--- رسالة يدوية لأي زبون (من صفحة الزبون مثلًا).
-create or replace function public.add_whatsapp_message(target_company uuid, target_trader uuid, target_text text, target_document_type text DEFAULT NULL::text, target_document_id uuid DEFAULT NULL::uuid)
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-declare
-  v_id uuid;
-begin
-  if not public.has_any_permission(target_company, array['traders.view','orders.view']) then
-    raise exception 'Not allowed';
-  end if;
-
-  insert into public.whatsapp_outbox(company_id, kind, trader_id, phone, message, document_type, document_id, dedupe_key)
-  select target_company, 'custom', t.id, coalesce(nullif(t.whatsapp, ''), t.phone), trim(target_text),
-         target_document_type, target_document_id, 'custom:' || gen_random_uuid()
-  from public.traders t
-  where t.id = target_trader and t.company_id = target_company
-  returning id into v_id;
-
-  return v_id;
 end;
 $function$;
 

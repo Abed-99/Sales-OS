@@ -3,12 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /** "base" = القطعة (الوحدة الأساسية بالمخزون)، "pack" = الكرتونة. */
 export type UnitMode = "base" | "pack";
 
-export type Packaging = {
-  unit?: string | null;
-  pack_size?: number | null;
-  pack_unit?: string | null;
-};
-
 function factor(mode: UnitMode | undefined, packSize: number | null | undefined) {
   return mode === "pack" && packSize && packSize > 1 ? packSize : 1;
 }

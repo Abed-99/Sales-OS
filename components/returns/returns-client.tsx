@@ -1034,7 +1034,6 @@ export function ReturnsClient({
         {tab === "history" ? (
           <HistoryTable
             rows={historyRows}
-            canReverse={canReverse}
             busyReturn={busyReturn}
             onReverse={openReverse}
           />
@@ -1597,13 +1596,10 @@ function PurchaseCandidatesTable({
 
 function HistoryTable({
   rows,
-  canReverse,
   busyReturn,
   onReverse,
 }: {
   rows: ReturnHistoryRow[];
-
-  canReverse: boolean;
 
   busyReturn: string | null;
 

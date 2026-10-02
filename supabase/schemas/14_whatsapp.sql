@@ -314,31 +314,6 @@ begin
 end;
 $function$;
 
--- رسالة يدوية لأي زبون (من صفحة الزبون مثلًا).
-create or replace function public.add_whatsapp_message(target_company uuid, target_trader uuid, target_text text, target_document_type text DEFAULT NULL::text, target_document_id uuid DEFAULT NULL::uuid)
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-declare
-  v_id uuid;
-begin
-  if not public.has_any_permission(target_company, array['traders.view','orders.view']) then
-    raise exception 'Not allowed';
-  end if;
-
-  insert into public.whatsapp_outbox(company_id, kind, trader_id, phone, message, document_type, document_id, dedupe_key)
-  select target_company, 'custom', t.id, coalesce(nullif(t.whatsapp, ''), t.phone), trim(target_text),
-         target_document_type, target_document_id, 'custom:' || gen_random_uuid()
-  from public.traders t
-  where t.id = target_trader and t.company_id = target_company
-  returning id into v_id;
-
-  return v_id;
-end;
-$function$;
-
 
 -- ----------------------------------------------------------------------
 -- الصلاحيات

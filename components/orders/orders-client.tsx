@@ -298,8 +298,6 @@ export function OrdersClient({
   canCancel,
   canCollect,
   canViewDeliveries,
-  canCancelInvoice,
-  canReversePayment,
 }: {
   companyId: string;
   currency: string;
@@ -320,8 +318,6 @@ export function OrdersClient({
   canCancel: boolean;
   canCollect: boolean;
   canViewDeliveries: boolean;
-  canCancelInvoice: boolean;
-  canReversePayment: boolean;
 }) {
   const [supabase] = useState(() => createClient());
   const ownerPin = useOwnerPin(supabase, companyId);
@@ -388,7 +384,6 @@ export function OrdersClient({
 
   const [paymentInvoiceCurrency, setPaymentInvoiceCurrency] = useState(currency);
 
-  const [paymentFxRate, setPaymentFxRate] = useState<number | null>(1);
   // سعر الصرف لحظة القبض (1 دولار = كم ليرة) — بيكتبو الموظف.
   const [txRate, setTxRate] = useState("");
 
@@ -467,18 +462,6 @@ export function OrdersClient({
       ),
     [items],
   );
-
-  const collectionTotal = collection
-    ? collection.invoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0)
-    : 0;
-
-  const collectionPaid = collection
-    ? collection.invoices.reduce((sum, invoice) => sum + Number(invoice.paid_total || 0), 0)
-    : 0;
-
-  const collectionBalance = collection
-    ? collection.invoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0)
-    : 0;
 
   function navigate(nextSearch: string, nextFilter: OrderFilter, nextPage = 1) {
     const params = new URLSearchParams(searchParams.toString());
@@ -856,7 +839,6 @@ export function OrdersClient({
 
     setPaymentInvoiceCurrency(invoiceCurrency);
 
-    setPaymentFxRate(firstCashbox?.currency === invoiceCurrency ? 1 : null);
 
     setPaymentQuoteError("");
     setPaymentReference("");
@@ -901,7 +883,6 @@ export function OrdersClient({
 
       if (selectedCashbox.currency === invoiceCurrency) {
         setPaymentCashAmount(invoiceAmount.toFixed(2));
-        setPaymentFxRate(1);
         setPaymentQuoteError("");
         setQuoteLoading(false);
         return;
@@ -910,7 +891,6 @@ export function OrdersClient({
       // فاتورة بالدولار ومقبوضة بالليرة: المبلغ = الدولار × السعر اللي كتبو الموظف.
       if (invoiceCurrency === currency && Number(txRate) > 0) {
         setPaymentCashAmount((invoiceAmount * Number(txRate)).toFixed(2));
-        setPaymentFxRate(1 / Number(txRate));
         setPaymentQuoteError("");
         setQuoteLoading(false);
         return;
@@ -918,7 +898,6 @@ export function OrdersClient({
 
       setQuoteLoading(true);
       setPaymentCashAmount("");
-      setPaymentFxRate(null);
 
       const { data, error } = await supabase.rpc("payment_currency_quote", {
         target_company: companyId,
@@ -957,7 +936,6 @@ export function OrdersClient({
 
       setPaymentCashAmount(quotedAmount.toFixed(2));
 
-      setPaymentFxRate(quotedRate);
 
       setPaymentQuoteError("");
     }
@@ -1711,8 +1689,6 @@ export function OrdersClient({
           order={detailsOrder}
           companyId={companyId}
           currency={currency}
-          canCancelInvoice={canCancelInvoice}
-          canReversePayment={canReversePayment}
           onClose={() => setDetailsOrder(null)}
           onChanged={() => router.refresh()}
         />
