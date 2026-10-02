@@ -130,8 +130,13 @@ function ResetPasswordForm() {
         });
 
       if (error) {
+        const text = error.message.toLowerCase();
         setMessage(
-          "تعذر حفظ كلمة المرور الجديدة. اطلب رابط استعادة جديدًا وحاول مرة أخرى."
+          text.includes("different from the old")
+            ? "كلمة السر الجديدة لازم تكون غير القديمة."
+            : text.includes("weak") || text.includes("characters")
+              ? "كلمة السر ضعيفة. استعمل أحرف وأرقام وطوّلها شوي."
+              : "تعذر حفظ كلمة المرور الجديدة. اطلب رابط استعادة جديدًا وحاول مرة أخرى."
         );
         return;
       }
