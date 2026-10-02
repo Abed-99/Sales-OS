@@ -33,7 +33,9 @@ export type TeamMember = {
   roleId: string;
   createdAt: string;
   lastSignInAt: string | null;
-  isOwner: boolean;
+  /** المالك الأول، أو المستخدم نفسو: ما بتتغيّر صفتو ولا بينشال من هون. */
+  locked: boolean;
+  isFounder: boolean;
 };
 
 type Notice = {
@@ -75,6 +77,9 @@ const teamErrorLabels: Record<string, string> = {
   "Company owner must keep owner role": "لا يمكن تغيير صفة مالك الشركة.",
   "Owner role cannot be assigned to an employee": "صفة المالك محجوزة لمالك الشركة فقط.",
   "Company owner cannot be removed": "لا يمكن إزالة مالك الشركة.",
+  "Only an owner can manage owners": "بس المالك بيقدر يعطي صفة المالك أو يغيّر صفة شريك مالك.",
+  "Company owner role cannot be changed": "المالك الأساسي (يلي عمل الشركة) ما فينا نغيّر صفتو.",
+  "Company owner membership": "المالك الأساسي ما فينا نشيلو.",
 };
 
 function readableError(message: string) {
@@ -137,7 +142,8 @@ export function OwnerClient({
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const assignableRoles = useMemo(
-    () => roles.filter((role) => !role.isOwner && role.active),
+    // صفة "المالك" كمان بتنعطى، لشريك بيصير صلاحياتو متل المالك بالكامل.
+    () => roles.filter((role) => role.active),
     [roles],
   );
 
@@ -218,6 +224,13 @@ export function OwnerClient({
 
     if (!email || !inviteRoleId) {
       showNotice("error", "اكتب البريد واختر صفة الموظف.");
+      return;
+    }
+
+    if (
+      roleById.get(inviteRoleId)?.isOwner &&
+      !window.confirm("رح يصير مالك متلك بالكامل: بيشوف كلشي وبيقدر يعدّل كلشي ويضيف ويشيل موظفين. متأكد؟")
+    ) {
       return;
     }
 
@@ -331,6 +344,13 @@ export function OwnerClient({
   }
 
   async function changeMemberRole(userId: string, roleId: string) {
+    const target = roleById.get(roleId);
+    if (
+      target?.isOwner &&
+      !window.confirm("رح يصير مالك متلك بالكامل: بيشوف كلشي وبيقدر يعدّل كلشي ويضيف ويشيل موظفين. متأكد؟")
+    ) {
+      return;
+    }
     setBusyKey(`member:${userId}`);
 
     const { error } = await supabase.rpc("assign_company_member_role", {
@@ -352,7 +372,7 @@ export function OwnerClient({
   }
 
   async function removeMember(member: TeamMember) {
-    if (member.isOwner) return;
+    if (member.locked) return;
 
     if (!window.confirm(`إزالة ${member.name} من فريق الشركة؟`)) {
       return;
@@ -376,7 +396,8 @@ export function OwnerClient({
     router.refresh();
   }
 
-  const employeeCount = members.filter((member) => !member.isOwner).length;
+  const ownerRoleIds = new Set(roles.filter((role) => role.isOwner).map((role) => role.id));
+  const employeeCount = members.filter((member) => !ownerRoleIds.has(member.roleId)).length;
   const roleCount = roles.filter((role) => !role.isOwner).length;
 
   return (
@@ -465,8 +486,10 @@ export function OwnerClient({
                           <div>
                             <strong>
                               {member.name}
-                              {member.isOwner ? (
-                                <span className={styles.ownerBadge}>المالك</span>
+                              {ownerRoleIds.has(member.roleId) ? (
+                                <span className={styles.ownerBadge}>
+                                  {member.isFounder ? "المالك الأساسي" : "مالك"}
+                                </span>
                               ) : null}
                             </strong>
                             <span dir="ltr">{member.email}</span>
@@ -474,7 +497,7 @@ export function OwnerClient({
                         </div>
                       </td>
                       <td>
-                        {member.isOwner ? (
+                        {member.locked ? (
                           <span className="chip green">{currentRole?.name ?? "المالك"}</span>
                         ) : (
                           <select
@@ -496,7 +519,7 @@ export function OwnerClient({
                       <td>{formatDate(member.lastSignInAt)}</td>
                       <td>{formatDate(member.createdAt)}</td>
                       <td>
-                        {member.isOwner ? (
+                        {member.locked ? (
                           <span className={styles.lockedText}>محمي</span>
                         ) : (
                           <button

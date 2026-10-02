@@ -117,5 +117,30 @@ ok("الرئيسية بلا مبيعات اليوم ولا الفواتير غي
 const salesDash = (await sales.rpc("get_dashboard_summary", { target_company: companyA })).data ?? {};
 ok("موظف المبيعات بيشوف مبيعات اليوم بالرئيسية", salesDash.today_sales != null);
 
+// ---------------------------------------------------------------- 4. more than one owner
+log("\n4️⃣  أكتر من مالك (شركاء)");
+const partner = await member("partner", "المالك");
+const pRep = await partner.rpc("get_financial_report", { target_company: companyA, target_start: "2026-01-01", target_end: "2026-12-31" });
+ok("الشريك المالك بيشوف التقرير المالي", !pRep.error, pRep.error?.message);
+const pBox = await partner.rpc("get_cashbox_balances", { target_company: companyA });
+ok("الشريك المالك بيشوف الصناديق", !pBox.error && (pBox.data ?? []).length > 0, pBox.error?.message);
+const manager = await member("mgr", "مدير");
+const mgrId = (await manager.auth.getUser()).data.user.id;
+await refused("المدير ما بيقدر يعطي صفة المالك لحالو", manager.rpc("assign_company_member_role", { target_company: companyA, target_user: mgrId, target_role: await role("المالك") }));
+const partnerId = (await partner.auth.getUser()).data.user.id;
+await refused("موظف المبيعات ما بيقدر يشيل صفة الشريك", sales.rpc("assign_company_member_role", { target_company: companyA, target_user: partnerId, target_role: await role("مشاهدة") }));
+const delPartner = await manager.from("company_members").delete().eq("company_id", companyA).eq("user_id", partnerId).select("user_id");
+ok("المدير ما بيقدر يشيل الشريك المالك", !!delPartner.error || (delPartner.data ?? []).length === 0, JSON.stringify(delPartner.data));
+await refused("الشريك ما بيقدر يغيّر صفة المالك الأساسي", partner.rpc("assign_company_member_role", { target_company: companyA, target_user: ownerAId, target_role: await role("مشاهدة") }));
+const founderDel = await partner.from("company_members").delete().eq("company_id", companyA).eq("user_id", ownerAId).select("user_id");
+ok("الشريك ما بيقدر يشيل المالك الأساسي", !!founderDel.error || (founderDel.data ?? []).length === 0);
+const p2 = await member("partner2_", "مشاهدة");
+const p2Id = (await p2.auth.getUser()).data.user.id;
+const promote = await partner.rpc("assign_company_member_role", { target_company: companyA, target_user: p2Id, target_role: await role("المالك") });
+ok("الشريك المالك بيقدر يعمل مالك تاني", !promote.error, promote.error?.message);
+const demote = await ownerA.rpc("assign_company_member_role", { target_company: companyA, target_user: partnerId, target_role: await role("مشاهدة") });
+ok("المالك الأساسي بيقدر يرجّع الشريك موظف", !demote.error, demote.error?.message);
+await refused("بعد ما رجع موظف مشاهدة ما بيشوف الصناديق", partner.rpc("get_cashbox_balances", { target_company: companyA }));
+
 log(failures ? `\n❌ ${failures} مشكلة` : "\n✅ كل الفحوصات نجحت");
 process.exit(failures ? 1 : 0);

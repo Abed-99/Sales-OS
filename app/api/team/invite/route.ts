@@ -77,7 +77,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "تعذر التحقق من الشركة." }, { status: 500 });
     }
 
-    if (!company || company.owner_user_id !== currentUser.id) {
+    // المالك الأول أو شريك صفتو "المالك".
+    const { data: myMembership } = await supabase
+      .from("company_members")
+      .select("company_roles(is_owner)")
+      .eq("company_id", companyId)
+      .eq("user_id", currentUser.id)
+      .maybeSingle();
+    const myRole = myMembership?.company_roles as { is_owner?: boolean } | { is_owner?: boolean }[] | null | undefined;
+    const iAmOwner =
+      company?.owner_user_id === currentUser.id ||
+      Boolean(Array.isArray(myRole) ? myRole[0]?.is_owner : myRole?.is_owner);
+
+    if (!company || !iAmOwner) {
       return NextResponse.json({ error: "هذه العملية متاحة لمالك الشركة فقط." }, { status: 403 });
     }
 
@@ -92,7 +104,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "تعذر التحقق من صفة الموظف." }, { status: 500 });
     }
 
-    if (!role || role.is_owner || !role.active) {
+    if (!role || !role.active) {
       return NextResponse.json({ error: "صفة الموظف غير صالحة." }, { status: 400 });
     }
 

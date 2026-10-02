@@ -318,13 +318,22 @@ begin
   end if;
 
 
-  if coalesce(
-       v_role_owner,
-       false
+  -- صفة المالك (أو تغيير صفة شريك مالك) بيعملها مالك بس، مش المدير.
+  if (
+       coalesce(v_role_owner, false)
+       or exists(
+         select 1
+         from public.company_members m
+         join public.company_roles r on r.id = m.role_id
+         where m.company_id = target_company
+           and m.user_id = target_user
+           and r.is_owner
+       )
      )
+     and not public.is_company_owner(target_company)
   then
     raise exception
-      'Owner role can only be assigned to the company owner';
+      'Only an owner can manage owners';
   end if;
 
 
@@ -788,11 +797,21 @@ create or replace function public.is_company_owner(target_company uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+  -- المالك الأول (يلي عمل الشركة) أو أي شريك أعطاه مالك صفة "المالك".
   select exists(
     select 1
     from public.companies c
     where c.id = target_company
       and c.owner_user_id = auth.uid()
+  )
+  or exists(
+    select 1
+    from public.company_members m
+    join public.company_roles r on r.id = m.role_id
+    where m.company_id = target_company
+      and m.user_id = auth.uid()
+      and r.is_owner
+      and r.active
   );
 $function$;
 
@@ -868,6 +887,15 @@ begin
     raise exception 'Company owner membership cannot be deleted';
   end if;
 
+  -- شريك مالك ما بيشيلو ولا بيغيّر صفتو غير مالك.
+  if tg_op in ('DELETE','UPDATE')
+     and auth.uid() is not null
+     and exists(select 1 from public.company_roles r where r.id = old.role_id and r.is_owner)
+     and not public.is_company_owner(old.company_id)
+  then
+    raise exception 'Only an owner can manage owners';
+  end if;
+
   if tg_op in ('INSERT','UPDATE') then
     select is_owner
     into v_role_owner
@@ -875,8 +903,12 @@ begin
     where id = new.role_id
       and company_id = new.company_id;
 
-    if coalesce(v_role_owner,false) and new.user_id <> v_owner then
-      raise exception 'Owner role can only be assigned to the company owner';
+    if coalesce(v_role_owner,false)
+       and new.user_id <> v_owner
+       and auth.uid() is not null
+       and not public.is_company_owner(new.company_id)
+    then
+      raise exception 'Only an owner can manage owners';
     end if;
 
     if tg_op = 'UPDATE' and old.user_id = v_owner then

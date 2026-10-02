@@ -109,6 +109,13 @@ export default async function OwnerPage() {
 
   const supabase = await createClient();
 
+  const { data: companyRow } = await supabase
+    .from("companies")
+    .select("owner_user_id")
+    .eq("id", context.companyId)
+    .maybeSingle();
+  const founderId = companyRow?.owner_user_id ?? null;
+
   const [rolesResult, permissionsResult, membersResult] = await Promise.all([
     supabase
       .from("company_roles")
@@ -188,7 +195,9 @@ export default async function OwnerPage() {
       roleId: member.role_id,
       createdAt: member.created_at,
       lastSignInAt: authUser?.lastSignInAt ?? null,
-      isOwner: member.user_id === context.user.id,
+      // المالك الأول ما حدا بيغيّرو، وإنت ما بتغيّر صفتك ولا بتشيل حالك.
+      locked: member.user_id === founderId || member.user_id === context.user.id,
+      isFounder: member.user_id === founderId,
     };
   });
 

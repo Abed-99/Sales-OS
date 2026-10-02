@@ -9,6 +9,7 @@ type RolePermissionRow = {
 type RoleRow = {
   id: string;
   name: string;
+  is_owner?: boolean | null;
   role_permissions?: RolePermissionRow[] | null;
 };
 
@@ -68,6 +69,7 @@ export async function getCurrentContext() {
         company_roles(
           id,
           name,
+          is_owner,
           role_permissions(
             permission_code
           )
@@ -107,7 +109,8 @@ export async function getCurrentContext() {
         currency: company.default_currency || "USD",
         roleId: role.id,
         roleName: role.name,
-        isOwner: company.owner_user_id === user.id,
+        // المالك الأول أو أي شريك صفتو "المالك".
+        isOwner: company.owner_user_id === user.id || Boolean(role.is_owner),
         permissions,
       },
     ];
