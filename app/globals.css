@@ -1066,6 +1066,8 @@ button:disabled{
 
 .field{
   min-width:0;
+  /* الخانة بتضل لازقة بعنوانها: إذا جارتها فيها سطر شرح، الفراغ الزايد بيروح لتحت. */
+  align-content:start;
 }
 
 .field.full{
