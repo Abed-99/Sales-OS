@@ -26,9 +26,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     : params.error;
 
   const initialMessage =
-    errorCode === "auth_callback"
-      ? "تعذر إكمال عملية المصادقة. قد يكون الرابط غير صالح أو منتهي الصلاحية."
-      : "";
+    errorCode === "link_used"
+      ? "هالرابط انستعمل قبل أو انتهت صلاحيتو (الرابط بيشتغل مرة وحدة، وإذا انبعتلك رابط أحدث بيبطل القديم). إذا حطيت كلمة سرك قبل، فوت فيها عادي. وإلا اطلب دعوة جديدة من صاحب الشركة، أو كبّس «نسيت كلمة المرور»."
+      : errorCode === "auth_callback"
+        ? "تعذر إكمال الدخول من الرابط. جرّب تفتح آخر رسالة وصلتك، أو كبّس «نسيت كلمة المرور»."
+        : "";
 
   return <LoginClient initialMessage={initialMessage} />;
 }

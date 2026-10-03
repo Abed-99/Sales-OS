@@ -40,7 +40,9 @@ export default function AuthCallbackPage() {
         if (!ok && code) ok = !(await supabase.auth.exchangeCodeForSession(code)).error;
       }
 
-      window.location.replace(ok ? next : "/login?error=auth_callback");
+      // الرابط انستعمل أو انتهى (Supabase بيرجّع error_code=otp_expired بعد #).
+      const expired = (hash.get("error_code") ?? url.searchParams.get("error_code")) === "otp_expired";
+      window.location.replace(ok ? next : `/login?error=${expired ? "link_used" : "auth_callback"}`);
     })();
   }, []);
 
