@@ -162,7 +162,13 @@ export function SearchPicker<T>({
             </button>
           ))}
           {!results.length ? (
-            <div className="pickerEmpty">{loading ? "عم نبحث..." : emptyText}</div>
+            <div className="pickerEmpty">
+              {loading
+                ? "عم نبحث..."
+                : onSearch && term.trim().length < 2
+                  ? "اكتب حرفين من الاسم أو الرقم"
+                  : emptyText}
+            </div>
           ) : null}
           {loading && results.length ? <div className="pickerEmpty">عم نبحث...</div> : null}
         </div>

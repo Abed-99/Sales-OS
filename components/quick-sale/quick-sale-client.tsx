@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Icons } from "@/components/icons";
 import { useOwnerPin } from "@/components/owner-pin";
@@ -12,6 +12,7 @@ import { BarcodeScanButton } from "@/components/barcode-scan";
 import {
   productOption,
   searchProducts,
+  recentTraders,
   searchTraders,
   type ProductPick,
   type TraderPick,
@@ -94,6 +95,10 @@ export function QuickSaleClient({
     () => (term: string) => searchTraders(supabase, companyId, term),
     [supabase, companyId],
   );
+  const [traderOptions, setTraderOptions] = useState<PickerOption<TraderPick>[]>([]);
+  useEffect(() => {
+    void recentTraders(supabase, companyId).then(setTraderOptions);
+  }, [supabase, companyId]);
 
   const cashbox = cashboxes.find((box) => box.id === cashboxId);
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.price), 0);
@@ -399,7 +404,7 @@ export function QuickSaleClient({
               <SearchPicker<TraderPick>
                 value={trader}
                 placeholder="زبون نقدي"
-                options={[]}
+                options={traderOptions}
                 onSearch={findTraders}
                 onChange={(id) => void chooseTrader(id)}
               />

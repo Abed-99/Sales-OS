@@ -40,6 +40,28 @@ export async function searchTraders(
   }));
 }
 
+/** آخر الزبائن يلي تعاملنا معهن (للقائمة قبل ما يكتب شي). */
+export async function recentTraders(
+  supabase: SupabaseClient,
+  companyId: string,
+): Promise<PickerOption<TraderPick>[]> {
+  const { data } = await supabase
+    .from("traders")
+    .select("id,name,area,phone")
+    .eq("company_id", companyId)
+    .neq("status", "inactive")
+    .neq("name", "زبون نقدي")
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    label: row.name,
+    hint: [row.area, row.phone].filter(Boolean).join(" • ") || null,
+    data: row,
+  }));
+}
+
 export type ProductPick = {
   id: string;
   name: string;
