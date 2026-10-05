@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
+import { phoneText } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -165,7 +166,7 @@ export function WarrantyClient({
               </span>
             </div>
             <p className="muted">
-              الزبون: {row.trader ?? "—"} {row.trader_phone ? `• ${row.trader_phone}` : ""} •
+              الزبون: {row.trader ?? "—"} {row.trader_phone ? `• ${phoneText(row.trader_phone)}` : ""} •
               الفاتورة: {row.invoice_number ?? "—"} • تاريخ البيع: {row.sold_on ?? "—"}
             </p>
 

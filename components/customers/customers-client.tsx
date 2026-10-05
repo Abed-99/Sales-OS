@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { LocationPicker } from "@/components/map/location-picker";
 import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 import { NumberInput } from "@/components/number-input";
-import { formatNumber, formatQty } from "@/lib/format";
+import { formatNumber, formatQty, phoneText, nameInitial } from "@/lib/format";
 
 type Status = "new" | "contacted" | "interested" | "customer" | "inactive";
 
@@ -644,12 +644,12 @@ export function CustomersClient({
                   <tr key={trader.id}>
                     <td>
                       <div className="merchant">
-                        <div className="merchantLogo">{trader.name.charAt(0)}</div>
+                        <div className="merchantLogo">{nameInitial(trader.name)}</div>
 
                         <div>
                           <strong>{trader.name}</strong>
 
-                          <span>{trader.contact_name || trader.phone || "بدون تفاصيل"}</span>
+                          <span>{trader.contact_name || phoneText(trader.phone) || "بدون تفاصيل"}</span>
                         </div>
                       </div>
                     </td>

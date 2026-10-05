@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty as qty, formatDateTime } from "@/lib/format";
+import { formatMoney as money, formatQty as qty, formatDateTime, nameInitial } from "@/lib/format";
 
 export type DeliveryQueueItem = {
   id: string;
@@ -702,7 +702,7 @@ export function DeliveriesClient({
                     <tr key={order.id}>
                       <td>
                         <div className="merchant">
-                          <div className="merchantLogo">{trader?.name?.charAt(0) || "؟"}</div>
+                          <div className="merchantLogo">{nameInitial(trader?.name)}</div>
 
                           <div>
                             <strong>{trader?.name || "عميل"}</strong>

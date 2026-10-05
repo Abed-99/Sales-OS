@@ -6,7 +6,7 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
-import { formatQty } from "@/lib/format";
+import { formatQty, phoneText, nameInitial } from "@/lib/format";
 
 type RecentCustomer = {
   id: string;
@@ -457,7 +457,7 @@ export default async function DashboardPage() {
                     className="dashboardCustomerCard"
                   >
                     <div className="merchantLogo">
-                      {customer.name.charAt(0)}
+                      {nameInitial(customer.name)}
                     </div>
 
                     <div className="dashboardCustomerInfo">
@@ -466,7 +466,7 @@ export default async function DashboardPage() {
                       <span>
                         {customer.area || "بدون منطقة"}
                         {" · "}
-                        {customer.phone || "بدون رقم"}
+                        {phoneText(customer.phone) || "بدون رقم"}
                       </span>
                     </div>
 

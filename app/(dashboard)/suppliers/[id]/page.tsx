@@ -6,7 +6,7 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney as money, formatQty, formatDate, formatDateTime } from "@/lib/format";
+import { formatMoney as money, formatQty, formatDate, formatDateTime, phoneText } from "@/lib/format";
 
 type ProductRelation = {
   id: string;
@@ -677,9 +677,9 @@ export default async function SupplierDetailPage({
                 }
               />
 
-              <Info title="الهاتف" value={supplier.phone} />
+              <Info title="الهاتف" value={phoneText(supplier.phone)} />
 
-              <Info title="واتساب" value={supplier.whatsapp} />
+              <Info title="واتساب" value={phoneText(supplier.whatsapp)} />
 
               <Info title="العنوان" value={supplier.address} />
 

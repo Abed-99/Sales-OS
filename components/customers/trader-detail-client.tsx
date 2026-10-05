@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
-import { formatQty, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate } from "@/lib/format";
+import { formatQty, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate, phoneText } from "@/lib/format";
 
 export type TraderDetailRow = {
   id: string;
@@ -386,9 +386,9 @@ export function TraderDetailClient({
           </div>
 
           <div className="quickList">
-            <Info t="الهاتف" v={trader.phone || "—"} />
+            <Info t="الهاتف" v={phoneText(trader.phone) || "—"} />
 
-            <Info t="واتساب" v={trader.whatsapp || "—"} />
+            <Info t="واتساب" v={phoneText(trader.whatsapp) || "—"} />
 
             <Info t="العنوان" v={trader.address || "—"} />
 

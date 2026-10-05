@@ -7,6 +7,7 @@ import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 import { Icons } from "@/components/icons";
 import { NumberInput } from "@/components/number-input";
 import { matchesSearch } from "@/lib/search";
+import { phoneText, nameInitial } from "@/lib/format";
 type Row = {
   id: string;
   name: string;
@@ -257,7 +258,7 @@ export function SuppliersClient({
                   <tr key={r.id}>
                     <td>
                       <div className="merchant">
-                        <div className="merchantLogo">{r.name.charAt(0)}</div>
+                        <div className="merchantLogo">{nameInitial(r.name)}</div>
                         <div>
                           <Link href={`/suppliers/${r.id}`}>
                             <strong>{r.name}</strong>
@@ -278,10 +279,10 @@ export function SuppliersClient({
                           rel="noreferrer"
                           href={`https://wa.me/${r.whatsapp.replace(/\D/g, "")}`}
                         >
-                          <Icons.whatsapp size={13} /> {r.whatsapp}
+                          <Icons.whatsapp size={13} /> {phoneText(r.whatsapp)}
                         </a>
                       ) : (
-                        r.phone || "—"
+                        phoneText(r.phone) || "—"
                       )}
                     </td>
                     <td>{r.address || "—"}</td>

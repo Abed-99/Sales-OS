@@ -5,6 +5,7 @@ import { money, quantityLabel } from "@/lib/print-format";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
+import { phoneText } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -89,7 +90,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
           {trader?.phone ? (
             <>
               <br />
-              {trader.phone}
+              {phoneText(trader.phone)}
             </>
           ) : null}
           {trader?.address ? (

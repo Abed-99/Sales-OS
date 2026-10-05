@@ -7,7 +7,7 @@ import { StatementRange } from "@/components/print/statement-range";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
-import { todayDamascus } from "@/lib/format";
+import { todayDamascus, phoneText } from "@/lib/format";
 
 type Row = {
   event_date: string;
@@ -85,7 +85,7 @@ export default async function PrintCustomerStatement({
           <h2>كشف حساب عميل</h2>
           <div className="printMeta">
             العميل: <strong>{trader.name}</strong>
-            {trader.phone ? ` • ${trader.phone}` : ""}
+            {trader.phone ? ` • ${phoneText(trader.phone)}` : ""}
             <br />
             الفترة: {from ?? "من البداية"} ← {to}
           </div>

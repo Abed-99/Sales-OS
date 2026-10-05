@@ -5,6 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { money, quantityLabel } from "@/lib/print-format";
 import { createClient } from "@/lib/supabase/server";
+import { phoneText } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -100,7 +101,7 @@ export default async function PrintPurchaseInvoice({
           {supplier?.phone ? (
             <>
               <br />
-              {supplier.phone}
+              {phoneText(supplier.phone)}
             </>
           ) : null}
         </div>

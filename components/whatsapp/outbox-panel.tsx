@@ -13,6 +13,7 @@ import {
   type DesktopMode,
 } from "@/lib/wa-send";
 import { NumberInput } from "@/components/number-input";
+import { phoneText } from "@/lib/format";
 
 export type OutboxMessage = {
   id: string;
@@ -158,7 +159,7 @@ export function OutboxPanel({
               <span className="chip blue">{kindLabels[row.kind]}</span>
               <strong>{name(row)}</strong>
               <span className="muted" dir="ltr">
-                {phoneOf(row) ?? "⚠️ ما في رقم"}
+                {phoneText(phoneOf(row)) || "⚠️ ما في رقم"}
               </span>
               {documentUrl(row) ? <span className="chip green">📎 مع الملف</span> : null}
             </div>

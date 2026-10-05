@@ -5,6 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { money, quantityLabel } from "@/lib/print-format";
 import { createClient } from "@/lib/supabase/server";
+import { phoneText } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -80,7 +81,7 @@ export default async function PrintQuote({ params }: { params: Promise<{ id: str
           {trader?.phone ? (
             <>
               <br />
-              {trader.phone}
+              {phoneText(trader.phone)}
             </>
           ) : null}
           {trader?.address ? (

@@ -9,7 +9,7 @@ import {
   WhatsAppSettingsPanel,
   type OutboxMessage,
 } from "@/components/whatsapp/outbox-panel";
-import { formatMoney as money } from "@/lib/format";
+import { formatMoney as money, phoneText } from "@/lib/format";
 
 export type DebtorRow = {
   id: string;
@@ -159,7 +159,7 @@ export function WhatsAppClient({
                     <td>
                       <strong>{row.name}</strong>
                       <div className="muted" dir="ltr" style={{ textAlign: "right" }}>
-                        {row.phone ?? "بدون رقم"}
+                        {phoneText(row.phone) || "بدون رقم"}
                       </div>
                     </td>
                     <td>{money(row.balance, row.currency)}</td>

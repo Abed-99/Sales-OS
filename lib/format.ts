@@ -117,3 +117,17 @@ export function groupDigits(clean: string) {
   const grouped = whole.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return (negative ? "-" : "") + grouped + (rest.length ? "." + rest.join("") : "");
 }
+
+// ---------------------------------------------------------------- الأرقام والأسماء بالعرض
+
+/** رقم الهاتف بالعرض: بيضل "+963..." من اليسار لليمين حتى جوّا نص عربي (وإلا بيطلع "963...+"). */
+export function phoneText(phone: string | null | undefined) {
+  return phone ? `\u2066${phone}\u2069` : "";
+}
+
+/** الحرف بالدائرة جنب الاسم: "العمرين" → "ع" (منتجاوز "ال"). */
+export function nameInitial(name: string | null | undefined) {
+  const text = (name ?? "").trim();
+  const word = text.startsWith("ال") && text.length > 3 ? text.slice(2) : text;
+  return word.charAt(0) || "؟";
+}
