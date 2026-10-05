@@ -482,7 +482,7 @@ export function ReportsClient({
       <div style={{ marginTop: 10 }}>
         <ReportExport
           target={reportRef}
-          fileName={`تقرير ${availableTabs.find((item) => item.key === tab)?.label ?? ""} ${from} - ${to}`}
+          fileName={`Report ${tab} ${from} ${to}`}
           title={`${availableTabs.find((item) => item.key === tab)?.label ?? "تقرير"}`}
           subtitle={`${from} ← ${to}`}
         />

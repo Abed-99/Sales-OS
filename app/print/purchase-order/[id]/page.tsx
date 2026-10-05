@@ -56,7 +56,7 @@ export default async function PrintPurchaseOrder({ params }: { params: Promise<{
   return (
     <PrintShell
       company={company}
-      fileName={`أمر شراء ${order.po_number}`}
+      fileName={`Purchase-Order ${order.po_number}`}
       shareText={`مرحبا ${supplier?.contact_name ?? supplier?.name ?? ""}، هاد أمر الشراء ${order.po_number} من ${company.name}. نرجو التأكيد.`}
       phone={supplier?.whatsapp || supplier?.phone}
       backHref="/purchase-orders"

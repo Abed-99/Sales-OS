@@ -10,6 +10,7 @@ import {
   type Cell,
   type Sheet,
 } from "@/lib/xlsx";
+import { safeFileName } from "@/lib/format";
 
 /**
  * أزرار تصدير التقرير المعروض: Excel (كل جدول بورقة، والأرقام أرقام حقيقية) و PDF (ورقة بيضا).
@@ -59,7 +60,7 @@ export function ReportExport({
         setMessage("ما في أرقام بهالتقرير لنصدّرها.");
         return;
       }
-      downloadBlob(buildXlsx(sheets), `${fileName}.xlsx`);
+      downloadBlob(buildXlsx(sheets), `${safeFileName(fileName, "report")}.xlsx`);
     } finally {
       setBusy("");
     }
@@ -111,7 +112,7 @@ export function ReportExport({
           (slice.height * width) / canvas.width,
         );
       }
-      doc.save(`${fileName}.pdf`);
+      doc.save(`${safeFileName(fileName, "report")}.pdf`);
     } catch {
       setMessage("ما قدرنا نطلّع الـ PDF. جرّب مرة تانية.");
     } finally {

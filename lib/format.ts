@@ -125,6 +125,21 @@ export function phoneText(phone: string | null | undefined) {
   return phone ? `\u2066${phone}\u2069` : "";
 }
 
+/**
+ * اسم ملف (PDF / Excel) بأحرف إنكليزية بس: واتساب وبعض الأجهزة بيخربطوا الأحرف العربية
+ * بأسماء الملفات ("ÙØ§ØªÙˆØ±Ø©"). محتوى الملف بيضل عربي عادي.
+ */
+export function safeFileName(name: string, fallback = "document") {
+  const clean = name
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return clean || fallback;
+}
+
 /** الحرف بالدائرة جنب الاسم: "العمرين" → "ع" (منتجاوز "ال"). */
 export function nameInitial(name: string | null | undefined) {
   const text = (name ?? "").trim();

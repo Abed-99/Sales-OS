@@ -58,7 +58,7 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
   return (
     <PrintShell
       company={company}
-      fileName={`فاتورة ${invoice.invoice_number}`}
+      fileName={`Invoice ${invoice.invoice_number}`}
       shareText={`مرحبا ${trader?.name ?? ""}، هي فاتورتك رقم ${invoice.invoice_number} بقيمة ${money(invoice.total, currency)}. ${company.name}`}
       phone={trader?.whatsapp || trader?.phone}
       backHref={`/orders?order=${invoice.order_id}`}

@@ -106,7 +106,7 @@ export default async function PrintReceipt({
   return (
     <PrintShell
       company={company}
-      fileName={`${title} ${row.payment_number}`}
+      fileName={`${supplierMode ? "Payment" : "Receipt"} ${row.payment_number}`}
       shareText={
         supplierMode
           ? `مرحبا ${party?.name ?? ""}، دفعنالكم ${money(row.amount, currency)} (سند ${row.payment_number}). ${company.name}`

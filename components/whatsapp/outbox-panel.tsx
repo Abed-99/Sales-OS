@@ -13,7 +13,7 @@ import {
   type DesktopMode,
 } from "@/lib/wa-send";
 import { NumberInput } from "@/components/number-input";
-import { phoneText } from "@/lib/format";
+import { phoneText, todayDamascus } from "@/lib/format";
 
 export type OutboxMessage = {
   id: string;
@@ -101,7 +101,7 @@ export function OutboxPanel({
         phone: phoneOf(row),
         text: texts[row.id] ?? row.message,
         documentUrl: documentUrl(row),
-        fileName: `${kindLabels[row.kind].slice(2)} ${name(row)}`,
+        fileName: `${row.kind} ${todayDamascus()}`,
       });
       if (result === "cancelled") return;
       if (result === "opened-with-image") {

@@ -74,7 +74,7 @@ export default async function PrintCustomerStatement({
   return (
     <PrintShell
       company={company}
-      fileName={`كشف حساب ${trader.name}`}
+      fileName={`Statement ${todayDamascus()}`}
       shareText={`مرحبا ${trader.name}، هاد كشف حسابك لغاية ${to}. الرصيد: ${money(closing, currency)}. ${company.name}`}
       phone={trader.whatsapp || trader.phone}
       backHref={`/customers/${trader.id}`}

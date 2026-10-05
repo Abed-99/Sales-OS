@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
+import { safeFileName } from "@/lib/format";
 
 export type Letterhead = {
   name: string;
@@ -187,7 +188,7 @@ export function PrintShell({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${fileName}.pdf`;
+      link.download = `${safeFileName(fileName)}.pdf`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch {
@@ -202,7 +203,7 @@ export function PrintShell({
     setMessage("");
     try {
       const blob = await makePdf();
-      const file = new File([blob], `${fileName}.pdf`, {
+      const file = new File([blob], `${safeFileName(fileName)}.pdf`, {
         type: "application/pdf",
       });
       // الموبايل: بتنفتح المشاركة، بتختار واتساب والزبون، والملف بيروح متل ما هو.
@@ -218,7 +219,7 @@ export function PrintShell({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${fileName}.pdf`;
+      link.download = `${safeFileName(fileName)}.pdf`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       const number = waNumber(phone);

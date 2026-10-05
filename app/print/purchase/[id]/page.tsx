@@ -67,7 +67,7 @@ export default async function PrintPurchaseInvoice({
   return (
     <PrintShell
       company={company}
-      fileName={`فاتورة شراء ${invoice.invoice_number}`}
+      fileName={`Purchase ${invoice.invoice_number}`}
       shareText={`مرحبا ${supplier?.contact_name ?? supplier?.name ?? ""}، هي فاتورة الشراء ${invoice.supplier_invoice_number ?? invoice.invoice_number} بقيمة ${money(invoice.total, cur)} كما سجّلناها عنا. ${company.name}`}
       phone={supplier?.whatsapp || supplier?.phone}
       backHref="/purchases"

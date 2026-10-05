@@ -1,4 +1,5 @@
 "use client";
+import { safeFileName } from "@/lib/format";
 
 /** رقم واتساب بصيغة دولية بدون + (963...). */
 export function waNumber(phone: string | null | undefined) {
@@ -102,7 +103,7 @@ export async function sendViaWhatsApp({
     if (documentUrl) {
       const canvas = await captureDocument(documentUrl);
       const pdf = await canvasToPdf(canvas);
-      const file = new File([pdf], `${fileName || "document"}.pdf`, { type: "application/pdf" });
+      const file = new File([pdf], `${safeFileName(fileName ?? "")}.pdf`, { type: "application/pdf" });
       if (navigator.canShare?.({ files: [file] })) {
         try {
           await navigator.share({ files: [file], text });

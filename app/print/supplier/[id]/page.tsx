@@ -77,7 +77,7 @@ export default async function PrintSupplierStatement({
   return (
     <PrintShell
       company={company}
-      fileName={`كشف حساب ${supplier.name}`}
+      fileName={`Supplier-Statement ${todayDamascus()}`}
       shareText={`مرحبا، هاد كشف حسابنا عندكم لغاية ${today}. الرصيد: ${money(closing, currency)}. ${company.name}`}
       phone={supplier.whatsapp || supplier.phone}
       backHref={`/suppliers/${supplier.id}`}

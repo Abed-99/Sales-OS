@@ -56,7 +56,7 @@ export default async function PrintQuote({ params }: { params: Promise<{ id: str
   return (
     <PrintShell
       company={company}
-      fileName={`عرض سعر ${quote.quote_number}`}
+      fileName={`Quote ${quote.quote_number}`}
       shareText={`مرحبا ${trader?.name ?? ""}، هاد عرض السعر رقم ${quote.quote_number} بقيمة ${money(quote.total, quote.currency)}${quote.valid_until ? `، صالح لغاية ${quote.valid_until}` : ""}. ${company.name}`}
       phone={trader?.whatsapp || trader?.phone}
       backHref="/quotes"
