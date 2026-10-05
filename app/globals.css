@@ -1626,3 +1626,16 @@ body{
 .exportHeader{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding:4px 2px 10px;margin-bottom:10px}
 .exportHeader strong{font-size:20px}
 .exportHeader span{font-size:12px}
+
+/* سطور القوائم (quickItem): النص فوق بعض (العنوان وتحته التفاصيل) ومالي المكان، سواء في أيقونة قبله أو لأ.
+   قبل، إذا ما في أيقونة كان العنوان والقيمة يلزقوا ببعض بسطر واحد. */
+.quickItem > div:has(> strong),
+.quickItem > div:has(> span) {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.quickItem strong { font-size: 12px; }
+.quickItem span { font-size: 11px; line-height: 1.6; }
+.quickItem > div.count { display: block; flex: none; font-size: 11px; white-space: nowrap; }

@@ -624,9 +624,8 @@ function Info({ t, v }: { t: string; v: string }) {
   return (
     <div className="quickItem">
       <div>
-        <strong>{t}</strong>
-
-        <span>{v}</span>
+        <span>{t}</span>
+        <strong>{v}</strong>
       </div>
     </div>
   );

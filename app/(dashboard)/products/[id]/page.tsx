@@ -953,13 +953,8 @@ function Info({
   return (
     <div className="quickItem">
       <div>
-        <strong>
-          {title}
-        </strong>
-
-        <span>
-          {value}
-        </span>
+        <span>{title}</span>
+        <strong>{value}</strong>
       </div>
     </div>
   );

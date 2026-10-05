@@ -1029,9 +1029,8 @@ function Info({ title, value }: { title: string; value: string | null }) {
   return (
     <div className="quickItem">
       <div>
-        <strong>{title}</strong>
-
-        <span>{value || "—"}</span>
+        <span>{title}</span>
+        <strong>{value || "—"}</strong>
       </div>
     </div>
   );
