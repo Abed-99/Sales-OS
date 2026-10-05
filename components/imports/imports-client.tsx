@@ -7,7 +7,7 @@ import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
+import { formatMoney as money, formatNumber, formatQty, todayDamascus as today, formatDate } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -621,7 +621,7 @@ export function ImportsClient({
                   <div>
                     <strong>{costLabels[item.cost_type] ?? item.cost_type}</strong>
                     <span>
-                      {item.cost_date}
+                      {formatDate(item.cost_date)}
                       {item.notes ? ` • ${item.notes}` : ""}
                     </span>
                   </div>

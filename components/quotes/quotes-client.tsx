@@ -19,7 +19,7 @@ import {
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty, todayDamascus as businessDateInput } from "@/lib/format";
+import { formatMoney as money, formatQty, todayDamascus as businessDateInput, formatDate } from "@/lib/format";
 
 export type QuoteStatus = "draft" | "sent" | "accepted" | "rejected" | "cancelled" | "converted";
 
@@ -918,7 +918,7 @@ export function QuotesClient({
                       </span>
                     </td>
 
-                    <td>{row.quote_date}</td>
+                    <td>{formatDate(row.quote_date)}</td>
 
                     <td>
                       {row.valid_until || "بدون"}
@@ -1350,7 +1350,7 @@ export function QuotesClient({
               <div className="field">
                 <span>تاريخ العرض</span>
 
-                <strong>{selected.quote_date}</strong>
+                <strong>{formatDate(selected.quote_date)}</strong>
               </div>
 
               <div className="field">

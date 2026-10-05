@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { ReportExport } from "@/components/reports/report-export";
-import { formatMoney as money, formatNumber, formatQty } from "@/lib/format";
+import { formatDate, formatMoney as money, formatNumber, formatQty } from "@/lib/format";
 
 function num(value: unknown) {
   const n = Number(value || 0);
@@ -484,7 +484,7 @@ export function ReportsClient({
           target={reportRef}
           fileName={`Report ${tab} ${from} ${to}`}
           title={`${availableTabs.find((item) => item.key === tab)?.label ?? "تقرير"}`}
-          subtitle={`${from} ← ${to}`}
+          subtitle={`${formatDate(from)} ← ${formatDate(to)}`}
         />
       </div>
 
@@ -602,7 +602,7 @@ export function ReportsClient({
                 <div className="panelHeader">
                   <div>
                     <h2>المركز المالي</h2>
-                    <p>كما في {to}</p>
+                    <p>كما في {formatDate(to)}</p>
                   </div>
                 </div>
 
@@ -643,7 +643,7 @@ export function ReportsClient({
                 <h2>قائمة الأرباح والخسائر</h2>
 
                 <p>
-                  {from} → {to}
+                  {formatDate(from)} → {formatDate(to)}
                 </p>
               </div>
             </div>
@@ -679,7 +679,7 @@ export function ReportsClient({
               <div>
                 <h2>الميزانية العمومية</h2>
 
-                <p>كما في {to}</p>
+                <p>كما في {formatDate(to)}</p>
               </div>
             </div>
 

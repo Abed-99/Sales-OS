@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
-import { phoneText } from "@/lib/format";
+import { phoneText, formatDate } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -176,7 +176,7 @@ export function WarrantyClient({
                   <div className="quickItem" key={claim.id}>
                     <div>
                       <strong>
-                        {claim.claim_date}: {claim.issue}
+                        {formatDate(claim.claim_date)}: {claim.issue}
                       </strong>
                       <span>
                         {claimLabels[claim.status]}
@@ -267,7 +267,7 @@ export function WarrantyClient({
                 const unit = one(claim.product_serials);
                 return (
                   <tr key={claim.id}>
-                    <td>{claim.claim_date}</td>
+                    <td>{formatDate(claim.claim_date)}</td>
                     <td>
                       <strong>{one(unit?.products ?? null)?.name}</strong>
                       <div className="muted" dir="ltr">

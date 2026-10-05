@@ -5,7 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { money, quantityLabel } from "@/lib/print-format";
 import { createClient } from "@/lib/supabase/server";
-import { phoneText } from "@/lib/format";
+import { phoneText, formatDate } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -67,7 +67,7 @@ export default async function PrintQuote({ params }: { params: Promise<{ id: str
           <div className="printMeta">
             الرقم: <strong>{quote.quote_number}</strong>
             <br />
-            التاريخ: {quote.quote_date}
+            التاريخ: {formatDate(quote.quote_date)}
             {quote.valid_until ? (
               <>
                 <br />

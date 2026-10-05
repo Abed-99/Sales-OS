@@ -7,7 +7,7 @@ import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
+import { formatNumber, formatQty, todayDamascus as today, formatDate } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 
@@ -1026,7 +1026,7 @@ export function PayrollClient({
 
                       <td>{formatNumber(num(loan.installment_amount))}</td>
 
-                      <td>{loan.start_date}</td>
+                      <td>{formatDate(loan.start_date)}</td>
 
                       <td>
                         <span

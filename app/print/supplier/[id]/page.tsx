@@ -6,7 +6,7 @@ import { money } from "@/lib/print-format";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
-import { todayDamascus } from "@/lib/format";
+import { todayDamascus, formatDate } from "@/lib/format";
 
 type Row = {
   source_id: string;
@@ -120,7 +120,7 @@ export default async function PrintSupplierStatement({
         <tbody>
           {rows.map((row) => (
             <tr key={`${row.row_type}-${row.source_id}`}>
-              <td>{row.event_date}</td>
+              <td>{formatDate(row.event_date)}</td>
               <td>
                 {row.description || typeLabels[row.row_type] || row.row_type}
               </td>

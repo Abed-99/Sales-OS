@@ -5,7 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { money } from "@/lib/print-format";
 import { createClient } from "@/lib/supabase/server";
-import { phoneText } from "@/lib/format";
+import { phoneText, formatDate } from "@/lib/format";
 
 // سند قبض (دفعة من زبون) أو سند دفع (?kind=supplier: دفعة لمورد).
 type Party = { id: string; name: string; phone: string | null; whatsapp: string | null } | null;
@@ -124,7 +124,7 @@ export default async function PrintReceipt({
           <div className="printMeta">
             الرقم: <strong>{row.payment_number}</strong>
             <br />
-            التاريخ: {row.payment_date}
+            التاريخ: {formatDate(row.payment_date)}
           </div>
         </div>
         <div className="printMeta">

@@ -6,7 +6,7 @@ import type { FormEvent } from "react";
 
 import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
-import { formatMoney as money, formatQty as qty } from "@/lib/format";
+import { formatMoney as money, formatQty as qty, formatDate } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -383,7 +383,7 @@ export function OrderDetails({
                       <td>
                         <strong>{invoice.invoice_number}</strong>
                       </td>
-                      <td>{invoice.invoice_date}</td>
+                      <td>{formatDate(invoice.invoice_date)}</td>
                       <td>{money(invoice.total, invoice.currency)}</td>
                       <td>{money(invoice.paid_total, invoice.currency)}</td>
                       <td>{money(invoice.balance_due, invoice.currency)}</td>
@@ -481,7 +481,7 @@ export function OrderDetails({
                           </div>
                         ) : null}
                       </td>
-                      <td>{row.payment.payment_date}</td>
+                      <td>{formatDate(row.payment.payment_date)}</td>
                       <td>{row.invoiceNumber}</td>
                       <td>{money(row.amount, row.invoiceCurrency)}</td>
                       <td>

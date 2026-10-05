@@ -32,6 +32,23 @@ function FollowValue({ value }: { value: [number, number] | null }) {
   return null;
 }
 
+// الخريطة جوّا نافذة بتنرسم قبل ما النافذة تاخد حجمها، فبتطلع رمادية؛ منعيد حساب الحجم
+// كل ما تغيّر حجم مكانها.
+function FitContainer() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(container);
+    const timer = window.setTimeout(() => map.invalidateSize(), 300);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [map]);
+  return null;
+}
+
 export function LocationPickerInner({ latitude, longitude, onChange }: LocationPickerProps) {
   const [message, setMessage] = useState("");
   const value: [number, number] | null =
@@ -65,6 +82,7 @@ export function LocationPickerInner({ latitude, longitude, onChange }: LocationP
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <FitContainer />
           <PickOnClick onPick={set} />
           <FollowValue value={value} />
           {value ? <Marker position={value} icon={pin} /> : null}

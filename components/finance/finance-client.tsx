@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatNumber, todayDamascus as businessDate } from "@/lib/format";
+import { formatNumber, todayDamascus as businessDate, formatDate } from "@/lib/format";
 
 export type FinanceAccount = {
   id: string;
@@ -159,7 +159,7 @@ function rateHint(rates: FinanceRate[], currency: string, date: string, baseCurr
     .sort((a, b) => (a.rate_date < b.rate_date ? 1 : -1))[0];
 
   return match
-    ? `${unitsPerBase(match.rate_to_base, baseCurrency, currency)} (سعر ${match.rate_date})`
+    ? `${unitsPerBase(match.rate_to_base, baseCurrency, currency)} (سعر ${formatDate(match.rate_date)})`
     : null;
 }
 
@@ -873,7 +873,7 @@ export function FinanceClient({
                         <strong>{journal.entry_number}</strong>
                       </td>
 
-                      <td>{journal.entry_date}</td>
+                      <td>{formatDate(journal.entry_date)}</td>
 
                       <td>{journal.description}</td>
 
@@ -987,7 +987,7 @@ export function FinanceClient({
                         <strong>{rate.currency}</strong>
                       </td>
 
-                      <td>{rate.rate_date}</td>
+                      <td>{formatDate(rate.rate_date)}</td>
 
                       <td>{unitsPerBase(rate.rate_to_base, baseCurrency, rate.currency)}</td>
 
@@ -1189,7 +1189,7 @@ export function FinanceClient({
             <div className="formGrid">
               <div className="field">
                 <span>التاريخ</span>
-                <strong>{selectedJournal.entry_date}</strong>
+                <strong>{formatDate(selectedJournal.entry_date)}</strong>
               </div>
 
               <div className="field">

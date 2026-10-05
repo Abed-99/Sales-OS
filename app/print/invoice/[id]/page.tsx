@@ -5,7 +5,7 @@ import { money, quantityLabel } from "@/lib/print-format";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
-import { phoneText } from "@/lib/format";
+import { phoneText, formatDate } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -69,11 +69,11 @@ export default async function PrintInvoicePage({ params }: { params: Promise<{ i
           <div className="printMeta">
             رقم الفاتورة: <strong>{invoice.invoice_number}</strong>
             <br />
-            التاريخ: {invoice.invoice_date}
+            التاريخ: {formatDate(invoice.invoice_date)}
             {invoice.due_date ? (
               <>
                 <br />
-                تاريخ الاستحقاق: {invoice.due_date}
+                تاريخ الاستحقاق: {formatDate(invoice.due_date)}
               </>
             ) : null}
             {order?.order_number ? (

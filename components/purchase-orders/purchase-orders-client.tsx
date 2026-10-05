@@ -11,7 +11,7 @@ import { searchProducts, searchSuppliers, type ProductPick } from "@/lib/pickers
 import { createClient } from "@/lib/supabase/client";
 import { convertPrice, toBasePrice, toBaseQuantity, type UnitMode } from "@/lib/units";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty } from "@/lib/format";
+import { formatMoney as money, formatQty, formatDate } from "@/lib/format";
 import { matchesSearch } from "@/lib/search";
 
 type Relation<T> = T | T[] | null;
@@ -243,8 +243,8 @@ export function PurchaseOrdersClient({
                   <td>
                     <strong>{order.po_number}</strong>
                     <div className="muted">
-                      {order.order_date}
-                      {order.expected_date ? ` • متوقع ${order.expected_date}` : ""}
+                      {formatDate(order.order_date)}
+                      {order.expected_date ? ` • متوقع ${formatDate(order.expected_date)}` : ""}
                     </div>
                   </td>
                   <td>{one(order.suppliers)?.name}</td>

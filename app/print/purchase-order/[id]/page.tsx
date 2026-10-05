@@ -5,6 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { money, quantityLabel } from "@/lib/print-format";
 import { createClient } from "@/lib/supabase/server";
+import { formatDate } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -67,11 +68,11 @@ export default async function PrintPurchaseOrder({ params }: { params: Promise<{
           <div className="printMeta">
             الرقم: <strong>{order.po_number}</strong>
             <br />
-            التاريخ: {order.order_date}
+            التاريخ: {formatDate(order.order_date)}
             {order.expected_date ? (
               <>
                 <br />
-                الوصول المطلوب: {order.expected_date}
+                الوصول المطلوب: {formatDate(order.expected_date)}
               </>
             ) : null}
           </div>

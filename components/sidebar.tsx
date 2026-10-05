@@ -190,12 +190,6 @@ export function Sidebar({
 
       <div className="sidebarSpacer" />
 
-      <div className="sidebarCard">
-        <Icons.spark size={18} />
-        <strong>Sales OS</strong>
-        <p>المبيعات والمشتريات والعملاء والمالية ضمن نظام واحد مرتب.</p>
-      </div>
-
       <AccountMenu
         userName={userName}
         email={email}

@@ -6,7 +6,7 @@ import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatNumber, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate, todayDamascus } from "@/lib/format";
+import { formatNumber, formatSigned, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate, todayDamascus } from "@/lib/format";
 
 const expenseCategories = [
   "بنزين",
@@ -131,7 +131,7 @@ function formatSummary(
 
   return rows
     .map((row) => `${formatNumber(Number(row[field] || 0))} ${row.currency}`)
-    .join(" • ");
+    .join("\n"); // كل عملة بسطر لحالها
 }
 
 export function CashboxClient({
@@ -630,8 +630,9 @@ export function CashboxClient({
                               : "kpiNegative"
                           }
                         >
-                          {transaction.direction === "in" ? "+" : "-"}
-                          {formatNumber(Number(transaction.amount))}{" "}
+                          {formatSigned(
+                            (transaction.direction === "in" ? 1 : -1) * Number(transaction.amount),
+                          )}{" "}
                           {transactionCurrency}
                         </td>
 
@@ -1091,7 +1092,9 @@ function Mini({ title, value }: { title: string; value: string }) {
   return (
     <div className="statCard">
       <div className="statLabel">{title}</div>
-      <div className="statValue">{value}</div>
+      <div className="statValue" style={{ whiteSpace: "pre-line" }}>
+        {value}
+      </div>
     </div>
   );
 }

@@ -17,6 +17,9 @@ const validStatuses = new Set<TraderStatus>([
   "inactive",
 ]);
 
+// زبون البيع السريع بدون اسم: بينعمل لحالو، فما منعرضو كزبون.
+const WALK_IN_CUSTOMER = "زبون نقدي";
+
 export default async function CustomersPage({
   searchParams,
 }: {
@@ -80,6 +83,7 @@ export default async function CustomersPage({
       },
     )
     .eq("company_id", context.companyId)
+      .neq("name", WALK_IN_CUSTOMER)
     .order("created_at", {
       ascending: false,
     })
@@ -125,7 +129,8 @@ export default async function CustomersPage({
           count: "exact",
           head: true,
         })
-        .eq("company_id", context.companyId),
+        .eq("company_id", context.companyId)
+      .neq("name", WALK_IN_CUSTOMER),
 
       supabase
         .from("traders")
@@ -134,6 +139,7 @@ export default async function CustomersPage({
           head: true,
         })
         .eq("company_id", context.companyId)
+      .neq("name", WALK_IN_CUSTOMER)
         .eq("status", "customer"),
 
       supabase
@@ -143,6 +149,7 @@ export default async function CustomersPage({
           head: true,
         })
         .eq("company_id", context.companyId)
+      .neq("name", WALK_IN_CUSTOMER)
         .eq("status", "interested"),
 
       supabase
@@ -152,6 +159,7 @@ export default async function CustomersPage({
           head: true,
         })
         .eq("company_id", context.companyId)
+      .neq("name", WALK_IN_CUSTOMER)
         .eq("status", "new"),
     ],
   );

@@ -7,7 +7,7 @@ import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
+import { formatNumber, formatQty, todayDamascus as today, formatDate } from "@/lib/format";
 import { matchesSearch } from "@/lib/search";
 
 function num(value: unknown) {
@@ -469,7 +469,7 @@ export function PartnersClient({
                       </strong>
                     </td>
 
-                    <td>{transaction.transaction_date}</td>
+                    <td>{formatDate(transaction.transaction_date)}</td>
 
                     <td>{transaction.notes || "—"}</td>
                   </tr>

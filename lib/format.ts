@@ -75,7 +75,18 @@ function toNumber(value: unknown) {
 
 /** رقم بعدد ثابت من الخانات بعد الفاصلة: formatNumber(26000) → "26,000.00". */
 export function formatNumber(value: unknown, digits = 2) {
-  return formatter(digits, digits).format(toNumber(value));
+  return ltrIfNegative(formatter(digits, digits).format(toNumber(value)));
+}
+
+/** بإشارة دايمًا: "+1,500.00" أو "-1,500.00" (لحركات الصندوق). */
+export function formatSigned(value: unknown, digits = 2) {
+  const number = toNumber(value);
+  return `\u2066${number > 0 ? "+" : ""}${formatter(digits, digits).format(number)}\u2069`;
+}
+
+/** جوّا نص عربي الإشارة السالبة بتنقلب لآخر الرقم ("107,444.36-")، فمنثبّت اتجاه الرقم. */
+function ltrIfNegative(text: string) {
+  return text.startsWith("-") ? `\u2066${text}\u2069` : text;
 }
 
 /** مبلغ مع العملة: formatMoney(26000, "USD") → "26,000.00 USD". */
@@ -85,7 +96,7 @@ export function formatMoney(value: unknown, currency: string) {
 
 /** كمية بدون أصفار زايدة: formatQty(1500) → "1,500"، formatQty(2.5) → "2.5". */
 export function formatQty(value: unknown, maxDigits = 3) {
-  return formatter(0, maxDigits).format(toNumber(value));
+  return ltrIfNegative(formatter(0, maxDigits).format(toNumber(value)));
 }
 
 /** نص فيه فواصل أو أرقام عربية → نص رقم نظيف: "٢٦،٠٠٠" أو "26,000" → "26000". */

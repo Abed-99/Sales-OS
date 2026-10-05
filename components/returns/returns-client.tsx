@@ -8,7 +8,7 @@ import { Icons } from "@/components/icons";
 import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty, todayDamascus as businessDate } from "@/lib/format";
+import { formatMoney as money, formatQty, todayDamascus as businessDate, formatDate } from "@/lib/format";
 
 export type ReturnsTab = "sales" | "purchases" | "history";
 
@@ -1458,7 +1458,7 @@ function SalesCandidatesTable({
 
               <td>{row.trader?.name || "—"}</td>
 
-              <td>{row.invoice_date}</td>
+              <td>{formatDate(row.invoice_date)}</td>
 
               <td>{money(row.total, row.currency)}</td>
 
@@ -1543,7 +1543,7 @@ function PurchaseCandidatesTable({
 
               <td>{row.supplier?.name || "—"}</td>
 
-              <td>{row.invoice_date}</td>
+              <td>{formatDate(row.invoice_date)}</td>
 
               <td>{money(row.total, row.currency)}</td>
 
@@ -1635,7 +1635,7 @@ function HistoryTable({
 
               <td>{row.warehouse_name}</td>
 
-              <td>{row.return_date}</td>
+              <td>{formatDate(row.return_date)}</td>
 
               <td>{money(row.total, row.currency)}</td>
 

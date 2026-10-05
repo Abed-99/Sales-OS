@@ -9,7 +9,7 @@ import { SearchPicker } from "@/components/search-picker";
 import { productOption, searchProducts } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty as qty, formatNumber, todayDamascus as businessDateInput } from "@/lib/format";
+import { formatMoney as money, formatQty as qty, formatNumber, todayDamascus as businessDateInput, formatDate } from "@/lib/format";
 
 export type InventoryWarehouse = {
   id: string;
@@ -1734,7 +1734,7 @@ export function InventoryClient({
 
                         <td>{invoice.supplier_name}</td>
 
-                        <td>{invoice.invoice_date}</td>
+                        <td>{formatDate(invoice.invoice_date)}</td>
 
                         <td>{invoice.items.length}</td>
 
@@ -1785,7 +1785,7 @@ export function InventoryClient({
                   <strong>{receipt.receipt_number}</strong>
 
                   <span>
-                    {warehouseNameById(receipt.warehouse_id)} • {receipt.receipt_date}
+                    {warehouseNameById(receipt.warehouse_id)} • {formatDate(receipt.receipt_date)}
                   </span>
 
                   {receipt.cancellation_reason ? (
@@ -1845,7 +1845,7 @@ export function InventoryClient({
                     <span>
                       {warehouseNameById(transfer.source_warehouse_id)} ←{" "}
                       {warehouseNameById(transfer.destination_warehouse_id)} •{" "}
-                      {transfer.transfer_date}
+                      {formatDate(transfer.transfer_date)}
                     </span>
 
                     {transfer.reversal_reason ? (
@@ -1897,7 +1897,7 @@ export function InventoryClient({
                     <strong>{count.count_number}</strong>
 
                     <span>
-                      {warehouseNameById(count.warehouse_id)} • {count.count_date}
+                      {warehouseNameById(count.warehouse_id)} • {formatDate(count.count_date)}
                     </span>
 
                     {count.reversal_reason ? <span>السبب: {count.reversal_reason}</span> : null}

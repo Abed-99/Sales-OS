@@ -79,7 +79,9 @@ function normalizeSummary(
         (customer) =>
           customer &&
           typeof customer.id === "string" &&
-          typeof customer.name === "string",
+          typeof customer.name === "string" &&
+          // زبون البيع السريع بدون اسم مش زبون حقيقي.
+          customer.name !== "زبون نقدي",
       )
     : [];
 

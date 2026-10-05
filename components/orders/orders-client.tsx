@@ -22,7 +22,7 @@ import {
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty, formatDateTime, todayDamascus as businessDateInput } from "@/lib/format";
+import { formatMoney as money, formatNumber, formatQty, formatDateTime, todayDamascus as businessDateInput } from "@/lib/format";
 
 type OrderStatus =
   | "draft"
@@ -1426,9 +1426,11 @@ export function OrdersClient({
                 />
               </label>
 
-              <div className="quickList">
+              <div className="orderLines">
                 {items.map((item, index) => (
-                  <div className="quickItem" key={index}>
+                  <div className="orderLine" key={index}>
+                    <label className="lineField lineProduct">
+                      <span>الصنف</span>
                     <SearchPicker
                       value={item.product_id}
                       placeholder="اسم الصنف أو كودو..."
@@ -1438,7 +1440,10 @@ export function OrdersClient({
                         chooseProduct(index, id, option?.data as ProductPick | undefined)
                       }
                     />
+                    </label>
 
+                    <label className="lineField">
+                      <span>الكمية</span>
                     <NumberInput
                       min="0.001"
                       step="0.001"
@@ -1449,6 +1454,7 @@ export function OrdersClient({
                         })
                       }
                     />
+                    </label>
 
                     <UnitToggle
                       mode={item.mode}
@@ -1459,6 +1465,8 @@ export function OrdersClient({
                       onChange={(mode) => changeUnit(index, mode)}
                     />
 
+                    <label className="lineField">
+                      <span>السعر</span>
                     <NumberInput
                       min="0"
                       step="0.01"
@@ -1469,10 +1477,19 @@ export function OrdersClient({
                         })
                       }
                     />
+                    </label>
+
+                    <div className="lineField lineTotal">
+                      <span>المجموع</span>
+                      <strong>
+                        {money(Number(item.quantity || 0) * Number(item.sale_unit_price || 0), currency)}
+                      </strong>
+                    </div>
 
                     <button
                       type="button"
                       className="dangerButton"
+                      aria-label="شيل الصنف"
                       disabled={items.length === 1}
                       onClick={() =>
                         setItems((current) => current.filter((_, rowIndex) => rowIndex !== index))
@@ -1488,8 +1505,9 @@ export function OrdersClient({
                 type="button"
                 className="softButton"
                 onClick={() => setItems((current) => [...current, emptyItem()])}
+                style={{ margin: "10px 0 14px" }}
               >
-                إضافة صنف
+                + صنف
               </button>
 
               <label className="field">
@@ -1630,7 +1648,7 @@ export function OrdersClient({
                 <div className="toastError">{paymentQuoteError}</div>
               ) : paymentCashAmount ? (
                 <p>
-                  سيتم قبض {paymentCashAmount} {paymentCashCurrency}
+                  سيتم قبض {formatNumber(paymentCashAmount)} {paymentCashCurrency}
                 </p>
               ) : null}
 

@@ -18,7 +18,7 @@ import {
 import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
-import { formatMoney as money, formatQty, todayDamascus as businessDateInput } from "@/lib/format";
+import { formatMoney as money, formatNumber, formatQty, todayDamascus as businessDateInput, formatDate } from "@/lib/format";
 
 export type PurchaseNeed = {
   sales_order_item_id: string;
@@ -1797,7 +1797,7 @@ export function PurchasesClient({
 
                       <td>{invoice.supplier_invoice_number || "—"}</td>
 
-                      <td>{invoice.invoice_date}</td>
+                      <td>{formatDate(invoice.invoice_date)}</td>
 
                       <td>{money(invoice.total, invoice.currency)}</td>
 
@@ -2047,7 +2047,7 @@ export function PurchasesClient({
 
                         <td>{cashbox?.name || "—"}</td>
 
-                        <td>{payment.payment_date}</td>
+                        <td>{formatDate(payment.payment_date)}</td>
 
                         <td>
                           <span
@@ -2266,7 +2266,7 @@ export function PurchasesClient({
                     onClick={addManualLine}
                   >
                     <Icons.plus size={14} />
-                    بند يدوي
+                    صنف
                   </button>
                 </div>
 
@@ -2622,7 +2622,7 @@ export function PurchasesClient({
                 <p>
                   سيخرج من الصندوق:{" "}
                   <strong>
-                    {paymentCashAmount} {paymentCashCurrency}
+                    {formatNumber(paymentCashAmount)} {paymentCashCurrency}
                   </strong>
                 </p>
               ) : null}
@@ -2763,9 +2763,9 @@ export function PurchasesClient({
                   {detailInvoice.invoice_number}
                 </h2>
                 <p className="muted">
-                  {detailInvoice.invoice_date}
+                  {formatDate(detailInvoice.invoice_date)}
                   {detailInvoice.due_date
-                    ? ` • الاستحقاق ${detailInvoice.due_date}`
+                    ? ` • الاستحقاق ${formatDate(detailInvoice.due_date)}`
                     : ""}
                 </p>
               </div>

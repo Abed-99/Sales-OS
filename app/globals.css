@@ -1662,3 +1662,102 @@ body{
 .quickItem strong { font-size: 12px; }
 .quickItem span { font-size: 11px; line-height: 1.6; }
 .quickItem > div.count { display: block; flex: none; font-size: 11px; white-space: nowrap; }
+
+
+/* خانة البحث: زر "بحث" جوّا الخانة بدل ما يركب فوقها (كان بيصير عالموبايل). */
+.searchBox {
+  height: auto;
+  min-height: 44px;
+  padding: 4px 12px 4px 4px;
+}
+.searchBox input {
+  flex: 1;
+  min-width: 0;
+}
+.searchBox > button {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 14px;
+}
+
+/* لما ما في بيانات: رسالة صغيرة بدل مساحة فاضية كبيرة. */
+.empty {
+  min-height: 170px;
+}
+
+/* سطور أصناف الطلبية: عنوان فوق كل خانة. */
+.orderLines {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.orderLine {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) 100px auto 120px 110px 40px;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  background: #0c1c18;
+}
+.lineField {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.lineField input,
+.lineField select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #06110e;
+  color: white;
+  border-radius: 11px;
+  padding: 10px 12px;
+  outline: none;
+}
+.lineField input:focus {
+  border-color: rgba(47, 202, 158, 0.55);
+}
+.orderLine > .dangerButton {
+  justify-self: start;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+.lineField > span {
+  font-size: 10px;
+  color: #8ba39b;
+}
+.lineTotal strong {
+  font-size: 12px;
+  padding: 10px 0;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .orderLine {
+    grid-template-columns: 1fr 1fr;
+  }
+  .orderLine .lineProduct {
+    grid-column: 1 / -1;
+  }
+}
+
+
+/* مربعات الاختيار: جنب كتابتها، مش بعرض السطر كلو (كانت تطلع بعيدة عن الكتابة). */
+input[type="checkbox"],
+input[type="radio"],
+.field input[type="checkbox"],
+.field input[type="radio"] {
+  width: auto;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
