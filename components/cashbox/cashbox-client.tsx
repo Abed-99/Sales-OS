@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate, todayDamascus } from "@/lib/format";
 
 const expenseCategories = [
   "بنزين",
@@ -99,17 +101,6 @@ function one<T>(value: T | T[] | null | undefined) {
   return value ?? null;
 }
 
-function formatDamascusDateTime(value: string) {
-  return new Intl.DateTimeFormat("ar", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
 /**
  * بعض الحركات (قبض، دفعة مورد، رواتب) محفوظ إلها التاريخ بس، فساعتها بتطلع 12:00.
  * إذا انسجلت بنفس اليوم منفرجي ساعة التسجيل الحقيقية، وإلا التاريخ بس.
@@ -129,14 +120,6 @@ function formatMovementTime(occurredAt: string, createdAt?: string | null) {
   return formatDamascusDate(occurredAt);
 }
 
-function formatDamascusDate(value: string) {
-  return new Intl.DateTimeFormat("ar", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
-}
 function formatSummary(
   rows: SummaryRow[],
   field: "balance" | "today_in" | "today_out" | "month_expense",
@@ -147,7 +130,7 @@ function formatSummary(
   }
 
   return rows
-    .map((row) => `${Number(row[field] || 0).toFixed(2)} ${row.currency}`)
+    .map((row) => `${formatNumber(Number(row[field] || 0))} ${row.currency}`)
     .join(" • ");
 }
 
@@ -648,7 +631,7 @@ export function CashboxClient({
                           }
                         >
                           {transaction.direction === "in" ? "+" : "-"}
-                          {Number(transaction.amount).toFixed(2)}{" "}
+                          {formatNumber(Number(transaction.amount))}{" "}
                           {transactionCurrency}
                         </td>
 
@@ -725,7 +708,7 @@ export function CashboxClient({
                       </div>
 
                       <div className="count">
-                        {Number(expense.amount).toFixed(2)}{" "}
+                        {formatNumber(Number(expense.amount))}{" "}
                         {cashbox?.currency || defaultCurrency}
                       </div>
                     </div>
@@ -829,8 +812,7 @@ export function CashboxClient({
 
                 <label className="field">
                   <span>المبلغ</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.01"
                     step="0.01"
                     inputMode="decimal"
@@ -939,8 +921,7 @@ export function CashboxClient({
 
                 <label className="field">
                   <span>المبلغ</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.01"
                     step="0.01"
                     inputMode="decimal"
@@ -1077,10 +1058,6 @@ export function CashboxClient({
       ) : null}
     </div>
   );
-}
-
-function todayDamascus() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
 }
 
 function CashboxField({

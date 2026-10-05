@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 import { hasPermission } from "@/lib/permissions";
+import { NumberInput } from "@/components/number-input";
 
 type Company = {
   id: string;
@@ -313,8 +314,7 @@ export function SettingsClient({
               </label>
               {taxEnabled ? (
                 <>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     max="100"
                     step="0.01"

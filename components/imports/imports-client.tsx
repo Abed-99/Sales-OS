@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -93,11 +95,6 @@ const defaultMethod = (type: string): Method => (type === "freight" ? "volume" :
 
 const num = (value: number | string | null | undefined) =>
   value == null || value === "" ? "" : String(Number(value));
-
-const money = (value: number, currency: string) =>
-  `${Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-
-const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
 
 function friendly(message: string) {
   const text = message.toLowerCase();
@@ -398,7 +395,7 @@ export function ImportsClient({
                       <div className="muted">{row.purchase_invoices.length} فاتورة</div>
                     </td>
                     <td>{money(costs, currency)}</td>
-                    <td>{goods > 0 ? `${((costs / goods) * 100).toFixed(1)}%` : "—"}</td>
+                    <td>{goods > 0 ? `${formatNumber(((costs / goods) * 100), 1)}%` : "—"}</td>
                     <td>
                       <button
                         type="button"
@@ -675,8 +672,7 @@ export function ImportsClient({
                 </label>
                 <label className="field">
                   <span>المبلغ</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="any"
                     value={cost.amount}
@@ -764,8 +760,7 @@ export function ImportsClient({
                         const value = measures[row.product_id] ?? { weight: "", volume: "" };
                         const editable = canManage && open.status !== "closed";
                         const input = (key: "weight" | "volume", saved: number | null) => (
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="any"
                             dir="ltr"
@@ -791,7 +786,7 @@ export function ImportsClient({
                         return (
                           <tr key={row.product_id}>
                             <td>{row.product_name}</td>
-                            <td>{Number(row.quantity)}</td>
+                            <td>{formatQty(row.quantity)}</td>
                             <td>{input("weight", row.weight_kg)}</td>
                             <td>{input("volume", row.volume_cbm)}</td>
                           </tr>
@@ -869,8 +864,8 @@ export function ImportsClient({
                     {preview.map((row) => (
                       <tr key={row.product_id}>
                         <td>{row.product_name}</td>
-                        <td>{Number(row.quantity)}</td>
-                        <td>{Number(row.received)}</td>
+                        <td>{formatQty(row.quantity)}</td>
+                        <td>{formatQty(row.received)}</td>
                         <td>{money(row.goods_value, currency)}</td>
                         {costTypes.map((type) => (
                           <td key={type}>{money(row.cost_breakdown?.[type] ?? 0, currency)}</td>

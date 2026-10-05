@@ -8,6 +8,8 @@ import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
 import { productOption, searchProducts } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty as qty, formatNumber, todayDamascus as businessDateInput } from "@/lib/format";
 
 export type InventoryWarehouse = {
   id: string;
@@ -151,34 +153,11 @@ function numeric(value: unknown) {
   return Number.isFinite(result) ? result : 0;
 }
 
-function businessDateInput() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
 function newKey() {
   return crypto.randomUUID();
 }
 
 /** 100 بدل 100.000، و 2.5 بدل 2.500 */
-function qty(value: unknown) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(numeric(value));
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numeric(value))} ${currency}`;
-}
 
 function statusLabel(status: string) {
   if (status === "posted") {
@@ -1395,8 +1374,7 @@ export function InventoryClient({
                 </label>
                 <label className="field">
                   <span>الكمية</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.001"
                     step="any"
                     value={damage.quantity}
@@ -1439,11 +1417,11 @@ export function InventoryClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini title="المستودعات" value={String(stockStats.warehouseCount)} />
+        <Mini title="المستودعات" value={qty(stockStats.warehouseCount)} />
 
-        <Mini title="أصناف محجوزة" value={String(stockStats.reservedLines)} />
+        <Mini title="أصناف محجوزة" value={qty(stockStats.reservedLines)} />
 
-        <Mini title="غير متاح" value={String(stockStats.outOfStock)} />
+        <Mini title="غير متاح" value={qty(stockStats.outOfStock)} />
 
         <Mini
           title={canViewCost ? "قيمة المخزون" : "فواتير بانتظار الاستلام"}
@@ -1600,7 +1578,7 @@ export function InventoryClient({
 
           <div />
 
-          <div className="resultCount">{stockTotalCount} نتيجة</div>
+          <div className="resultCount">{qty(stockTotalCount)} نتيجة</div>
         </form>
 
         {!stock.length ? (
@@ -1660,7 +1638,7 @@ export function InventoryClient({
                         <td>
                           {row.average_cost == null
                             ? "—"
-                            : `${numeric(row.average_cost).toFixed(4)} ${currency}`}
+                            : `${formatNumber(numeric(row.average_cost), 4)} ${currency}`}
                         </td>
 
                         <td>{row.stock_value == null ? "—" : money(row.stock_value, currency)}</td>
@@ -2130,8 +2108,7 @@ export function InventoryClient({
                         <td>{qty(item.remaining_quantity)}</td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             max={item.remaining_quantity}
                             step="0.001"
@@ -2279,8 +2256,7 @@ export function InventoryClient({
                       }
                     />
 
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0.001"
                       step="0.001"
                       placeholder="الكمية"
@@ -2438,8 +2414,7 @@ export function InventoryClient({
 
                           <td className="muted">{qty(line.systemQuantity)}</td>
                           <td>
-                            <input
-                              type="number"
+                            <NumberInput
                               min="0"
                               step="0.001"
                               value={line.countedQuantity}
@@ -2476,8 +2451,7 @@ export function InventoryClient({
 
                           {canViewCost ? (
                             <td>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="0.0001"
                                 value={line.unitCost}

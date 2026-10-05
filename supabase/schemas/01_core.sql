@@ -224,6 +224,35 @@ on conflict (code) do update set
 -- الدوال
 -- ----------------------------------------------------------------------
 
+-- البحث بالعربي: "احمد" بيلاقي "أحمد"، "مؤسسه" بيلاقي "مؤسسة"، "سامسونغ براد" بيلاقي "براد سامسونغ".
+create or replace function public.normalize_search(target_text text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE PARALLEL SAFE
+ SET search_path TO ''
+AS $function$
+  select trim(regexp_replace(
+    translate(
+      lower(coalesce(target_text, '')),
+      'أإآٱةىؤئًٌٍَُِّْـ',
+      'ااااهيوي'
+    ),
+    '\s+', ' ', 'g'
+  ));
+$function$;
+
+-- كل كلمة من كلمات البحث لازم تكون موجودة (بأي ترتيب).
+create or replace function public.search_match(target_text text, target_search text)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE PARALLEL SAFE
+ SET search_path TO ''
+AS $function$
+  select coalesce(bool_and(strpos(public.normalize_search(target_text), word) > 0), true)
+  from unnest(string_to_array(public.normalize_search(target_search), ' ')) as word
+  where word <> '';
+$function$;
+
 -- ----------------------------------------------------------------------
 -- رمز المالك: المالك بيكتبو قدام الموظف ليمشّي عملية حساسة لمرة وحدة.
 -- ----------------------------------------------------------------------
@@ -861,6 +890,29 @@ begin
 end;
 $function$;
 
+create or replace function public.protect_company_identity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  -- المالك الأساسي ورقم الشركة ما بيتغيّروا من التطبيق أبدًا
+  -- (وإلا أي مدير معه "إدارة الشركة" بيقدر يحط حالو مالك ويشيل المالك الحقيقي).
+  if new.id is distinct from old.id then
+    raise exception 'Company id cannot be changed';
+  end if;
+
+  if new.owner_user_id is distinct from old.owner_user_id
+     and auth.uid() is not null
+  then
+    raise exception 'Company owner cannot be changed';
+  end if;
+
+  return new;
+end;
+$function$;
+
 create or replace function public.protect_owner_membership()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1262,6 +1314,8 @@ $function$;
 create trigger companies_updated_at before update on public.companies for each row execute function public.set_updated_at();
 
 create trigger on_company_access_setup after insert on public.companies for each row execute function public.handle_company_access_setup();
+
+create trigger protect_company_identity_trigger before update of id, owner_user_id on public.companies for each row execute function public.protect_company_identity();
 
 create trigger protect_company_default_currency_trigger before insert or update of default_currency on public.companies for each row execute function public.protect_company_default_currency();
 

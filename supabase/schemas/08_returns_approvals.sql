@@ -1815,16 +1815,14 @@ begin
          ilike
          '%' || v_search || '%'
 
-      or s.name
-         ilike
-         '%' || v_search || '%'
+      or public.search_match(s.search_key, v_search)
 
       or exists (
         select 1
         from public.purchase_invoice_items x
         join public.products pr on pr.id = x.product_id
         where x.invoice_id = pi.id
-          and pr.name ilike '%' || v_search || '%'
+          and public.search_match(pr.search_key, v_search)
       )
     )
 
@@ -2099,16 +2097,14 @@ begin
            ilike
            '%' || v_search || '%'
 
-        or s.name
-           ilike
-           '%' || v_search || '%'
+        or public.search_match(s.search_key, v_search)
 
         or exists (
           select 1
           from public.purchase_invoice_items x
           join public.products pr on pr.id = x.product_id
           where x.invoice_id = pi.id
-            and pr.name ilike '%' || v_search || '%'
+            and public.search_match(pr.search_key, v_search)
         )
       )
 
@@ -2421,9 +2417,7 @@ begin
          ilike
          '%' || v_search || '%'
 
-      or h.party_name
-         ilike
-         '%' || v_search || '%'
+      or public.search_match(h.party_name, v_search)
 
       or exists (
         select 1
@@ -2431,7 +2425,7 @@ begin
         join public.products pr on pr.id = x.product_id
         where h.kind = 'sales'
           and x.sales_return_id = h.id
-          and pr.name ilike '%' || v_search || '%'
+          and public.search_match(pr.search_key, v_search)
       )
 
       or exists (
@@ -2440,7 +2434,7 @@ begin
         join public.products pr on pr.id = x.product_id
         where h.kind = 'purchases'
           and x.purchase_return_id = h.id
-          and pr.name ilike '%' || v_search || '%'
+          and public.search_match(pr.search_key, v_search)
       )
     );
 
@@ -2597,9 +2591,7 @@ begin
            ilike
            '%' || v_search || '%'
 
-        or h.party_name
-           ilike
-           '%' || v_search || '%'
+        or public.search_match(h.party_name, v_search)
 
         or exists (
           select 1
@@ -2607,7 +2599,7 @@ begin
           join public.products pr on pr.id = x.product_id
           where h.kind = 'sales'
             and x.sales_return_id = h.id
-            and pr.name ilike '%' || v_search || '%'
+            and public.search_match(pr.search_key, v_search)
         )
 
         or exists (
@@ -2616,7 +2608,7 @@ begin
           join public.products pr on pr.id = x.product_id
           where h.kind = 'purchases'
             and x.purchase_return_id = h.id
-            and pr.name ilike '%' || v_search || '%'
+            and public.search_match(pr.search_key, v_search)
         )
       )
 
@@ -2881,9 +2873,7 @@ begin
          ilike
          '%' || v_search || '%'
 
-      or t.name
-         ilike
-         '%' || v_search || '%'
+      or public.search_match(t.search_key, v_search)
 
       or exists (
         select 1
@@ -2897,7 +2887,7 @@ begin
         from public.sales_invoice_items x
         join public.products pr on pr.id = x.product_id
         where x.invoice_id = si.id
-          and pr.name ilike '%' || v_search || '%'
+          and public.search_match(pr.search_key, v_search)
       )
     )
 
@@ -3110,9 +3100,7 @@ begin
            ilike
            '%' || v_search || '%'
 
-        or t.name
-           ilike
-           '%' || v_search || '%'
+        or public.search_match(t.search_key, v_search)
 
         or exists (
           select 1
@@ -3126,7 +3114,7 @@ begin
           from public.sales_invoice_items x
           join public.products pr on pr.id = x.product_id
           where x.invoice_id = si.id
-            and pr.name ilike '%' || v_search || '%'
+            and public.search_match(pr.search_key, v_search)
         )
       )
 

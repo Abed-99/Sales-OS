@@ -5,6 +5,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { hasPermission } from "@/lib/permissions";
 import { normalizeAnyPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
+import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
 
 type TraderStatus = "new" | "contacted" | "interested" | "customer" | "inactive";
 
@@ -15,18 +16,6 @@ const validStatuses = new Set<TraderStatus>([
   "customer",
   "inactive",
 ]);
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-function cleanSearch(value: string) {
-  return value
-    .replace(/[(),"'\\%_]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
 
 export default async function CustomersPage({
   searchParams,
@@ -104,15 +93,13 @@ export default async function CustomersPage({
   if (search) {
     const pattern = `%${search}%`;
 
+    // الاسم والشخص والمنطقة والعنوان بعمود البحث (أ/ا، ة/ه، وأكتر من كلمة).
     const conditions = [
-      `name.ilike.${pattern}`,
-      `contact_name.ilike.${pattern}`,
+      searchKeyCondition(search),
       `phone.ilike.${pattern}`,
       `whatsapp.ilike.${pattern}`,
-      `area.ilike.${pattern}`,
-      `address.ilike.${pattern}`,
       `notes.ilike.${pattern}`,
-    ];
+    ].filter(Boolean);
 
     // الأرقام محفوظة بصيغة +963...، فإذا كتب 0944... منبحث كمان بالصيغة المحفوظة.
     const phone = normalizeAnyPhone(search);

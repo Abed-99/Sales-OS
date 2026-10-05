@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
+import { formatQty } from "@/lib/format";
+import { formatDate as formatDay, formatDateTime } from "@/lib/format";
 
 export type ApprovalRequest = {
   id: string;
@@ -70,13 +72,7 @@ function friendlyError(raw: string | undefined) {
 }
 
 function formatDate(value: string, withTime = false) {
-  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
-  }).format(new Date(value));
+  return withTime ? formatDateTime(value) : formatDay(value);
 }
 
 export function ApprovalsClient({
@@ -202,13 +198,13 @@ export function ApprovalsClient({
       </div>
 
       <section className="statsGrid">
-        <Mini title="بانتظار الموافقة" value={String(pending)} />
+        <Mini title="بانتظار الموافقة" value={formatQty(pending)} />
 
-        <Mini title="تمت الموافقة" value={String(approved)} />
+        <Mini title="تمت الموافقة" value={formatQty(approved)} />
 
-        <Mini title="مرفوض" value={String(rejected)} />
+        <Mini title="مرفوض" value={formatQty(rejected)} />
 
-        <Mini title="إجمالي الطلبات" value={String(requests.length)} />
+        <Mini title="إجمالي الطلبات" value={formatQty(requests.length)} />
       </section>
 
       <div

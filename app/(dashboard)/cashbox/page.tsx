@@ -3,18 +3,11 @@ import { CashboxClient } from "@/components/cashbox/cashbox-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { createClient } from "@/lib/supabase/server";
+import { todayDamascus as businessDate } from "@/lib/format";
+import { searchKeyCondition } from "@/lib/search";
 
 const TRANSACTION_PAGE_SIZE = 50;
 const EXPENSE_PAGE_SIZE = 25;
-
-function businessDate() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 function positivePage(value: string | undefined) {
   const parsed = Number.parseInt(value ?? "1", 10);
@@ -115,13 +108,13 @@ export default async function CashboxPage({
         .from("traders")
         .select("id")
         .eq("company_id", companyId)
-        .ilike("name", pattern)
+        .or(searchKeyCondition(safeSearch) || "id.is.null")
         .limit(200),
       supabase
         .from("suppliers")
         .select("id")
         .eq("company_id", companyId)
-        .ilike("name", pattern)
+        .or(searchKeyCondition(safeSearch) || "id.is.null")
         .limit(200),
     ]);
     const conditions = [`notes.ilike.${pattern}`];

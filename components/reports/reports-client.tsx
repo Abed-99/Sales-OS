@@ -5,15 +5,12 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { ReportExport } from "@/components/reports/report-export";
+import { formatMoney as money, formatNumber, formatQty } from "@/lib/format";
 
 function num(value: unknown) {
   const n = Number(value || 0);
 
   return Number.isFinite(n) ? n : 0;
-}
-
-function money(value: unknown, currency: string) {
-  return `${num(value).toFixed(2)} ${currency}`;
 }
 
 export type FinancialReport = {
@@ -784,7 +781,7 @@ export function ReportsClient({
 
               <Mini
                 title="عدد الأصناف بالمستودعات"
-                value={String(inventoryLines ?? inventory.length)}
+                value={formatQty(inventoryLines ?? inventory.length)}
               />
             </section>
 
@@ -820,13 +817,13 @@ export function ReportsClient({
 
                         <td>{row.sku || "—"}</td>
 
-                        <td>{Number(num(row.on_hand).toFixed(3))}</td>
+                        <td>{formatQty(num(row.on_hand))}</td>
 
-                        <td>{Number(num(row.reserved).toFixed(3))}</td>
+                        <td>{formatQty(num(row.reserved))}</td>
 
-                        <td>{Number(num(row.available).toFixed(3))}</td>
+                        <td>{formatQty(num(row.available))}</td>
 
-                        <td>{num(row.average_cost).toFixed(4)}</td>
+                        <td>{formatNumber(num(row.average_cost), 4)}</td>
 
                         <td>
                           <strong>
@@ -855,7 +852,7 @@ export function ReportsClient({
                 value={money(totalSales, baseCurrency)}
               />
 
-              <Mini title="عدد الأشهر" value={String(salesMonthly.length)} />
+              <Mini title="عدد الأشهر" value={formatQty(salesMonthly.length)} />
             </section>
 
             <MonthlySalesTable rows={salesMonthly} currency={baseCurrency} />
@@ -875,7 +872,7 @@ export function ReportsClient({
                 value={money(totalPurchases, baseCurrency)}
               />
 
-              <Mini title="عدد الأشهر" value={String(purchaseMonthly.length)} />
+              <Mini title="عدد الأشهر" value={formatQty(purchaseMonthly.length)} />
             </section>
 
             <MonthlyPurchaseTable
@@ -902,7 +899,7 @@ export function ReportsClient({
                 }
               />
 
-              <Mini title="عدد المسيرات" value={String(payrollRuns.length)} />
+              <Mini title="عدد المسيرات" value={formatQty(payrollRuns.length)} />
             </section>
 
             <section
@@ -990,7 +987,7 @@ export function ReportsClient({
                 }
               />
 
-              <Mini title="عدد الأصول" value={String(assets.length)} />
+              <Mini title="عدد الأصول" value={formatQty(assets.length)} />
             </section>
 
             <section
@@ -1160,7 +1157,7 @@ export function ReportsClient({
 
               <Mini
                 title="عدد الشركاء"
-                value={String(
+                value={formatQty(
                   partners.filter((partner) => partner.active).length,
                 )}
               />
@@ -1193,9 +1190,9 @@ export function ReportsClient({
                           <strong>{partner.name}</strong>
                         </td>
 
-                        <td>{num(partner.ownership_percent).toFixed(2)}%</td>
+                        <td>{formatNumber(num(partner.ownership_percent))}%</td>
 
-                        <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
+                        <td>{formatNumber(num(partner.profit_share_percent))}%</td>
 
                         <td>
                           {money(partner.capital_contributions, baseCurrency)}
@@ -1251,7 +1248,7 @@ function AgingTable({
 
         <Mini
           title={type === "customer" ? "عملاء عليهم رصيد" : "موردين عليهم رصيد"}
-          value={String(rows.length)}
+          value={formatQty(rows.length)}
         />
       </section>
 
@@ -1352,7 +1349,7 @@ function MonthlySalesTable({
                   <strong>{row.month_start.slice(0, 7)}</strong>
                 </td>
 
-                <td>{row.invoice_count}</td>
+                <td>{formatQty(row.invoice_count)}</td>
 
                 <td>{money(row.gross_sales, currency)}</td>
 
@@ -1409,7 +1406,7 @@ function MonthlyPurchaseTable({
                   <strong>{row.month_start.slice(0, 7)}</strong>
                 </td>
 
-                <td>{row.invoice_count}</td>
+                <td>{formatQty(row.invoice_count)}</td>
 
                 <td>{money(row.gross_purchases, currency)}</td>
 

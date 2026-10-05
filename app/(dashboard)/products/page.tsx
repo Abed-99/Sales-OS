@@ -10,20 +10,9 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
 
 type ProductFilter = "all" | "active" | "archived";
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-function cleanSearch(value: string) {
-  return value
-    .replace(/[(),"'\\%_]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
 
 export default async function ProductsPage({
   searchParams,
@@ -128,7 +117,7 @@ export default async function ProductsPage({
     const pattern = `%${search}%`;
 
     productsQuery = productsQuery.or(
-      [`name.ilike.${pattern}`, `sku.ilike.${pattern}`, `brand.ilike.${pattern}`].join(","),
+      [searchKeyCondition(search), `sku.ilike.${pattern}`].filter(Boolean).join(","),
     );
   }
 

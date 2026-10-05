@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import styles from "./owner-client.module.css";
+import { formatDateTime as formatDate } from "@/lib/format";
 
 export type TeamRole = {
   id: string;
@@ -88,16 +89,6 @@ function readableError(message: string) {
   }
 
   return "تعذر تنفيذ العملية. حاول مرة أخرى.";
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "—";
-
-  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 function randomPassword() {

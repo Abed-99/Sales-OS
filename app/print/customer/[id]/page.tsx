@@ -7,6 +7,7 @@ import { StatementRange } from "@/components/print/statement-range";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
+import { todayDamascus } from "@/lib/format";
 
 type Row = {
   event_date: string;
@@ -34,9 +35,7 @@ export default async function PrintCustomerStatement({
   const context = await getCurrentContext();
   const supabase = await createClient();
 
-  const today = new Date().toLocaleDateString("en-CA", {
-    timeZone: "Asia/Damascus",
-  });
+  const today = todayDamascus();
   const from = validDate(query.from);
   const to = validDate(query.to) ?? today;
 

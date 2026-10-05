@@ -9,6 +9,7 @@ import {
   hasPermission,
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { formatMoney as money, formatDateTime } from "@/lib/format";
 
 type ProductRow = {
   id: string;
@@ -53,21 +54,6 @@ type PriceRow = {
   last_checked_at: string;
 };
 
-function money(
-  value: number,
-  currency: string
-) {
-  return `${new Intl.NumberFormat(
-    "en-US",
-    {
-      minimumFractionDigits:
-        2,
-      maximumFractionDigits:
-        2,
-    }
-  ).format(Number(value || 0))} ${currency}`;
-}
-
 function quantity(
   value: number
 ) {
@@ -79,29 +65,6 @@ function quantity(
     }
   ).format(
     Number(value || 0)
-  );
-}
-
-function formatDateTime(
-  value: string | null
-) {
-  if (!value) {
-    return "—";
-  }
-
-  return new Intl.DateTimeFormat(
-    "ar-SY-u-nu-latn",
-    {
-      timeZone:
-        "Asia/Damascus",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  ).format(
-    new Date(value)
   );
 }
 

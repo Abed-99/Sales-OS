@@ -43,6 +43,7 @@ create table public.products (
   active boolean default true not null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
+  search_key text generated always as (public.normalize_search(name || ' ' || coalesce(sku, '') || ' ' || coalesce(brand, '') || ' ' || coalesce(barcode, ''))) stored,
   constraint products_company_id_sku_key unique (company_id, sku),
   constraint products_minimum_sale_price_check check (((minimum_sale_price is null) or (minimum_sale_price >= (0)::numeric))),
   constraint products_sale_price_check check (((sale_price is null) or (sale_price >= (0)::numeric)))
@@ -71,6 +72,7 @@ create table public.traders (
   whatsapp_marketing_opt_in boolean default false not null,
   whatsapp_opt_in_at timestamp with time zone,
   whatsapp_opt_out_at timestamp with time zone,
+  search_key text generated always as (public.normalize_search(name || ' ' || coalesce(contact_name, '') || ' ' || coalesce(area, '') || ' ' || coalesce(address, ''))) stored,
   constraint traders_check check ((((latitude is null) and (longitude is null)) or ((latitude is not null) and (longitude is not null)))),
   constraint traders_credit_limit_check check (((credit_limit is null) or (credit_limit >= (0)::numeric))),
   constraint traders_latitude_check check (((latitude is null) or ((latitude >= ('-90'::integer)::numeric) and (latitude <= (90)::numeric)))),
@@ -113,6 +115,7 @@ create table public.suppliers (
   supplier_type text,
   country text,
   currency text,
+  search_key text generated always as (public.normalize_search(name || ' ' || coalesce(contact_name, '') || ' ' || coalesce(country, ''))) stored,
   constraint suppliers_type_check check (supplier_type is null or supplier_type in ('factory','agent','wholesaler','local','other')),
   constraint suppliers_currency_check check (currency is null or currency ~ '^[A-Z]{3}$'),
   constraint suppliers_payment_terms_days_check check (((payment_terms_days >= 0) and (payment_terms_days <= 3650)))

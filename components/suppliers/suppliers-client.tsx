@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
 import { Icons } from "@/components/icons";
+import { NumberInput } from "@/components/number-input";
+import { matchesSearch } from "@/lib/search";
 type Row = {
   id: string;
   name: string;
@@ -85,14 +87,17 @@ export function SuppliersClient({
       rows.filter(
         (r) =>
           !q ||
-          [
-            r.name,
-            r.contact_name,
-            r.phone,
-            r.address,
-            r.country,
-            supplierTypes[r.supplier_type ?? ""],
-          ].some((x) => x?.toLowerCase().includes(q.toLowerCase())),
+          matchesSearch(
+            [
+              r.name,
+              r.contact_name,
+              r.phone,
+              r.address,
+              r.country,
+              supplierTypes[r.supplier_type ?? ""],
+            ].join(" "),
+            q,
+          ),
       ),
     [rows, q],
   );
@@ -384,8 +389,7 @@ export function SuppliersClient({
                 )}
                 <label className="field">
                   <span>مهلة الدفع (يوم)</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     max="3650"
                     step="1"

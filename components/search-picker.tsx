@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { matchesSearch } from "@/lib/search";
 
 export type PickerOption<T = unknown> = {
   id: string;
@@ -54,11 +55,7 @@ export function SearchPicker<T>({
   const results = useMemo(() => {
     const q = term.trim().toLowerCase();
     const local = q
-      ? options.filter((option) =>
-          [option.label, option.hint, option.code].some((text) =>
-            text?.toLowerCase().includes(q),
-          ),
-        )
+      ? options.filter((option) => matchesSearch([option.label, option.hint, option.code].join(" "), q))
       : options;
     const seen = new Set(local.map((option) => option.id));
     return [...local, ...remote.filter((option) => !seen.has(option.id))].slice(0, 50);

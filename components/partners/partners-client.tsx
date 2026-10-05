@@ -6,23 +6,13 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
+import { matchesSearch } from "@/lib/search";
 
 function num(value: unknown) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-function today() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export type PartnerSummary = {
@@ -119,9 +109,7 @@ export function PartnersClient({
     }
 
     return partners.filter((partner) =>
-      [partner.name, partner.phone, partner.partner_number].some((value) =>
-        value?.toLowerCase().includes(q),
-      ),
+      matchesSearch([partner.name, partner.phone, partner.partner_number].join(" "), q),
     );
   }, [partners, search]);
 
@@ -324,13 +312,13 @@ export function PartnersClient({
       </div>
 
       <section className="statsGrid">
-        <Mini title="الشركاء" value={String(activePartners.length)} />
+        <Mini title="الشركاء" value={formatQty(activePartners.length)} />
 
         <Mini
           title="رأس المال المدخل"
           value={
             safeSingleCurrencyTotals
-              ? `${totalCapital.toFixed(2)} ${partnerDisplayCurrency}`
+              ? `${formatNumber(totalCapital)} ${partnerDisplayCurrency}`
               : "حسب العملة"
           }
         />
@@ -339,7 +327,7 @@ export function PartnersClient({
           title="المسحوبات"
           value={
             safeSingleCurrencyTotals
-              ? `${totalDrawings.toFixed(2)} ${partnerDisplayCurrency}`
+              ? `${formatNumber(totalDrawings)} ${partnerDisplayCurrency}`
               : "حسب العملة"
           }
         />
@@ -348,7 +336,7 @@ export function PartnersClient({
           title="قروض الشركاء"
           value={
             safeSingleCurrencyTotals
-              ? `${totalLoans.toFixed(2)} ${partnerDisplayCurrency}`
+              ? `${formatNumber(totalLoans)} ${partnerDisplayCurrency}`
               : "حسب العملة"
           }
         />
@@ -402,17 +390,17 @@ export function PartnersClient({
                       <div className="muted">{partner.partner_number || partner.phone || ""}</div>
                     </td>
 
-                    <td>{num(partner.ownership_percent).toFixed(2)}%</td>
+                    <td>{formatNumber(num(partner.ownership_percent))}%</td>
 
-                    <td>{num(partner.profit_share_percent).toFixed(2)}%</td>
+                    <td>{formatNumber(num(partner.profit_share_percent))}%</td>
 
-                    <td>{num(partner.capital_contributions).toFixed(2)}</td>
+                    <td>{formatNumber(num(partner.capital_contributions))}</td>
 
-                    <td>{num(partner.drawings).toFixed(2)}</td>
+                    <td>{formatNumber(num(partner.drawings))}</td>
 
-                    <td>{num(partner.partner_loan_balance).toFixed(2)}</td>
+                    <td>{formatNumber(num(partner.partner_loan_balance))}</td>
 
-                    <td>{num(partner.profit_distributions).toFixed(2)}</td>
+                    <td>{formatNumber(num(partner.profit_distributions))}</td>
 
                     <td>
                       <div className="rowActions">
@@ -477,7 +465,7 @@ export function PartnersClient({
 
                     <td>
                       <strong>
-                        {num(transaction.amount).toFixed(2)} {transaction.currency}
+                        {formatNumber(num(transaction.amount))} {transaction.currency}
                       </strong>
                     </td>
 
@@ -746,8 +734,7 @@ function NumberField({
     <label className="field">
       <span>{label}</span>
 
-      <input
-        type="number"
+      <NumberInput
         min="0"
         step="0.01"
         value={value}

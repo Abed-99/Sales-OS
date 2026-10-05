@@ -10,6 +10,9 @@ import { UnitToggle } from "@/components/unit-toggle";
 import { searchProducts, searchSuppliers, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { convertPrice, toBasePrice, toBaseQuantity, type UnitMode } from "@/lib/units";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty } from "@/lib/format";
+import { matchesSearch } from "@/lib/search";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -57,10 +60,6 @@ const statusChip: Record<PurchaseOrderRow["status"], string> = {
   converted: "green",
   cancelled: "gray",
 };
-
-function money(value: number, currency: string) {
-  return `${Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-}
 
 const newLine = (): Line => ({
   key: crypto.randomUUID(),
@@ -118,13 +117,14 @@ export function PurchaseOrdersClient({
   const filtered = orders.filter((order) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
-    return [
-      order.po_number,
-      one(order.suppliers)?.name,
-      ...order.purchase_order_items.map((i) => one(i.products)?.name),
-    ]
-      .filter(Boolean)
-      .some((text) => text!.toLowerCase().includes(q));
+    return matchesSearch(
+      [
+        order.po_number,
+        one(order.suppliers)?.name,
+        ...order.purchase_order_items.map((i) => one(i.products)?.name),
+      ].join(" "),
+      q,
+    );
   });
 
   function update(key: string, patch: Partial<Line>) {
@@ -250,7 +250,7 @@ export function PurchaseOrdersClient({
                   <td>{one(order.suppliers)?.name}</td>
                   <td>
                     {order.purchase_order_items
-                      .map((item) => `${one(item.products)?.name} × ${Number(item.quantity)}`)
+                      .map((item) => `${one(item.products)?.name} × ${formatQty(item.quantity)}`)
                       .join("، ")}
                   </td>
                   <td>{money(order.total, order.currency)}</td>
@@ -363,8 +363,7 @@ export function PurchaseOrdersClient({
                         })
                       }
                     />
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0.001"
                       step="any"
                       placeholder="الكمية"
@@ -384,8 +383,7 @@ export function PurchaseOrdersClient({
                         })
                       }
                     />
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0"
                       step="any"
                       placeholder="السعر المتوقع"

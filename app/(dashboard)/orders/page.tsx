@@ -14,6 +14,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { hasPermission } from "@/lib/permissions";
 import { normalizeAnyPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
+import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
 
 const validStatuses = new Set([
   "draft",
@@ -25,18 +26,6 @@ const validStatuses = new Set([
   "delivered",
   "cancelled",
 ]);
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-function cleanSearch(value: string) {
-  return value
-    .replace(/[%_(),"'\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -52,12 +41,10 @@ function searchAmount(term: string) {
 async function traderIdsMatching(supabase: ServerClient, companyId: string, term: string) {
   const pattern = `%${term}%`;
   const conditions = [
-    `name.ilike.${pattern}`,
-    `contact_name.ilike.${pattern}`,
-    `area.ilike.${pattern}`,
+    searchKeyCondition(term),
     `phone.ilike.${pattern}`,
     `whatsapp.ilike.${pattern}`,
-  ];
+  ].filter(Boolean);
   const phone = normalizeAnyPhone(term);
   if (phone) conditions.push(`phone.eq.${phone}`, `whatsapp.eq.${phone}`);
   const { data } = await supabase
@@ -76,7 +63,7 @@ async function orderIdsWithProduct(supabase: ServerClient, companyId: string, te
     .from("products")
     .select("id")
     .eq("company_id", companyId)
-    .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
+    .or([searchKeyCondition(term), `sku.ilike.${pattern}`].filter(Boolean).join(","))
     .limit(200);
   const productIds = (products ?? []).map((row) => row.id as string);
   if (!productIds.length) return [];

@@ -35,7 +35,7 @@ export function LoginClient({
       });
 
       if (error) {
-        setMessage("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
+        setMessage("البريد الإلكتروني أو كلمة السر غير صحيحة.");
         return;
       }
 
@@ -84,7 +84,7 @@ export function LoginClient({
           </label>
 
           <label className="field">
-            <span>كلمة المرور</span>
+            <span>كلمة السر</span>
             <input
               type="password"
               required
@@ -98,7 +98,7 @@ export function LoginClient({
 
           <div className="authHelperRow">
             <Link href="/forgot-password">
-              نسيت كلمة المرور؟
+              نسيت كلمة السر؟
             </Link>
           </div>
 

@@ -260,6 +260,13 @@ begin
     from public.sales_invoices si
     where si.company_id = target_company and si.status = 'posted'
       and si.balance_due > 0 and si.due_date < v_today
+      and coalesce((select (c.whatsapp_settings->>'reminder')::boolean from public.companies c where c.id = target_company), true)
+      -- الزبون يلي رسالتو جاهزة من قبل ما منرجع نحسبلو (هالدالة بتشتغل مع كل فتحة صفحة).
+      and not exists (
+        select 1 from public.whatsapp_outbox o
+        where o.company_id = target_company
+          and o.dedupe_key = 'reminder:' || si.trader_id || ':' || ((v_today - date '2000-01-01') / greatest(v_days, 1))::text
+      )
     group by si.trader_id
   loop
     perform public.enqueue_whatsapp(
@@ -275,6 +282,12 @@ begin
     select distinct si.trader_id
     from public.sales_invoices si
     where si.company_id = target_company and si.status = 'posted' and si.balance_due > 0
+      and coalesce((select (c.whatsapp_settings->>'statement')::boolean from public.companies c where c.id = target_company), true)
+      and not exists (
+        select 1 from public.whatsapp_outbox o
+        where o.company_id = target_company
+          and o.dedupe_key = 'statement:' || si.trader_id || ':' || to_char(v_today, 'YYYY-MM')
+      )
   loop
     perform public.enqueue_whatsapp(
       target_company, 'statement', v_row.trader_id,

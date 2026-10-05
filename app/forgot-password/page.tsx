@@ -42,7 +42,7 @@ export default function ForgotPasswordPage() {
       setSuccess(true);
 
       setMessage(
-        "إذا كان البريد مسجلًا لدينا، فستصلك رسالة تحتوي على رابط لتعيين كلمة مرور جديدة."
+        "إذا كان البريد مسجلًا لدينا، فستصلك رسالة تحتوي على رابط لتعيين كلمة سر جديدة."
       );
     } catch {
       setMessage("تعذر الاتصال بالخادم. حاول مرة أخرى.");
@@ -65,10 +65,10 @@ export default function ForgotPasswordPage() {
 
         <span className="eyebrow">أمان الحساب</span>
 
-        <h1>نسيت كلمة المرور؟</h1>
+        <h1>نسيت كلمة السر؟</h1>
 
         <p>
-          أدخل بريدك الإلكتروني وسنرسل لك رابطًا لتعيين كلمة مرور جديدة.
+          أدخل بريدك الإلكتروني وسنرسل لك رابطًا لتعيين كلمة سر جديدة.
         </p>
 
         <form className="authForm" onSubmit={submit}>

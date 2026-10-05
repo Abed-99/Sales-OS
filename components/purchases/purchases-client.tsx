@@ -17,6 +17,8 @@ import {
 } from "@/lib/units";
 import { productOption, searchProducts, searchSuppliers } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty, todayDamascus as businessDateInput } from "@/lib/format";
 
 export type PurchaseNeed = {
   sales_order_item_id: string;
@@ -182,27 +184,6 @@ function oneRelation<T>(value: T | T[] | null) {
 
 function newKey() {
   return crypto.randomUUID();
-}
-
-function businessDateInput() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))} ${currency}`;
 }
 
 function friendlyError(
@@ -1630,11 +1611,11 @@ export function PurchasesClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini title="بنود مطلوبة" value={String(initialStats.needCount)} />
+        <Mini title="بنود مطلوبة" value={formatQty(initialStats.needCount)} />
 
         <Mini
           title="كميات متبقية"
-          value={String(Number(initialStats.remainingUnits.toFixed(3)))}
+          value={formatQty(Number(initialStats.remainingUnits.toFixed(3)))}
         />
 
         <Mini
@@ -1692,12 +1673,12 @@ export function PurchasesClient({
 
                     <td>{need.trader_name}</td>
 
-                    <td>{need.required_quantity}</td>
+                    <td>{formatQty(need.required_quantity)}</td>
 
-                    <td>{need.allocated_quantity}</td>
+                    <td>{formatQty(need.allocated_quantity)}</td>
 
                     <td>
-                      <strong>{need.remaining_quantity}</strong>
+                      <strong>{formatQty(need.remaining_quantity)}</strong>
                     </td>
                   </tr>
                 ))}
@@ -2246,7 +2227,7 @@ export function PurchasesClient({
 
                             <td>{need.trader_name}</td>
 
-                            <td>{need.remaining_quantity}</td>
+                            <td>{formatQty(need.remaining_quantity)}</td>
 
                             <td>
                               <button
@@ -2359,8 +2340,7 @@ export function PurchasesClient({
                               </td>
 
                               <td>
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min="0.001"
                                   step="0.001"
                                   value={line.quantity}
@@ -2394,8 +2374,7 @@ export function PurchasesClient({
                               </td>
 
                               <td>
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min="0"
                                   step="0.01"
                                   value={line.unitCost}
@@ -2408,8 +2387,7 @@ export function PurchasesClient({
                               </td>
 
                               <td>
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min="0"
                                   step="0.01"
                                   value={line.discountAmount}
@@ -2422,8 +2400,7 @@ export function PurchasesClient({
                               </td>
 
                               <td>
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min="0"
                                   step="0.01"
                                   value={line.taxAmount}
@@ -2556,8 +2533,7 @@ export function PurchasesClient({
                 <label className="field">
                   <span>المبلغ ({paymentInvoiceCurrency})</span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.01"
                     step="0.01"
                     value={paymentAmount}
@@ -2681,8 +2657,7 @@ export function PurchasesClient({
                             </td>
 
                             <td>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="0.01"
                                 value={paymentAllocations[invoice.id] || ""}
@@ -2832,7 +2807,7 @@ export function PurchasesClient({
                             ) : null}
                           </td>
                           <td>
-                            {quantity} {product?.unit || ""}
+                            {formatQty(quantity)} {product?.unit || ""}
                           </td>
                           <td>
                             {money(line.unit_cost, detailInvoice.currency)}
@@ -2859,7 +2834,7 @@ export function PurchasesClient({
                               >
                                 {line.received >= quantity
                                   ? "استلمنا الكل"
-                                  : `${line.received} من ${quantity}`}
+                                  : `${formatQty(line.received)} من ${formatQty(quantity)}`}
                               </span>
                             )}
                           </td>

@@ -16,22 +16,7 @@ import {
   hasPermission,
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
-
-function firstParam(
-  value: string | string[] | undefined
-) {
-  return Array.isArray(value)
-    ? value[0] ?? ""
-    : value ?? "";
-}
-
-function cleanSearch(value: string) {
-  return value
-    .replace(/[%_(),"'\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
+import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -48,7 +33,7 @@ async function supplierIdsMatching(supabase: ServerClient, companyId: string, te
     .from("suppliers")
     .select("id")
     .eq("company_id", companyId)
-    .or(`name.ilike.${pattern},contact_name.ilike.${pattern}`)
+    .or(searchKeyCondition(term) || `name.ilike.${pattern}`)
     .limit(200);
   return (data ?? []).map((row) => row.id as string);
 }
@@ -60,7 +45,7 @@ async function invoiceIdsWithProduct(supabase: ServerClient, companyId: string, 
     .from("products")
     .select("id")
     .eq("company_id", companyId)
-    .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
+    .or([searchKeyCondition(term), `sku.ilike.${pattern}`].filter(Boolean).join(","))
     .limit(200);
   const productIds = (products ?? []).map((row) => row.id as string);
   if (!productIds.length) return [];

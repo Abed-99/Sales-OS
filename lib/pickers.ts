@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { PickerOption } from "@/components/search-picker";
 import { normalizeAnyPhone } from "@/lib/phone";
+import { searchKeyCondition } from "@/lib/search";
 
 const LIMIT = 30;
 
@@ -18,7 +19,7 @@ export async function searchTraders(
   term: string,
 ): Promise<PickerOption<TraderPick>[]> {
   const like = pattern(term);
-  const conditions = [`name.ilike.${like}`, `area.ilike.${like}`, `phone.ilike.${like}`];
+  const conditions = [searchKeyCondition(term), `phone.ilike.${like}`].filter(Boolean);
   const phone = normalizeAnyPhone(term);
   if (phone) conditions.push(`phone.eq.${phone}`, `whatsapp.eq.${phone}`);
 
@@ -64,7 +65,7 @@ export async function searchProducts(
     .eq("company_id", companyId)
     .eq("active", true)
     .or(
-      [`name.ilike.${like}`, `sku.ilike.${like}`, `brand.ilike.${like}`, code ? `barcode.eq.${code}` : ""]
+      [searchKeyCondition(term), `sku.ilike.${like}`, code ? `barcode.eq.${code}` : ""]
         .filter(Boolean)
         .join(","),
     )
@@ -97,7 +98,7 @@ export async function searchSuppliers(
     .select("id,name,contact_name")
     .eq("company_id", companyId)
     .eq("active", true)
-    .or(`name.ilike.${like},contact_name.ilike.${like}`)
+    .or(searchKeyCondition(term) || `name.ilike.${like}`)
     .order("name")
     .limit(LIMIT);
 

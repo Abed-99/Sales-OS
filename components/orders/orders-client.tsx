@@ -21,6 +21,8 @@ import {
 } from "@/lib/units";
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty, formatDateTime, todayDamascus as businessDateInput } from "@/lib/format";
 
 type OrderStatus =
   | "draft"
@@ -180,37 +182,6 @@ function emptyItem(): ItemDraft {
 
 function oneRelation<T>(value: T | T[] | null) {
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function businessDateInput() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))} ${currency}`;
 }
 
 function friendlyError(
@@ -1231,7 +1202,7 @@ export function OrdersClient({
           <div />
 
           <div className="resultCount">
-            {totalCount === 0 ? "0 نتيجة" : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+            {totalCount === 0 ? "0 نتيجة" : `${formatQty(visibleFrom)}–${formatQty(visibleTo)} من ${formatQty(totalCount)}`}
           </div>
         </div>
 
@@ -1468,8 +1439,7 @@ export function OrdersClient({
                       }
                     />
 
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0.001"
                       step="0.001"
                       value={item.quantity}
@@ -1489,8 +1459,7 @@ export function OrdersClient({
                       onChange={(mode) => changeUnit(index, mode)}
                     />
 
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0"
                       step="0.01"
                       value={item.sale_unit_price}
@@ -1592,8 +1561,7 @@ export function OrdersClient({
                 <label className="field">
                   <span>المبلغ</span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.01"
                     step="0.01"
                     value={paymentAmount}

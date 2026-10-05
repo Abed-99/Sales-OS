@@ -10,6 +10,8 @@
 2. بـ GitHub: المستودع ← **Settings → Secrets and variables → Actions → New repository secret**:
    - `SUPABASE_DB_URL` = الرابط من الخطوة 1.
    - `BACKUP_PASSPHRASE` = كلمة سر طويلة من عندك. **احفظها بمكان آمن**: بدونها النسخ ما بتنفتح.
+   - (اختياري، مشان تنحفظ صور الأصناف كمان) من Supabase **Project Settings → API**:
+     `SUPABASE_URL` = رابط المشروع، و `SUPABASE_SERVICE_ROLE_KEY` = مفتاح service_role (أو secret).
 3. جرّب: **Actions → نسخة احتياطية يومية → Run workflow**. لازم تخلص بعلامة ✓ خضرا.
 
 ## تنزيل نسخة
@@ -35,6 +37,8 @@ pg_restore --data-only --no-owner -d "$DB_URL" storage_*.dump
 
 - `public_*.dump`: كل جداول النظام (الأصناف، الفواتير، الحسابات، القيود...).
 - `auth_*.dump`: حسابات الدخول، مشان الموظفين يفوتوا بنفس كلمات سرهن.
-- `storage_*.dump`: سجلّات صور الأصناف. الصور نفسها محفوظة بمخزن Supabase.
+- `storage_*.dump`: سجلّات صور الأصناف.
+- مجلد `storage/product-images/`: الصور نفسها (إذا حطيت السرّين الاختياريين). لترجيعها، ارفع
+  المجلد لنفس الـ bucket من Supabase → Storage → product-images (بنفس أسماء المجلدات).
 
 > الأحسن تجرّب استرجاع نسخة على مشروع تجربة مرة كل كم شهر، لتتأكد إنو كلشي ماشي.

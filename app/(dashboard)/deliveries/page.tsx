@@ -7,20 +7,9 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { cleanSearch, firstParam } from "@/lib/search";
 
 type DeliveryStatusFilter = "all" | "ready" | "out_for_delivery";
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
-}
-
-function cleanSearch(value: string) {
-  return value
-    .replace(/[%_(),"'\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
 
 export default async function DeliveriesPage({
   searchParams,

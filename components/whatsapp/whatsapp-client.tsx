@@ -9,6 +9,7 @@ import {
   WhatsAppSettingsPanel,
   type OutboxMessage,
 } from "@/components/whatsapp/outbox-panel";
+import { formatMoney as money } from "@/lib/format";
 
 export type DebtorRow = {
   id: string;
@@ -35,9 +36,6 @@ function waNumber(phone: string | null | undefined) {
   if (digits.startsWith("09")) return `963${digits.slice(1)}`;
   return digits;
 }
-
-const money = (value: number, currency: string) =>
-  `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 
 function openChat(phone: string | null, text: string) {
   window.open(

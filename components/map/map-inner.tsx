@@ -19,6 +19,7 @@ import { googleMapsRouteLinks, planRoute, type LatLng } from "@/lib/route";
 import { createClient } from "@/lib/supabase/client";
 
 import type { MapProps, MapTrader } from "./map-shell";
+import { formatNumber } from "@/lib/format";
 
 const DAMASCUS: [number, number] = [33.5138, 36.2765];
 
@@ -386,7 +387,7 @@ export function MapInner({
             <div>
               <h2>
                 {route
-                  ? `${route.stops.length} وقفة • تقريبًا ${route.totalKm.toFixed(1)} كم`
+                  ? `${route.stops.length} وقفة • تقريبًا ${formatNumber(route.totalKm, 1)} كم`
                   : `${deliveryStops.length} زبون بانتظار التوصيل`}
               </h2>
               <p>

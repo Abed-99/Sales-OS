@@ -7,6 +7,7 @@ import { money } from "@/lib/print-format";
 import { waNumber } from "@/lib/wa-send";
 
 import styles from "./public-catalog.module.css";
+import { formatQty as qty } from "@/lib/format";
 
 export type PublicCatalogProduct = {
   id: string;
@@ -45,8 +46,6 @@ export type PublicCatalogData = {
   categories: Array<{ id: string; name: string }>;
   products: PublicCatalogProduct[];
 };
-
-const qty = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 3 });
 
 export function PublicCatalog({ token, data }: { token: string; data: PublicCatalogData }) {
   const { company, link, categories, products } = data;

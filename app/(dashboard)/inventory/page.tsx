@@ -17,36 +17,7 @@ import {
   hasPermission,
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
-
-function firstParam(
-  value:
-    | string
-    | string[]
-    | undefined
-) {
-  return Array.isArray(value)
-    ? value[0] ?? ""
-    : value ?? "";
-}
-
-function cleanSearch(
-  value: string
-) {
-  return value
-    .replace(
-      /[%_(),"'\\]/g,
-      " "
-    )
-    .replace(
-      /\s+/g,
-      " "
-    )
-    .trim()
-    .slice(
-      0,
-      100
-    );
-}
+import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
 
 export default async function InventoryPage({
   searchParams,
@@ -226,13 +197,22 @@ export default async function InventoryPage({
     const pattern =
       `%${searchQuery}%`;
 
+    // الأصناف يلي اسمها/كودها/ماركتها/باركودها فيه كلمات البحث (أ/ا، ة/ه، بأي ترتيب).
+    const { data: matchedProducts } = await supabase
+      .from("products")
+      .select("id")
+      .eq("company_id", context.companyId)
+      .or(searchKeyCondition(searchQuery) || "id.is.null")
+      .limit(300);
+    const productIds = (matchedProducts ?? []).map((row) => row.id as string);
+
     stockQuery =
       stockQuery.or(
         [
-          `product_name.ilike.${pattern}`,
+          productIds.length ? `product_id.in.(${productIds.join(",")})` : "",
           `sku.ilike.${pattern}`,
           `warehouse_name.ilike.${pattern}`,
-        ].join(",")
+        ].filter(Boolean).join(",")
       );
   }
 

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, todayDamascus as businessDate } from "@/lib/format";
 
 export type FinanceAccount = {
   id: string;
@@ -112,19 +114,6 @@ function unitsPerBase(rateToBase: unknown, baseCurrency: string, currency: strin
   return `1 ${baseCurrency} = ${units.toLocaleString("en-US", {
     maximumFractionDigits: units >= 100 ? 0 : 4,
   })} ${currency}`;
-}
-
-function businessDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function businessMonth() {
@@ -686,13 +675,13 @@ export function FinanceClient({
       </div>
 
       <section className="statsGrid">
-        <Mini title="الأصول" value={`${assets.toFixed(2)} ${baseCurrency}`} />
+        <Mini title="الأصول" value={`${formatNumber(assets)} ${baseCurrency}`} />
 
-        <Mini title="الالتزامات" value={`${liabilities.toFixed(2)} ${baseCurrency}`} />
+        <Mini title="الالتزامات" value={`${formatNumber(liabilities)} ${baseCurrency}`} />
 
-        <Mini title="الإيرادات" value={`${revenue.toFixed(2)} ${baseCurrency}`} />
+        <Mini title="الإيرادات" value={`${formatNumber(revenue)} ${baseCurrency}`} />
 
-        <Mini title="النتيجة الحالية" value={`${netProfit.toFixed(2)} ${baseCurrency}`} />
+        <Mini title="النتيجة الحالية" value={`${formatNumber(netProfit)} ${baseCurrency}`} />
       </section>
 
       <div
@@ -748,7 +737,7 @@ export function FinanceClient({
             }}
           >
             <strong>
-              مجموع المدين: {totalDebit.toFixed(2)} {baseCurrency}
+              مجموع المدين: {formatNumber(totalDebit)} {baseCurrency}
             </strong>
 
             <span
@@ -761,7 +750,7 @@ export function FinanceClient({
             </span>
 
             <strong>
-              مجموع الدائن: {totalCredit.toFixed(2)} {baseCurrency}
+              مجموع الدائن: {formatNumber(totalCredit)} {baseCurrency}
             </strong>
           </div>
         </section>
@@ -1255,16 +1244,16 @@ export function FinanceClient({
                             </strong>
                           </td>
 
-                          <td>{numberValue(line.debit).toFixed(2)}</td>
+                          <td>{formatNumber(numberValue(line.debit))}</td>
 
-                          <td>{numberValue(line.credit).toFixed(2)}</td>
+                          <td>{formatNumber(numberValue(line.credit))}</td>
 
                           <td>
-                            {numberValue(line.base_debit).toFixed(2)} {baseCurrency}
+                            {formatNumber(numberValue(line.base_debit))} {baseCurrency}
                           </td>
 
                           <td>
-                            {numberValue(line.base_credit).toFixed(2)} {baseCurrency}
+                            {formatNumber(numberValue(line.base_credit))} {baseCurrency}
                           </td>
 
                           <td>{line.memo || "—"}</td>
@@ -1514,8 +1503,7 @@ export function FinanceClient({
                     1 {baseCurrency} = كم {rateCurrency || "من العملة"}؟ (مثلًا 13000)
                   </span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0.0001"
                     step="any"
                     value={rateValue}
@@ -1662,8 +1650,7 @@ export function FinanceClient({
                         </td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="0.01"
                             value={line.debit}
@@ -1684,8 +1671,7 @@ export function FinanceClient({
                         </td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="0.01"
                             value={line.credit}
@@ -1774,12 +1760,12 @@ export function FinanceClient({
               >
                 <strong>
                   مدين:{" "}
-                  {journalLines.reduce((sum, row) => sum + numberValue(row.debit), 0).toFixed(2)}
+                  {formatNumber(journalLines.reduce((sum, row) => sum + numberValue(row.debit), 0))}
                 </strong>
 
                 <strong>
                   دائن:{" "}
-                  {journalLines.reduce((sum, row) => sum + numberValue(row.credit), 0).toFixed(2)}
+                  {formatNumber(journalLines.reduce((sum, row) => sum + numberValue(row.credit), 0))}
                 </strong>
               </div>
 
@@ -1826,14 +1812,14 @@ function TrialTable({ rows, currency }: { rows: TrialBalanceRow[]; currency: str
               <td>{row.name}</td>
 
               <td>
-                {numberValue(row.debit).toFixed(2)} {currency}
+                {formatNumber(numberValue(row.debit))} {currency}
               </td>
 
               <td>
-                {numberValue(row.credit).toFixed(2)} {currency}
+                {formatNumber(numberValue(row.credit))} {currency}
               </td>
 
-              <td>{numberValue(row.balance).toFixed(2)}</td>
+              <td>{formatNumber(numberValue(row.balance))}</td>
             </tr>
           ))}
         </tbody>

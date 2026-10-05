@@ -7,6 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty as qty, formatDateTime } from "@/lib/format";
 
 export type DeliveryQueueItem = {
   id: string;
@@ -67,43 +69,11 @@ type Notice = {
 };
 
 /** 15 بدل 15.000 */
-function qty(value: unknown) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(numeric(value));
-}
 
 function numeric(value: unknown) {
   const result = Number(value ?? 0);
 
   return Number.isFinite(result) ? result : 0;
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numeric(value))} ${currency}`;
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ar", {
-    timeZone: "Asia/Damascus",
-
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 }
 
 function friendlyError(
@@ -625,9 +595,9 @@ export function DeliveriesClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini title="جاهزة للتوصيل" value={String(initialStats.readyCount)} />
+        <Mini title="جاهزة للتوصيل" value={qty(initialStats.readyCount)} />
 
-        <Mini title="بالطريق" value={String(initialStats.roadCount)} />
+        <Mini title="بالطريق" value={qty(initialStats.roadCount)} />
 
         <Mini title="قطع بالسيارة" value={qty(initialStats.roadUnits)} />
 
@@ -683,7 +653,7 @@ export function DeliveriesClient({
 
           <div />
 
-          <div className="resultCount">{totalCount} نتيجة</div>
+          <div className="resultCount">{qty(totalCount)} نتيجة</div>
         </form>
 
         {!rows.length ? (
@@ -975,8 +945,7 @@ export function DeliveriesClient({
                         <td>{qty(item.remaining_quantity)}</td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             max={item.remaining_quantity}
                             step="0.001"

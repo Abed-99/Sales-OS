@@ -24,6 +24,8 @@ import {
   traderPrices,
   type UnitMode,
 } from "@/lib/units";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatNumber, todayDamascus as today } from "@/lib/format";
 
 type Line = {
   key: string;
@@ -42,14 +44,6 @@ type Done = {
   credit_used?: number;
   currency: string;
 };
-
-function money(value: number, currency: string) {
-  return `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-}
-
-function today() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
-}
 
 function friendly(message: string) {
   const text = message.toLowerCase();
@@ -333,8 +327,7 @@ export function QuickSaleClient({
                       <strong>{line.product.name}</strong>
                     </td>
                     <td>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0.001"
                         step="any"
                         style={{ width: 80 }}
@@ -361,8 +354,7 @@ export function QuickSaleClient({
                       />
                     </td>
                     <td>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         step="any"
                         style={{ width: 90 }}
@@ -444,11 +436,10 @@ export function QuickSaleClient({
 
             <label className="field">
               <span>المدفوع ({currency})</span>
-              <input
-                type="number"
+              <NumberInput
                 min="0"
                 step="any"
-                placeholder={`كامل: ${total.toFixed(2)}`}
+                placeholder={`كامل: ${formatNumber(total)}`}
                 value={paid}
                 onChange={(event) => setPaid(event.target.value)}
               />

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
+import { formatQty, formatDateTime as formatDamascusDateTime, formatDate as formatDamascusDate } from "@/lib/format";
 
 export type TraderDetailRow = {
   id: string;
@@ -70,18 +71,6 @@ const orderStatusLabels: Record<string, string> = {
   delivered: "تم التسليم",
   cancelled: "ملغي",
 };
-
-function formatDamascusDateTime(value: string) {
-  return new Date(value).toLocaleString("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-  });
-}
-
-function formatDamascusDate(value: string) {
-  return new Date(value).toLocaleDateString("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-  });
-}
 
 function damascusLocalToIso(value: string) {
   if (!value) {
@@ -298,9 +287,9 @@ export function TraderDetailClient({
       </div>
 
       <section className="statsGrid">
-        {canViewVisits ? <Mini t="عدد الزيارات" v={String(currentVisitCount)} /> : null}
+        {canViewVisits ? <Mini t="عدد الزيارات" v={formatQty(currentVisitCount)} /> : null}
 
-        {canViewOrders ? <Mini t="الطلبات" v={String(orderCount)} /> : null}
+        {canViewOrders ? <Mini t="الطلبات" v={formatQty(orderCount)} /> : null}
 
         {canViewFinancials ? (
           <Mini

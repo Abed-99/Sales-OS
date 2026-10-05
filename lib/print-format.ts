@@ -1,9 +1,8 @@
 // تنسيق المبالغ والكميات بصفحات الطباعة (بيشتغل عالسيرفر والمتصفح).
 
-export function money(value: number | string | null | undefined, currency: string) {
-  const amount = Number(value ?? 0);
-  return `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-}
+import { formatMoney, formatQty } from "@/lib/format";
+
+export const money = formatMoney;
 
 /** الكمية بالقطعة مع الكرتونة إذا في: "48 لفة (2 كرتونة)". */
 export function quantityLabel(
@@ -13,9 +12,9 @@ export function quantityLabel(
   packUnit?: string | null,
 ) {
   const qty = Number(quantity);
-  const base = `${qty.toLocaleString("en-US", { maximumFractionDigits: 3 })} ${unit ?? ""}`.trim();
+  const base = `${formatQty(qty)} ${unit ?? ""}`.trim();
   if (!packSize || packSize <= 1 || qty < packSize) return base;
   const packs = Math.floor(qty / packSize);
   const rest = Number((qty - packs * packSize).toFixed(3));
-  return `${base} (${packs} ${packUnit || "كرتونة"}${rest ? ` + ${rest}` : ""})`;
+  return `${base} (${formatQty(packs)} ${packUnit || "كرتونة"}${rest ? ` + ${formatQty(rest)}` : ""})`;
 }

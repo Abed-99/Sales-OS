@@ -9,6 +9,8 @@ import { Icons } from "@/components/icons";
 import { BarcodeScanButton } from "@/components/barcode-scan";
 import { uploadProductImage } from "@/lib/image-upload";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatQty } from "@/lib/format";
 
 export type Product = {
   id: string;
@@ -1082,7 +1084,7 @@ export function ProductsClient({
           </select>
 
           <div className="resultCount">
-            {totalCount === 0 ? "0 نتيجة" : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+            {totalCount === 0 ? "0 نتيجة" : `${formatQty(visibleFrom)}–${formatQty(visibleTo)} من ${formatQty(totalCount)}`}
           </div>
         </div>
 
@@ -1159,12 +1161,12 @@ export function ProductsClient({
                       <td>
                         {product.sale_price == null
                           ? "—"
-                          : `${Number(product.sale_price).toFixed(2)} ${currency}`}
+                          : `${formatNumber(Number(product.sale_price))} ${currency}`}
                       </td>
 
                       {canViewCost ? (
                         <td>
-                          {cheap ? `${Number(cheap.purchase_price).toFixed(2)} ${currency}` : "—"}
+                          {cheap ? `${formatNumber(Number(cheap.purchase_price))} ${currency}` : "—"}
 
                           {cheap ? (
                             <div className="muted">
@@ -1382,8 +1384,7 @@ export function ProductsClient({
                 <label className="field">
                   <span>سعر البيع</span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="0.01"
                     value={form.sale_price}
@@ -1399,8 +1400,7 @@ export function ProductsClient({
                 <label className="field">
                   <span>أقل سعر بيع</span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="0.01"
                     value={form.minimum_sale_price}
@@ -1416,8 +1416,7 @@ export function ProductsClient({
                 <label className="field">
                   <span>نبّهني إذا المخزون نزل لـ</span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="1"
                     placeholder="مثلًا 10 (اختياري)"
@@ -1436,8 +1435,7 @@ export function ProductsClient({
                     كم {form.unit || "قطعة"} بالـ{form.pack_unit || "كرتونة"}؟
                   </span>
 
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="1"
                     placeholder="مثلًا 24 (فاضي إذا ما في كرتونة)"
@@ -1466,12 +1464,11 @@ export function ProductsClient({
                     <label className="field" key={level.id}>
                       <span>سعر {level.name}</span>
 
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         step="0.01"
                         placeholder={
-                          form.sale_price ? `العادي: ${form.sale_price}` : "نفس السعر العادي"
+                          form.sale_price ? `العادي: ${formatNumber(form.sale_price)}` : "نفس السعر العادي"
                         }
                         value={form.level_prices[level.id] ?? ""}
                         onChange={(event) =>
@@ -1489,8 +1486,7 @@ export function ProductsClient({
 
                 <label className="field">
                   <span>الضمان (بالأشهر)</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="1"
                     placeholder="فاضي = بدون ضمان"
@@ -1618,8 +1614,7 @@ export function ProductsClient({
                           <div>
                             <strong>{supplier.name}</strong>
 
-                            <input
-                              type="number"
+                            <NumberInput
                               min="0"
                               step="0.01"
                               placeholder="سعر الشراء"

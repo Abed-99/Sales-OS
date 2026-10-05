@@ -6,6 +6,7 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { formatQty } from "@/lib/format";
 
 type RecentCustomer = {
   id: string;
@@ -304,7 +305,7 @@ export default async function DashboardPage() {
           <Stat
             icon={<Icons.cart size={18} />}
             label="طلبات قيد التنفيذ"
-            value={String(summary.open_orders)}
+            value={formatQty(summary.open_orders)}
             trend="تحتاج متابعة"
           />
 
@@ -312,7 +313,7 @@ export default async function DashboardPage() {
             <Stat
               icon={<Icons.wallet size={18} />}
               label="فواتير غير مسددة"
-              value={String(summary.unpaid_invoices)}
+              value={formatQty(summary.unpaid_invoices)}
               trend="بانتظار التحصيل"
             />
           ) : null}
@@ -320,7 +321,7 @@ export default async function DashboardPage() {
           <Stat
             icon={<Icons.users size={18} />}
             label="إجمالي العملاء"
-            value={String(summary.customer_count)}
+            value={formatQty(summary.customer_count)}
             trend="العملاء الفعليون"
           />
         </section>
@@ -611,7 +612,7 @@ function OwnerPanel({
               </div>
               <div>
                 <strong>
-                  {toSafeNumber(alert.count)} {alert.text}
+                  {fmt(toSafeNumber(alert.count))} {alert.text}
                 </strong>
               </div>
               <Icons.arrow size={13} />

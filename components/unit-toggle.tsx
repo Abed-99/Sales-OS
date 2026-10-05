@@ -1,6 +1,7 @@
 "use client";
 
 import type { UnitMode } from "@/lib/units";
+import { formatQty } from "@/lib/format";
 
 /** زر صغير بيبدّل السطر بين القطعة والكرتونة، مع توضيح الكمية بالقطعة. */
 export function UnitToggle({
@@ -37,7 +38,7 @@ export function UnitToggle({
       </button>
       {isPack && Number.isFinite(qty) && qty > 0 ? (
         <small className="muted">
-          = {Number((qty * packSize).toFixed(3))} {unit || "قطعة"}
+          = {formatQty((qty * packSize))} {unit || "قطعة"}
         </small>
       ) : null}
     </span>

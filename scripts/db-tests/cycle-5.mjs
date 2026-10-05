@@ -102,6 +102,12 @@ const creditAfter = (await admin.from("traders").select("credit_limit").eq("id",
 ok("ما بيغيّر سقف دين الزبون", !!credit.error || Number(creditAfter ?? -1) === Number(trader.credit_limit ?? -1));
 const price = await sales.from("products").update({ sale_price: 0.01 }).eq("id", productA.id).select("id");
 ok("ما بيغيّر سعر البيع", !!price.error || (price.data ?? []).length === 0);
+const orderA = (await admin.from("sales_orders").select("id, total, status, payment_status").eq("company_id", companyA).limit(1).single()).data;
+const orderEdit = await sales.from("sales_orders").update({ total: 1, payment_status: "paid", status: "cancelled" }).eq("id", orderA.id).select("id");
+const orderAfter = (await admin.from("sales_orders").select("total, status, payment_status").eq("id", orderA.id).single()).data;
+ok("ما بيعدّل مبلغ أو حالة طلبية مباشرة", (!!orderEdit.error || (orderEdit.data ?? []).length === 0) && Number(orderAfter.total) === Number(orderA.total) && orderAfter.status === orderA.status && orderAfter.payment_status === orderA.payment_status, JSON.stringify(orderAfter));
+const fakeOrder = await sales.from("sales_orders").insert({ company_id: companyA, trader_id: (await admin.from("traders").select("id").eq("company_id", companyA).limit(1).single()).data.id, status: "delivered", total: 5 }).select("id");
+ok("ما بيعمل طلبية مباشرة بالجدول (بس عن طريق الشاشة)", !!fakeOrder.error);
 
 // ---------------------------------------------------------------- 3. view-only
 log("\n3️⃣  موظف مشاهدة بس");
@@ -128,6 +134,11 @@ const manager = await member("mgr", "مدير");
 const mgrId = (await manager.auth.getUser()).data.user.id;
 await refused("المدير ما بيقدر يعطي صفة المالك لحالو", manager.rpc("assign_company_member_role", { target_company: companyA, target_user: mgrId, target_role: await role("المالك") }));
 const partnerId = (await partner.auth.getUser()).data.user.id;
+const steal = await manager.from("companies").update({ owner_user_id: mgrId }).eq("id", companyA).select("id");
+const ownerAfter = (await admin.from("companies").select("owner_user_id").eq("id", companyA).single()).data.owner_user_id;
+ok("المدير ما بيقدر يحط حالو المالك الأساسي", ownerAfter === ownerAId && (!!steal.error || (steal.data ?? []).length === 0), steal.error?.message ?? "");
+const steal2 = await partner.from("companies").update({ owner_user_id: (await partner.auth.getUser()).data.user.id }).eq("id", companyA).select("id");
+ok("ولا الشريك المالك", (await admin.from("companies").select("owner_user_id").eq("id", companyA).single()).data.owner_user_id === ownerAId && !!steal2.error);
 await refused("موظف المبيعات ما بيقدر يشيل صفة الشريك", sales.rpc("assign_company_member_role", { target_company: companyA, target_user: partnerId, target_role: await role("مشاهدة") }));
 const delPartner = await manager.from("company_members").delete().eq("company_id", companyA).eq("user_id", partnerId).select("user_id");
 ok("المدير ما بيقدر يشيل الشريك المالك", !!delPartner.error || (delPartner.data ?? []).length === 0, JSON.stringify(delPartner.data));
@@ -141,6 +152,21 @@ ok("الشريك المالك بيقدر يعمل مالك تاني", !promote.e
 const demote = await ownerA.rpc("assign_company_member_role", { target_company: companyA, target_user: partnerId, target_role: await role("مشاهدة") });
 ok("المالك الأساسي بيقدر يرجّع الشريك موظف", !demote.error, demote.error?.message);
 await refused("بعد ما رجع موظف مشاهدة ما بيشوف الصناديق", partner.rpc("get_cashbox_balances", { target_company: companyA }));
+
+// ---------------------------------------------------------------- 5. Arabic search
+log("\n5️⃣  البحث بالعربي");
+const searchName = `مؤسسة أحمد الإبراهيمي ${Date.now()}`;
+await ownerA.from("traders").insert({ company_id: companyA, name: searchName, area: "المزة" });
+const findTrader = async (...words) => {
+  let query = ownerA.from("traders").select("name").eq("company_id", companyA);
+  for (const word of words) query = query.ilike("search_key", `%${word}%`);
+  return ((await query).data ?? []).some((row) => row.name === searchName);
+};
+ok("\"احمد\" بيلاقي \"أحمد\" و\"موسسه\" بيلاقي \"مؤسسة\"", await findTrader("احمد", "موسسه"));
+ok("الاسم والمنطقة سوا وبأي ترتيب (\"المزه ابراهيمي\")", await findTrader("المزه", "ابراهيمي"));
+ok("كلمة مش موجودة ما بتلاقي", !(await findTrader("احمد", "حلب")));
+const sm = await ownerA.rpc("search_match", { target_text: "براد سامسونغ 18 قدم", target_search: "سامسونغ براد" });
+ok("بحث الأصناف بأي ترتيب (\"سامسونغ براد\")", sm.data === true, sm.error?.message);
 
 log(failures ? `\n❌ ${failures} مشكلة` : "\n✅ كل الفحوصات نجحت");
 process.exit(failures ? 1 : 0);

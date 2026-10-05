@@ -2981,8 +2981,7 @@ begin
     and (
       v_search is null
 
-      or t.name ilike
-         '%' || v_search || '%'
+      or public.search_match(t.search_key, v_search)
 
       or coalesce(
            t.phone,
@@ -2996,11 +2995,7 @@ begin
          ) ilike
          '%' || v_search || '%'
 
-      or coalesce(
-           t.area,
-           ''
-         ) ilike
-         '%' || v_search || '%'
+      or public.search_match(t.area, v_search)
 
       or so.id::text ilike
          '%' || v_search || '%'
@@ -3228,8 +3223,7 @@ begin
       and (
         v_search is null
 
-        or t.name ilike
-           '%' || v_search || '%'
+        or public.search_match(t.search_key, v_search)
 
         or coalesce(
              t.phone,
@@ -3243,11 +3237,7 @@ begin
            ) ilike
            '%' || v_search || '%'
 
-        or coalesce(
-             t.area,
-             ''
-           ) ilike
-           '%' || v_search || '%'
+        or public.search_match(t.area, v_search)
 
         or so.id::text ilike
            '%' || v_search || '%'
@@ -3344,8 +3334,8 @@ AS $function$
     where q.id = target_quote
       and (
         q.quote_number ilike '%' || target_search || '%'
-        or t.name ilike '%' || target_search || '%'
-        or coalesce(t.area, '') ilike '%' || target_search || '%'
+        or public.search_match(t.search_key, target_search)
+        or public.search_match(t.area, target_search)
         or coalesce(t.phone, '') ilike '%' || target_search || '%'
         or coalesce(t.whatsapp, '') ilike '%' || target_search || '%'
         or coalesce(q.notes, '') ilike '%' || target_search || '%'
@@ -3359,9 +3349,9 @@ AS $function$
           join public.products p on p.id = qi.product_id
           where qi.quote_id = q.id
             and (
-              p.name ilike '%' || target_search || '%'
-              or coalesce(p.sku, '') ilike '%' || target_search || '%'
-              or coalesce(p.brand, '') ilike '%' || target_search || '%'
+              public.search_match(p.search_key, target_search)
+              or public.search_match(p.sku, target_search)
+              or public.search_match(p.brand, target_search)
             )
         )
       )
@@ -6060,16 +6050,11 @@ create policy sales_invoices_read on public.sales_invoices
 create policy sales_order_items_read on public.sales_order_items
   for select to authenticated
   using (public.can_access_order(order_id));
-create policy sales_orders_create on public.sales_orders
-  for insert to authenticated
-  with check (public.has_permission(company_id, 'orders.create'::text));
+-- الطلبيات ما بتنكتب مباشرة: بس عن طريق الدوال (create_sales_order وأخواتها)
+-- مشان ما حدا يغيّر مبلغ أو حالة طلبية بلا موافقة ولا مخزون.
 create policy sales_orders_read on public.sales_orders
   for select to authenticated
   using (public.has_any_permission(company_id, array['orders.view'::text, 'deliveries.view'::text, 'payments.sales_view'::text, 'reports.sales'::text, 'reports.profit'::text, 'reports.finance'::text]));
-create policy sales_orders_update on public.sales_orders
-  for update to authenticated
-  using (public.has_permission(company_id, 'orders.update'::text))
-  with check (public.has_permission(company_id, 'orders.update'::text));
 create policy sales_quote_items_read on public.sales_quote_items
   for select to authenticated
   using ((exists ( select 1

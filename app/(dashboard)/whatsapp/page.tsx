@@ -8,6 +8,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import type { OutboxMessage } from "@/components/whatsapp/outbox-panel";
 import { createClient } from "@/lib/supabase/server";
+import { todayDamascus } from "@/lib/format";
 
 export default async function WhatsAppPage() {
   const context = await getCurrentContext();
@@ -90,7 +91,7 @@ export default async function WhatsAppPage() {
   };
 
   // ديون كل زبون (مجمّعة من فواتيره المفتوحة).
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Damascus" });
+  const today = todayDamascus();
   const debtors = new Map<string, DebtorRow>();
   for (const row of (invoices.data ?? []) as unknown as {
     trader_id: string;

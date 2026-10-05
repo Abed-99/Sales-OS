@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 
@@ -17,19 +19,6 @@ function num(value: unknown) {
   const result = Number(value || 0);
 
   return Number.isFinite(result) ? result : 0;
-}
-
-function today() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function monthNow() {
@@ -873,16 +862,16 @@ export function PayrollClient({
       </div>
 
       <section className="statsGrid">
-        <Mini title="الموظفين النشطين" value={String(activeEmployees.length)} />
+        <Mini title="الموظفين النشطين" value={formatQty(activeEmployees.length)} />
 
         <Mini
           title="الرواتب الثابتة الشهرية"
-          value={`${monthlyPayroll.toFixed(2)} ${baseCurrency}`}
+          value={`${formatNumber(monthlyPayroll)} ${baseCurrency}`}
         />
 
-        <Mini title="سلف وقروض قائمة" value={`${activeLoanBalance.toFixed(2)}`} />
+        <Mini title="سلف وقروض قائمة" value={`${formatNumber(activeLoanBalance)}`} />
 
-        <Mini title="رواتب مستحقة" value={`${outstandingPayroll.toFixed(2)}`} />
+        <Mini title="رواتب مستحقة" value={`${formatNumber(outstandingPayroll)}`} />
       </section>
 
       <div
@@ -956,9 +945,9 @@ export function PayrollClient({
 
                       <td>{employee.department || "—"}</td>
 
-                      <td>{num(employee.base_salary).toFixed(2)}</td>
+                      <td>{formatNumber(num(employee.base_salary))}</td>
 
-                      <td>{num(employee.fixed_allowances).toFixed(2)}</td>
+                      <td>{formatNumber(num(employee.fixed_allowances))}</td>
 
                       <td>{employee.salary_currency}</td>
 
@@ -1031,11 +1020,11 @@ export function PayrollClient({
 
                       <td>{loan.loan_type === "advance" ? "سلفة" : "قرض"}</td>
 
-                      <td>{num(loan.original_amount).toFixed(2)}</td>
+                      <td>{formatNumber(num(loan.original_amount))}</td>
 
-                      <td>{num(loan.balance_due).toFixed(2)}</td>
+                      <td>{formatNumber(num(loan.balance_due))}</td>
 
-                      <td>{num(loan.installment_amount).toFixed(2)}</td>
+                      <td>{formatNumber(num(loan.installment_amount))}</td>
 
                       <td>{loan.start_date}</td>
 
@@ -1141,7 +1130,7 @@ export function PayrollClient({
                       </span>
                     </div>
 
-                    <div className="count">{num(run.total_net).toFixed(2)}</div>
+                    <div className="count">{formatNumber(num(run.total_net))}</div>
                   </button>
                 ))}
               </div>
@@ -1195,24 +1184,24 @@ export function PayrollClient({
                 <section className="statsGrid">
                   <Mini
                     title="الإجمالي"
-                    value={`${num(selectedRun.total_gross).toFixed(2)} ${selectedRun.currency}`}
+                    value={`${formatNumber(num(selectedRun.total_gross))} ${selectedRun.currency}`}
                   />
 
                   <Mini
                     title="الخصومات"
-                    value={`${num(selectedRun.total_deductions).toFixed(2)} ${
+                    value={`${formatNumber(num(selectedRun.total_deductions))} ${
                       selectedRun.currency
                     }`}
                   />
 
                   <Mini
                     title="الصافي"
-                    value={`${num(selectedRun.total_net).toFixed(2)} ${selectedRun.currency}`}
+                    value={`${formatNumber(num(selectedRun.total_net))} ${selectedRun.currency}`}
                   />
 
                   <Mini
                     title="المدفوع"
-                    value={`${num(selectedRun.total_paid).toFixed(2)} ${selectedRun.currency}`}
+                    value={`${formatNumber(num(selectedRun.total_paid))} ${selectedRun.currency}`}
                   />
                 </section>
 
@@ -1253,19 +1242,19 @@ export function PayrollClient({
                               </div>
                             </td>
 
-                            <td>{num(item.base_salary).toFixed(2)}</td>
+                            <td>{formatNumber(num(item.base_salary))}</td>
 
-                            <td>{additions.toFixed(2)}</td>
+                            <td>{formatNumber(additions)}</td>
 
-                            <td>{num(item.total_deductions).toFixed(2)}</td>
+                            <td>{formatNumber(num(item.total_deductions))}</td>
 
                             <td>
-                              <strong>{num(item.net_pay).toFixed(2)}</strong>
+                              <strong>{formatNumber(num(item.net_pay))}</strong>
                             </td>
 
-                            <td>{num(item.paid_total).toFixed(2)}</td>
+                            <td>{formatNumber(num(item.paid_total))}</td>
 
-                            <td>{num(item.balance_due).toFixed(2)}</td>
+                            <td>{formatNumber(num(item.balance_due))}</td>
 
                             <td>
                               <div className="rowActions">
@@ -1552,8 +1541,7 @@ export function PayrollClient({
                 {employeeForm.isSalesRep ? (
                   <label className="field">
                     <span>عمولة المندوب (% من صافي مبيعات زبائنو)</span>
-                    <input
-                      type="number"
+                    <NumberInput
                       min="0"
                       max="100"
                       step="0.1"
@@ -1984,9 +1972,9 @@ export function PayrollClient({
                 </span>
                 <h2>{employeeName(disburseLoan.employee_id)}</h2>
                 <p className="muted">
-                  المبلغ: {num(disburseLoan.original_amount).toFixed(2)} • بينخصم من الراتب{" "}
+                  المبلغ: {formatNumber(num(disburseLoan.original_amount))} • بينخصم من الراتب{" "}
                   {num(disburseLoan.installment_amount) > 0
-                    ? `${num(disburseLoan.installment_amount).toFixed(2)} كل شهر`
+                    ? `${formatNumber(num(disburseLoan.installment_amount))} كل شهر`
                     : "حسب ما تحدد بالمسير"}
                 </p>
               </div>
@@ -2101,8 +2089,7 @@ function MoneyField({
     <label className="field">
       <span>{label}</span>
 
-      <input
-        type="number"
+      <NumberInput
         min="0"
         step="0.01"
         value={value}

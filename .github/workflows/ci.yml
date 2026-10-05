@@ -1,0 +1,57 @@
+# فحص تلقائي مع كل رفع للكود: الأنواع، البناء، واختبارات قاعدة البيانات الكاملة
+# (دورة البيع والشراء والمحاسبة والأمان) على Supabase محلي جوّا GitHub — ما بيلمس الإنتاج.
+name: فحص الكود
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: الأنواع والبناء
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: البناء
+        run: npm run build
+        env:
+          # قيم وهمية: البناء ما بيتصل بقاعدة البيانات.
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+  database:
+    name: اختبارات قاعدة البيانات
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: تشغيل Supabase محلي (بيطبّق كل ملفات migrations)
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor,mailpit
+      - name: فحص دوال قاعدة البيانات
+        run: supabase db lint --level error
+      - name: الاختبارات
+        run: npm run test:db

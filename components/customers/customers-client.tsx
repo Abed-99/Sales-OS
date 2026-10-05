@@ -9,6 +9,8 @@ import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { LocationPicker } from "@/components/map/location-picker";
 import { anyPhoneState, normalizeAnyPhone } from "@/lib/phone";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatQty } from "@/lib/format";
 
 type Status = "new" | "contacted" | "interested" | "customer" | "inactive";
 
@@ -600,7 +602,7 @@ export function CustomersClient({
           </select>
 
           <div className="resultCount">
-            {totalCount === 0 ? "0 نتيجة" : `${visibleFrom}–${visibleTo} من ${totalCount}`}
+            {totalCount === 0 ? "0 نتيجة" : `${formatQty(visibleFrom)}–${formatQty(visibleTo)} من ${formatQty(totalCount)}`}
           </div>
         </div>
 
@@ -665,7 +667,7 @@ export function CustomersClient({
                         <strong>
                           {trader.credit_limit == null
                             ? "بدون حد"
-                            : `${Number(trader.credit_limit).toFixed(2)} ${currency}`}
+                            : `${formatNumber(Number(trader.credit_limit))} ${currency}`}
                         </strong>
 
                         <span
@@ -945,8 +947,7 @@ export function CustomersClient({
                     <label className="field">
                       <span>حد الائتمان</span>
 
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         step="0.01"
                         placeholder="بدون حد"
@@ -965,8 +966,7 @@ export function CustomersClient({
                     <label className="field">
                       <span>مهلة الدفع (يوم)</span>
 
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         max="3650"
                         step="1"

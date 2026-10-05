@@ -6,23 +6,13 @@ import { useRouter } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatNumber, formatQty, todayDamascus as today } from "@/lib/format";
+import { matchesSearch } from "@/lib/search";
 
 function num(value: unknown) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-function today() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function currentMonth() {
@@ -199,9 +189,7 @@ export function AssetsClient({
     }
 
     return assets.filter((asset) =>
-      [asset.asset_number, asset.name, asset.category].some((value) =>
-        value?.toLowerCase().includes(q),
-      ),
+      matchesSearch([asset.asset_number, asset.name, asset.category].join(" "), q),
     );
   }, [assets, search]);
 
@@ -361,12 +349,12 @@ export function AssetsClient({
       </div>
 
       <section className="statsGrid">
-        <Mini title="الأصول النشطة" value={String(activeCount)} />
+        <Mini title="الأصول النشطة" value={formatQty(activeCount)} />
 
         <Mini
           title="تكلفة الأصول"
           value={
-            mixedAssetCurrencies ? "حسب العملة" : `${totalCost.toFixed(2)} ${assetDisplayCurrency}`
+            mixedAssetCurrencies ? "حسب العملة" : `${formatNumber(totalCost)} ${assetDisplayCurrency}`
           }
         />
 
@@ -375,7 +363,7 @@ export function AssetsClient({
           value={
             mixedAssetCurrencies
               ? "حسب العملة"
-              : `${totalDepreciation.toFixed(2)} ${assetDisplayCurrency}`
+              : `${formatNumber(totalDepreciation)} ${assetDisplayCurrency}`
           }
         />
 
@@ -384,7 +372,7 @@ export function AssetsClient({
           value={
             mixedAssetCurrencies
               ? "حسب العملة"
-              : `${totalBookValue.toFixed(2)} ${assetDisplayCurrency}`
+              : `${formatNumber(totalBookValue)} ${assetDisplayCurrency}`
           }
         />
       </section>
@@ -441,17 +429,17 @@ export function AssetsClient({
                     <td>{asset.category || "—"}</td>
 
                     <td>
-                      {num(asset.purchase_cost).toFixed(2)} {asset.currency}
+                      {formatNumber(num(asset.purchase_cost))} {asset.currency}
                     </td>
 
                     <td>{asset.useful_life_months} شهر</td>
 
-                    <td>{num(asset.monthly_depreciation).toFixed(2)}</td>
+                    <td>{formatNumber(num(asset.monthly_depreciation))}</td>
 
-                    <td>{num(asset.accumulated_depreciation).toFixed(2)}</td>
+                    <td>{formatNumber(num(asset.accumulated_depreciation))}</td>
 
                     <td>
-                      <strong>{num(asset.book_value).toFixed(2)}</strong>
+                      <strong>{formatNumber(num(asset.book_value))}</strong>
                     </td>
 
                     <td>
@@ -476,7 +464,7 @@ export function AssetsClient({
                         <div className="muted">
                           {asset.disposal_date}
                           {num(asset.disposal_amount) > 0
-                            ? ` • ${num(asset.disposal_amount).toFixed(2)} ${asset.currency}`
+                            ? ` • ${formatNumber(num(asset.disposal_amount))} ${asset.currency}`
                             : ""}
                         </div>
                       ) : null}
@@ -528,7 +516,7 @@ export function AssetsClient({
                     </span>
                   </div>
 
-                  <div className="count">{num(row.amount).toFixed(2)}</div>
+                  <div className="count">{formatNumber(num(row.amount))}</div>
                 </div>
               );
             })}
@@ -713,7 +701,7 @@ export function AssetsClient({
                 <span className="eyebrow">بيع أو شطب أصل</span>
                 <h2>{disposeAsset.name}</h2>
                 <p className="muted">
-                  القيمة الدفترية اليوم: {num(disposeAsset.book_value).toFixed(2)}{" "}
+                  القيمة الدفترية اليوم: {formatNumber(num(disposeAsset.book_value))}{" "}
                   {disposeAsset.currency}
                 </p>
               </div>
@@ -743,8 +731,7 @@ export function AssetsClient({
                   <>
                     <label className="field">
                       <span>سعر البيع ({disposeAsset.currency})</span>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         step="0.01"
                         value={disposeAmount}
@@ -808,7 +795,7 @@ export function AssetsClient({
                     className={diff >= 0 ? "kpiPositive" : "kpiNegative"}
                     style={{ marginTop: 12 }}
                   >
-                    {diff >= 0 ? "ربح" : "خسارة"}: {Math.abs(diff).toFixed(2)}{" "}
+                    {diff >= 0 ? "ربح" : "خسارة"}: {formatNumber(Math.abs(diff))}{" "}
                     {disposeAsset.currency}
                   </p>
                 );
@@ -861,8 +848,7 @@ function NumberField({
   return (
     <label className="field">
       <span>{label}</span>
-      <input
-        type="number"
+      <NumberInput
         min="0"
         step={step}
         value={value}

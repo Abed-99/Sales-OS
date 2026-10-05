@@ -7,6 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty, todayDamascus as businessDate } from "@/lib/format";
 
 export type ReturnsTab = "sales" | "purchases" | "history";
 
@@ -139,13 +141,6 @@ function quantity(value: unknown) {
   return String(Number(numeric(value).toFixed(3)));
 }
 
-function money(value: unknown, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numeric(value))} ${currency}`;
-}
-
 function formatTotals(
   rows: {
     currency: string;
@@ -157,23 +152,6 @@ function formatTotals(
   }
 
   return rows.map((row) => money(row.total, row.currency)).join(" • ");
-}
-
-function businessDate() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const year = parts.find((part) => part.type === "year")?.value;
-
-  const month = parts.find((part) => part.type === "month")?.value;
-
-  const day = parts.find((part) => part.type === "day")?.value;
-
-  return `${year}-${month}-${day}`;
 }
 
 function friendlyError(
@@ -867,7 +845,7 @@ export function ReturnsClient({
       <section className="statsGrid">
         <Mini
           title="مرتجعات المبيعات"
-          value={String(initialStats.salesCount)}
+          value={formatQty(initialStats.salesCount)}
           subtitle={`${initialStats.salesPostedCount} مرحلة • ${initialStats.salesReversedCount} معكوسة`}
         />
 
@@ -878,7 +856,7 @@ export function ReturnsClient({
 
         <Mini
           title="مرتجعات المشتريات"
-          value={String(initialStats.purchaseCount)}
+          value={formatQty(initialStats.purchaseCount)}
           subtitle={`${initialStats.purchasePostedCount} مرحلة • ${initialStats.purchaseReversedCount} معكوسة`}
         />
 
@@ -1012,7 +990,7 @@ export function ReturnsClient({
             <div />
           )}
 
-          <div className="resultCount">{totalCount} نتيجة</div>
+          <div className="resultCount">{formatQty(totalCount)} نتيجة</div>
         </form>
 
         {tab === "sales" ? (
@@ -1162,8 +1140,7 @@ export function ReturnsClient({
                         <td>{quantity(item.available_quantity)}</td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             max={item.available_quantity}
                             step="0.001"
@@ -1311,8 +1288,7 @@ export function ReturnsClient({
                         <td>{quantity(item.available_quantity)}</td>
 
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             max={item.available_quantity}
                             step="0.001"

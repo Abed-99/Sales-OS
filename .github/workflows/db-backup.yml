@@ -2,6 +2,9 @@
 # بدها سرّين بـ Settings → Secrets and variables → Actions:
 #   SUPABASE_DB_URL    رابط الاتصال بقاعدة البيانات (Supabase → Connect → Session pooler)
 #   BACKUP_PASSPHRASE  كلمة سر التشفير (احفظها عندك؛ بدونها النسخة ما بتنفتح)
+# واختياري، مشان تنحفظ صور الأصناف نفسها كمان:
+#   SUPABASE_URL               رابط المشروع (Supabase → Project Settings → API)
+#   SUPABASE_SERVICE_ROLE_KEY  مفتاح service_role / secret من نفس الصفحة
 # الاسترجاع مشروح بـ docs/backup.md
 name: نسخة احتياطية يومية
 
@@ -18,6 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
       - name: تثبيت أدوات PostgreSQL 17
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -30,6 +40,8 @@ jobs:
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${DB_URL}" ] || [ -z "${PASSPHRASE}" ]; then
@@ -46,6 +58,13 @@ jobs:
           $PG/pg_dump "$DB_URL" --data-only --table=auth.users --table=auth.identities --no-owner -Fc -f "out/auth_${STAMP}.dump"
           # 3) سجلّات صور الأصناف (الملفات نفسها بمخزن Supabase).
           $PG/pg_dump "$DB_URL" --data-only --table=storage.buckets --table=storage.objects --no-owner -Fc -f "out/storage_${STAMP}.dump"
+
+          # 4) صور الأصناف نفسها (إذا السرّين الاختياريين موجودين).
+          if [ -n "${SUPABASE_URL}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ]; then
+            node scripts/backup-storage.mjs out/storage
+          else
+            echo "::warning::صور الأصناف ما انحفظت: ضيف SUPABASE_URL و SUPABASE_SERVICE_ROLE_KEY للأسرار."
+          fi
 
           # تأكد إنو النسخ سليمة وبتنقرا.
           for f in out/*.dump; do $PG/pg_restore --list "$f" > /dev/null; done

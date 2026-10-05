@@ -12,6 +12,7 @@ import {
   setDesktopMode,
   type DesktopMode,
 } from "@/lib/wa-send";
+import { NumberInput } from "@/components/number-input";
 
 export type OutboxMessage = {
   id: string;
@@ -296,8 +297,7 @@ export function WhatsAppSettingsPanel({
             {kind === "reminder" && value.reminder ? (
               <label className="field" style={{ maxWidth: 240 }}>
                 <span>كل كم يوم نذكّر نفس الزبون؟</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="1"
                   max="60"
                   value={value.reminder_days}

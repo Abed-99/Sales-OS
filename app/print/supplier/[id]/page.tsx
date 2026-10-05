@@ -6,6 +6,7 @@ import { money } from "@/lib/print-format";
 import { getCurrentContext } from "@/lib/current-context";
 import { loadLetterhead } from "@/lib/letterhead";
 import { createClient } from "@/lib/supabase/server";
+import { todayDamascus } from "@/lib/format";
 
 type Row = {
   source_id: string;
@@ -71,9 +72,7 @@ export default async function PrintSupplierStatement({
   const closing = rows.length ? Number(rows[rows.length - 1].balance) : 0;
   const currency =
     rows.find((row) => row.currency)?.currency ?? context.currency;
-  const today = new Date().toLocaleDateString("en-CA", {
-    timeZone: "Asia/Damascus",
-  });
+  const today = todayDamascus();
 
   return (
     <PrintShell

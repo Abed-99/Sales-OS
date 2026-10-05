@@ -6,6 +6,7 @@ import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { formatMoney as money, formatQty, formatDate, formatDateTime } from "@/lib/format";
 
 type ProductRelation = {
   id: string;
@@ -127,45 +128,6 @@ function firstRpcRow<T>(value: T[] | T | null): T | null {
   }
 
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? new Date(`${value}T00:00:00+03:00`)
-    : new Date(value);
-
-  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  return new Intl.DateTimeFormat("ar-SY-u-nu-latn", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))} ${currency}`;
 }
 
 const supplierTypeLabels: Record<string, string> = {
@@ -585,11 +547,11 @@ export default async function SupplierDetailPage({
             >
               <Mini title="دفعات مقدمة" value={money(summary.advance_credit, baseCurrency)} />
 
-              <Mini title="أصناف متوفرة" value={String(summary.available_products)} />
+              <Mini title="أصناف متوفرة" value={formatQty(summary.available_products)} />
 
-              <Mini title="فواتير مثبتة" value={String(summary.invoice_count)} />
+              <Mini title="فواتير مثبتة" value={formatQty(summary.invoice_count)} />
 
-              <Mini title="دفعات مثبتة" value={String(summary.payment_count)} />
+              <Mini title="دفعات مثبتة" value={formatQty(summary.payment_count)} />
             </section>
           </>
         ) : null}

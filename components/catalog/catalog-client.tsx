@@ -7,6 +7,7 @@ import { SearchPicker, type PickerOption } from "@/components/search-picker";
 import { searchTraders, type TraderPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
 import { waNumber } from "@/lib/wa-send";
+import { formatQty, formatDate } from "@/lib/format";
 
 type Relation<T> = T | T[] | null;
 const one = <T,>(value: Relation<T>) => (Array.isArray(value) ? (value[0] ?? null) : value);
@@ -338,10 +339,10 @@ export function CatalogClient({
                       </div>
                     </td>
                     <td>
-                      {link.view_count} مرة
+                      {formatQty(link.view_count)} مرة
                       {link.last_viewed_at ? (
                         <div className="muted">
-                          آخر مرة {new Date(link.last_viewed_at).toLocaleDateString("en-CA")}
+                          آخر مرة {formatDate(link.last_viewed_at)}
                         </div>
                       ) : null}
                     </td>

@@ -18,6 +18,8 @@ import {
 } from "@/lib/units";
 import { productOption, searchProducts, searchTraders, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
+import { NumberInput } from "@/components/number-input";
+import { formatMoney as money, formatQty, todayDamascus as businessDateInput } from "@/lib/format";
 
 export type QuoteStatus = "draft" | "sent" | "accepted" | "rejected" | "cancelled" | "converted";
 
@@ -108,32 +110,6 @@ function numberValue(value: unknown) {
   const result = Number(value ?? 0);
 
   return Number.isFinite(result) ? result : 0;
-}
-
-function money(value: unknown, currency: string) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numberValue(value))} ${currency}`;
-}
-
-function businessDateInput(days = 0) {
-  const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Damascus",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-
-  const year = parts.find((part) => part.type === "year")?.value;
-
-  const month = parts.find((part) => part.type === "month")?.value;
-
-  const day = parts.find((part) => part.type === "day")?.value;
-
-  return `${year}-${month}-${day}`;
 }
 
 function emptyItem(): DraftItem {
@@ -821,15 +797,15 @@ export function QuotesClient({
       ) : null}
 
       <section className="statsGrid">
-        <Mini title="كل العروض" value={String(initialStats.allCount)} />
+        <Mini title="كل العروض" value={formatQty(initialStats.allCount)} />
 
-        <Mini title="مفتوحة" value={String(initialStats.openCount)} />
+        <Mini title="مفتوحة" value={formatQty(initialStats.openCount)} />
 
-        <Mini title="مقبولة" value={String(initialStats.acceptedCount)} />
+        <Mini title="مقبولة" value={formatQty(initialStats.acceptedCount)} />
 
-        <Mini title="تحولت لطلب" value={String(initialStats.convertedCount)} />
+        <Mini title="تحولت لطلب" value={formatQty(initialStats.convertedCount)} />
 
-        <Mini title="منتهية" value={String(initialStats.expiredOpenCount)} />
+        <Mini title="منتهية" value={formatQty(initialStats.expiredOpenCount)} />
       </section>
 
       <section
@@ -891,7 +867,7 @@ export function QuotesClient({
 
           <div />
 
-          <div className="resultCount">{totalCount} نتيجة</div>
+          <div className="resultCount">{formatQty(totalCount)} نتيجة</div>
         </form>
 
         {!quotes.length ? (
@@ -1222,8 +1198,7 @@ export function QuotesClient({
                             </td>
 
                             <td>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0.001"
                                 step="0.001"
                                 value={item.quantity}
@@ -1248,8 +1223,7 @@ export function QuotesClient({
                             </td>
 
                             <td>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="0.01"
                                 value={item.sale_unit_price}

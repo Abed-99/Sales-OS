@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 
 import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
+import { formatMoney as money, formatQty as qty } from "@/lib/format";
 
 type Item = {
   id: string;
@@ -64,14 +65,6 @@ type Action =
 
 function one<T>(value: T | T[] | null) {
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function money(value: number, currency: string) {
-  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0))} ${currency}`;
-}
-
-function qty(value: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(Number(value || 0));
 }
 
 function friendly(message: string) {
@@ -594,7 +587,7 @@ export function OrderDetails({
               serialLines.map((line) => (
                 <label className="field" key={line.product_id} style={{ marginBottom: 10 }}>
                   <span>
-                    {line.name} — مباع {line.quantity}، مسجّل {line.existing.length}
+                    {line.name} — مباع {qty(line.quantity)}، مسجّل {line.existing.length}
                     {line.existing.length ? ` (${line.existing.join("، ")})` : ""}
                   </span>
                   <textarea

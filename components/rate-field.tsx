@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { NumberInput } from "@/components/number-input";
 
 /**
  * خانة "1 USD = كم ليرة" لعملية بعملة غير الأساسية. بتتعبّى بآخر سعر، والموظف بيعدّلها
@@ -54,8 +55,7 @@ export function RateField({
       <span>
         سعر الصرف الآن: 1 {baseCurrency} = كم {currency}؟
       </span>
-      <input
-        type="number"
+      <NumberInput
         min="0"
         step="any"
         inputMode="decimal"
