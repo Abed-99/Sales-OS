@@ -1781,3 +1781,17 @@ label:has(> input[type="radio"]) {
 .pickerOption.pickerCreate{position:sticky;bottom:-4px;background:#0a1a16;border-top:1px solid rgba(255,255,255,.1);border-radius:0 0 9px 9px;margin-top:4px;padding-block:10px}
 .pickerOption.pickerCreate:hover{background:#12372e}
 .pickerOption.pickerCreate strong{color:var(--accent)}
+
+/* مجموعات القائمة الجانبية */
+.navList{align-content:start}
+.sidebar{overflow-y:auto}
+.navGroupHead{width:100%;background:transparent;border:1px solid transparent;cursor:pointer;font:inherit;font-size:13px;text-align:start}
+.navGroupHead.current{color:#fff}
+.navGroupHead .navBadge{margin-inline-start:auto}
+.navChevron{margin-inline-start:auto;transition:transform .15s ease;opacity:.7}
+.navGroupHead .navBadge + .navChevron{margin-inline-start:6px}
+.navChevron.open{transform:rotate(-90deg)}
+.navGroupItems{display:grid;gap:3px;margin:2px 0 6px;padding-inline-start:14px;border-inline-start:1px solid var(--line);margin-inline-start:20px}
+.navSubItem{padding:8px 10px;font-size:12px}
+.navSubItem .navBadge{margin-inline-start:auto}
+@media(prefers-reduced-motion:reduce){.navChevron{transition:none}}
