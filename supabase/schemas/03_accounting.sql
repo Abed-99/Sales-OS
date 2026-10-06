@@ -1159,7 +1159,9 @@ begin
       ('6500', '6000', 'خسائر بيع وشطب أصول', 'expense', 'debit', 'asset_disposal_loss'),
       ('6600', '6000', 'خسائر بضاعة تالفة', 'expense', 'debit', 'damaged_goods_expense'),
       ('2700', '2000', 'ضريبة مبيعات مستحقة', 'liability', 'credit', 'tax_payable'),
-      ('1700', '1000', 'تكاليف استيراد بانتظار التوزيع', 'asset', 'debit', 'import_costs_pending')
+      ('1700', '1000', 'تكاليف استيراد بانتظار التوزيع', 'asset', 'debit', 'import_costs_pending'),
+      ('4500', '4000', 'إيرادات أجور التوصيل', 'revenue', 'credit', 'delivery_revenue'),
+      ('6700', '6000', 'مصاريف التوصيل', 'expense', 'debit', 'delivery_expense')
   ) as v(code, parent_code, name, account_type, normal_balance, system_key)
   join public.finance_accounts p
     on p.company_id = target_company

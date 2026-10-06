@@ -176,6 +176,13 @@ create table public.sales_invoices (
   created_by uuid default auth.uid() references auth.users(id) on delete set null,
   created_at timestamp with time zone default now() not null,
   updated_at timestamp with time zone default now() not null,
+  -- أجرة توصيل على الزبون: داخلة بالمجموع، وإيرادها بحساب لحالو.
+  delivery_fee numeric(14,2) default 0 not null,
+  -- أجرة توصيل علينا: مصروف من الصندوق، ما بيبين للزبون.
+  delivery_expense_id uuid references public.expenses(id) on delete set null,
+  -- الفاتورة المصحَّحة: هاي الفاتورة انعملت بدل فاتورة ملغاة.
+  corrected_from_id uuid references public.sales_invoices(id) on delete restrict,
+  constraint sales_invoices_delivery_fee_check check ((delivery_fee >= (0)::numeric)),
   constraint sales_invoices_company_id_invoice_number_key unique (company_id, invoice_number),
   constraint sales_invoices_balance_due_check check ((balance_due >= (0)::numeric)),
   constraint sales_invoices_check check (((due_date is null) or (due_date >= invoice_date))),
@@ -661,6 +668,282 @@ begin
 end;
 $function$;
 
+-- تصحيح فاتورة بيع بخطوة وحدة: بتنلغى الفاتورة الغلط (والبضاعة بترجع)، وبتنعمل فاتورة جديدة
+-- لنفس الزبون بالأصناف المصحّحة، والدفعات اللي كانت عالقديمة بتنتقل عالجديدة.
+-- إذا فشل أي شي بالنص، ما بيتغيّر شي.
+create or replace function public.correct_sales_invoice(target_company uuid, target_invoice uuid, target_reason text, items_payload jsonb, target_delivery_fee numeric DEFAULT 0)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_reason text := nullif(trim(coalesce(target_reason, '')), '');
+  v_old public.sales_invoices%rowtype;
+  v_order_status text;
+  v_item jsonb;
+  v_needs_approval boolean := false;
+  v_result jsonb;
+  v_order uuid;
+  v_status text;
+  v_delivery_items jsonb;
+  v_invoice uuid;
+  v_alloc record;
+  v_moves jsonb := '[]'::jsonb;
+  v_move jsonb;
+  v_release uuid;
+  v_ar uuid;
+  v_advance uuid;
+  v_balance numeric(14,2);
+  v_unallocated numeric(20,2);
+  v_apply numeric(14,2);
+  v_apply_pay numeric(20,2);
+  v_label text;
+  v_today date := (now() at time zone 'Asia/Damascus')::date;
+begin
+  if not public.has_permission(target_company, 'sales_invoices.cancel')
+     and not public.use_owner_override(target_company, 'cancel_invoice')
+  then
+    raise exception 'Not allowed';
+  end if;
+
+  if v_reason is null then
+    raise exception 'Correction reason required';
+  end if;
+
+  if items_payload is null or jsonb_typeof(items_payload) <> 'array' or jsonb_array_length(items_payload) = 0 then
+    raise exception 'Correction requires items';
+  end if;
+
+  if coalesce(target_delivery_fee, 0) < 0 then
+    raise exception 'Invalid delivery fee';
+  end if;
+
+  select * into v_old
+  from public.sales_invoices
+  where id = target_invoice
+    and company_id = target_company
+  for update;
+
+  if v_old.id is null then
+    raise exception 'Sales invoice not found';
+  end if;
+
+  if v_old.status <> 'posted' then
+    raise exception 'Only posted invoices can be corrected';
+  end if;
+
+  -- بس فاتورة طلبية مسلّمة كلها بفاتورة وحدة (البيع العادي والبيع السريع).
+  select status into v_order_status
+  from public.sales_orders
+  where id = v_old.order_id
+  for update;
+
+  if v_order_status <> 'delivered'
+     or exists (
+       select 1 from public.sales_invoices si
+       where si.order_id = v_old.order_id
+         and si.id <> target_invoice
+         and si.status = 'posted'
+     )
+  then
+    raise exception 'Order has other invoices';
+  end if;
+
+  -- أي سعر تحت الكلفة أو أقل سعر: بدها صلاحية الخصم أو رمز المالك (متل البيع السريع).
+  for v_item in select value from jsonb_array_elements(items_payload) loop
+    if (v_item->>'sale_unit_price')::numeric < (
+      select greatest(coalesce(p.minimum_sale_price, 0), coalesce(public.product_reference_cost(target_company, p.id), 0))
+      from public.products p
+      where p.id = (v_item->>'product_id')::uuid and p.company_id = target_company
+    ) then
+      v_needs_approval := true;
+    end if;
+  end loop;
+
+  if v_needs_approval
+     and not public.has_permission(target_company, 'orders.approve_discount')
+     and not public.use_owner_override(target_company, 'approve')
+  then
+    raise exception 'Owner approval required for this price';
+  end if;
+
+  v_label := 'تصحيح الفاتورة ' || v_old.invoice_number;
+
+  -- ١. الدفعات اللي عالفاتورة القديمة بتتحرّر (متل المرتجع) لحتى تنتقل عالجديدة.
+  v_ar := public.finance_system_account(target_company, 'accounts_receivable');
+  v_advance := public.finance_system_account(target_company, 'customer_advances');
+
+  for v_alloc in
+    select
+      a.*,
+      (
+        select je.exchange_rate_to_base
+        from public.journal_entries je
+        where je.company_id = target_company
+          and je.source_type = 'customer_payment_allocation'
+          and je.source_id = a.id
+          and je.reversed_from_id is null
+        limit 1
+      ) as journal_rate
+    from public.customer_payment_allocations a
+    join public.customer_payments p on p.id = a.payment_id
+    where a.sales_invoice_id = target_invoice
+      and p.status = 'posted'
+    order by p.payment_date, p.created_at
+    for update of a
+  loop
+    insert into public.customer_payment_releases(
+      company_id, payment_id, allocation_id, sales_return_id, sales_invoice_id,
+      amount, payment_amount, payment_currency
+    )
+    values(
+      target_company, v_alloc.payment_id, v_alloc.id, null, target_invoice,
+      v_alloc.amount,
+      coalesce(v_alloc.payment_amount, v_alloc.amount),
+      coalesce(v_alloc.payment_currency, v_old.currency)
+    )
+    returning id into v_release;
+
+    perform public.post_system_journal(
+      target_company,
+      v_today,
+      'تحرير دفعة لـ' || v_label,
+      coalesce(v_alloc.payment_currency, v_old.currency),
+      v_alloc.journal_rate,
+      'customer_payment_release',
+      v_release,
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id', v_ar,
+          'debit', coalesce(v_alloc.payment_amount, v_alloc.amount),
+          'credit', 0,
+          'party_type', 'trader',
+          'party_id', v_old.trader_id,
+          'memo', 'تحرير دفعة'
+        ),
+        jsonb_build_object(
+          'account_id', v_advance,
+          'debit', 0,
+          'credit', coalesce(v_alloc.payment_amount, v_alloc.amount),
+          'party_type', 'trader',
+          'party_id', v_old.trader_id,
+          'memo', 'رصيد دائن للعميل'
+        )
+      )
+    );
+
+    v_moves := v_moves || jsonb_build_array(jsonb_build_object(
+      'payment_id', v_alloc.payment_id,
+      'amount', v_alloc.amount,
+      'payment_amount', coalesce(v_alloc.payment_amount, v_alloc.amount),
+      'payment_currency', v_alloc.payment_currency,
+      'invoice_currency', v_alloc.invoice_currency,
+      'rate', v_alloc.payment_rate_to_base
+    ));
+
+    delete from public.customer_payment_allocations where id = v_alloc.id;
+  end loop;
+
+  -- ٢. الفاتورة القديمة بتنلغى (البضاعة بترجع للمستودع والقيد بينعكس) وطلبيتها بتتسكّر.
+  perform public.cancel_sales_invoice(target_company, target_invoice, 'تصحيح: ' || v_reason);
+
+  update public.sales_orders
+  set
+    status = 'cancelled',
+    cancelled_at = now(),
+    cancelled_by = auth.uid(),
+    cancellation_reason = v_label || ': ' || v_reason
+  where id = v_old.order_id;
+
+  -- ٣. الفاتورة الجديدة: طلبية وتسليم وفاتورة لنفس الزبون، بدون طلعة توصيل جديدة.
+  perform set_config('app.elevated_company', target_company::text, true);
+  perform set_config(
+    'app.elevated_permissions',
+    'orders.create,deliveries.update'
+      || case when v_needs_approval then ',orders.approve_discount' else '' end,
+    true
+  );
+
+  v_result := public.create_sales_order_v2(target_company, v_old.trader_id, v_label, items_payload, null);
+  v_order := nullif(v_result->>'order_id', '')::uuid;
+
+  if v_order is null then
+    raise exception 'Correction could not create the order';
+  end if;
+
+  select status into v_status from public.sales_orders where id = v_order;
+
+  if v_status <> 'ready' then
+    raise exception 'Not enough stock for corrected invoice';
+  end if;
+
+  select jsonb_agg(jsonb_build_object('sales_order_item_id', soi.id, 'quantity', soi.quantity))
+  into v_delivery_items
+  from public.sales_order_items soi
+  where soi.order_id = v_order;
+
+  perform public.create_order_delivery(target_company, v_order, v_delivery_items);
+  v_invoice := public.complete_order_delivery(target_company, v_order, v_label, target_delivery_fee, 0, null);
+
+  update public.sales_invoices
+  set corrected_from_id = target_invoice
+  where id = v_invoice;
+
+  -- ٤. الدفعات المحرّرة بترجع عالفاتورة الجديدة (بنفس عملتها وسعرها). اللي بيزيد بيضل رصيد للزبون.
+  for v_move in select value from jsonb_array_elements(v_moves) loop
+    select balance_due into v_balance from public.sales_invoices where id = v_invoice for update;
+    exit when coalesce(v_balance, 0) <= 0;
+
+    select unallocated_total into v_unallocated
+    from public.customer_payments
+    where id = (v_move->>'payment_id')::uuid
+    for update;
+
+    v_apply_pay := least((v_move->>'payment_amount')::numeric, coalesce(v_unallocated, 0));
+    continue when v_apply_pay <= 0;
+
+    v_apply := round((v_move->>'amount')::numeric * v_apply_pay / (v_move->>'payment_amount')::numeric, 2);
+
+    if v_apply > v_balance then
+      v_apply := v_balance;
+      v_apply_pay := round((v_move->>'payment_amount')::numeric * v_apply / (v_move->>'amount')::numeric, 2);
+    end if;
+
+    continue when v_apply <= 0;
+
+    insert into public.customer_payment_allocations(
+      company_id, payment_id, sales_invoice_id, amount, payment_amount,
+      payment_currency, invoice_currency, payment_rate_to_base
+    )
+    values(
+      target_company,
+      (v_move->>'payment_id')::uuid,
+      v_invoice,
+      v_apply,
+      v_apply_pay,
+      v_move->>'payment_currency',
+      v_move->>'invoice_currency',
+      nullif(v_move->>'rate', '')::numeric
+    )
+    on conflict(payment_id, sales_invoice_id) do nothing;
+  end loop;
+
+  return (
+    select jsonb_build_object(
+      'invoice_id', si.id,
+      'invoice_number', si.invoice_number,
+      'order_id', si.order_id,
+      'total', si.total,
+      'balance_due', si.balance_due,
+      'currency', si.currency
+    )
+    from public.sales_invoices si
+    where si.id = v_invoice
+  );
+end;
+$function$;
+
 create or replace function public.cancel_sales_order(target_company uuid, target_order uuid, target_reason text)
  RETURNS void
  LANGUAGE plpgsql
@@ -765,13 +1048,16 @@ begin
 end;
 $function$;
 
-create or replace function public.complete_order_delivery(target_company uuid, target_order uuid, target_notes text DEFAULT NULL::text)
+create or replace function public.complete_order_delivery(target_company uuid, target_order uuid, target_notes text DEFAULT NULL::text, target_delivery_fee numeric DEFAULT 0, target_delivery_cost numeric DEFAULT 0, target_cost_cashbox uuid DEFAULT NULL::uuid)
  RETURNS uuid
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
 declare
+  v_fee numeric(14,2) := round(coalesce(target_delivery_fee, 0), 2);
+  v_cost numeric(14,2) := round(coalesce(target_delivery_cost, 0), 2);
+  v_expense uuid;
   v_order_status text;
   v_delivery uuid;
   v_invoice uuid;
@@ -803,6 +1089,14 @@ begin
     'deliveries.update'
   ) then
     raise exception 'Not allowed';
+  end if;
+
+  if v_fee < 0 or v_cost < 0 then
+    raise exception 'Invalid delivery fee';
+  end if;
+
+  if v_cost > 0 and target_cost_cashbox is null then
+    raise exception 'Cashbox required';
   end if;
 
   select status
@@ -1186,13 +1480,25 @@ begin
   where c.id = target_company;
 
   v_tax := coalesce(v_tax, 0);
-  v_total := v_total + v_tax;
+  -- أجرة التوصيل عالزبون بتنضاف بعد الضريبة (ما عليها ضريبة).
+  v_total := v_total + v_tax + v_fee;
 
   v_invoice_number :=
     public.next_sales_invoice_number(
       target_company,
       v_now::date
     );
+
+  -- أجرة التوصيل علينا: مصروف "توصيل" من الصندوق (بدها صلاحية المصاريف).
+  if v_cost > 0 then
+    v_expense := public.record_expense(
+      target_company,
+      target_cost_cashbox,
+      'توصيل',
+      v_cost,
+      'توصيل فاتورة ' || v_invoice_number
+    );
+  end if;
 
   insert into public.sales_invoices(
     company_id,
@@ -1207,6 +1513,8 @@ begin
     subtotal,
     discount_total,
     tax_total,
+    delivery_fee,
+    delivery_expense_id,
     total,
     paid_total,
     balance_due,
@@ -1238,6 +1546,8 @@ begin
       2
     ),
     v_tax,
+    v_fee,
+    v_expense,
     v_total,
     0,
     v_total,
@@ -4261,7 +4571,7 @@ begin
 end;
 $function$;
 
-create or replace function public.quick_sale(target_company uuid, target_trader uuid, items_payload jsonb, target_cashbox uuid, target_paid_amount numeric, target_cash_amount numeric, target_method text DEFAULT 'cash'::text, target_notes text DEFAULT NULL::text)
+create or replace function public.quick_sale(target_company uuid, target_trader uuid, items_payload jsonb, target_cashbox uuid, target_paid_amount numeric, target_cash_amount numeric, target_method text DEFAULT 'cash'::text, target_notes text DEFAULT NULL::text, target_delivery_fee numeric DEFAULT 0, target_delivery_cost numeric DEFAULT 0, target_cost_cashbox uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -4349,7 +4659,10 @@ begin
   where soi.order_id = v_order;
 
   perform public.create_order_delivery(target_company, v_order, v_delivery_items);
-  v_invoice := public.complete_order_delivery(target_company, v_order, 'بيع سريع');
+  v_invoice := public.complete_order_delivery(
+    target_company, v_order, 'بيع سريع',
+    target_delivery_fee, target_delivery_cost, target_cost_cashbox
+  );
 
   select total, currency into v_total, v_currency from public.sales_invoices where id = v_invoice;
 

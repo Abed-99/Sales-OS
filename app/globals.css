@@ -1761,3 +1761,17 @@ label:has(> input[type="radio"]) {
   gap: 8px;
   cursor: pointer;
 }
+
+/* صفحة التحميل بين الصفحات */
+.routeLoadingBar{position:fixed;top:0;left:0;right:0;height:3px;z-index:2000;overflow:hidden;background:rgba(39,201,155,.12)}
+.routeLoadingBar::after{content:"";position:absolute;inset:0;width:35%;background:var(--accent);animation:routeLoadingSlide 1s ease-in-out infinite}
+@keyframes routeLoadingSlide{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+.skel{border-radius:8px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.085),rgba(255,255,255,.04));background-size:200% 100%;animation:skelShimmer 1.3s linear infinite}
+@keyframes skelShimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.skel,.routeLoadingBar::after{animation:none}}
+
+/* أجرة التوصيل */
+.deliveryFee{margin-top:12px}
+.feeChoices{display:flex;flex-wrap:wrap;gap:6px}
+.feeChoices .softButton.active{background:#0d3028;color:#fff;border-color:rgba(44,202,157,.35)}
+.feeRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px}

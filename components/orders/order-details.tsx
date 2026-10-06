@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
+import { InvoiceCorrection } from "@/components/orders/invoice-correction";
 import { useOwnerPin } from "@/components/owner-pin";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney as money, formatQty as qty, formatDate } from "@/lib/format";
@@ -41,6 +42,8 @@ type Invoice = {
   balance_due: number;
   status: string;
   cancellation_reason: string | null;
+  delivery_fee: number;
+  corrected_from: { invoice_number: string } | { invoice_number: string }[] | null;
 };
 
 type Payment = {
@@ -99,6 +102,7 @@ export function OrderDetails({
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [working, setWorking] = useState(false);
+  const [correcting, setCorrecting] = useState<Invoice | null>(null);
 
   // الأرقام التسلسلية للقطع المباعة بفاتورة (للأصناف اللي عليها تتبّع).
   const [serialInvoice, setSerialInvoice] = useState<string | null>(null);
@@ -186,7 +190,7 @@ export function OrderDetails({
     const invoiceResult = await supabase
       .from("sales_invoices")
       .select(
-        "id,invoice_number,invoice_date,currency,total,paid_total,balance_due,status,cancellation_reason",
+        "id,invoice_number,invoice_date,currency,total,paid_total,balance_due,status,cancellation_reason,delivery_fee,corrected_from:sales_invoices!corrected_from_id(invoice_number)",
       )
       .eq("company_id", companyId)
       .eq("order_id", order.id)
@@ -382,9 +386,19 @@ export function OrderDetails({
                     <tr key={invoice.id}>
                       <td>
                         <strong>{invoice.invoice_number}</strong>
+                        {one(invoice.corrected_from) ? (
+                          <div className="muted">بدل {one(invoice.corrected_from)?.invoice_number}</div>
+                        ) : null}
                       </td>
                       <td>{formatDate(invoice.invoice_date)}</td>
-                      <td>{money(invoice.total, invoice.currency)}</td>
+                      <td>
+                        {money(invoice.total, invoice.currency)}
+                        {Number(invoice.delivery_fee) > 0 ? (
+                          <div className="muted">
+                            منها توصيل {money(invoice.delivery_fee, invoice.currency)}
+                          </div>
+                        ) : null}
+                      </td>
                       <td>{money(invoice.paid_total, invoice.currency)}</td>
                       <td>{money(invoice.balance_due, invoice.currency)}</td>
                       <td>
@@ -421,6 +435,16 @@ export function OrderDetails({
                             onClick={() => void openSerials(invoice.id)}
                           >
                             أرقام تسلسلية
+                          </button>
+                        ) : null}
+                        {invoice.status === "posted" && order.status === "delivered" && invoices.filter((row) => row.status === "posted").length === 1 ? (
+                          <button
+                            type="button"
+                            className="softButton"
+                            style={{ marginInlineEnd: 6 }}
+                            onClick={() => setCorrecting(invoice)}
+                          >
+                            تصحيح
                           </button>
                         ) : null}
                         {invoice.status === "posted" ? (
@@ -566,6 +590,20 @@ export function OrderDetails({
           </button>
         </div>
       </section>
+      {correcting ? (
+        <InvoiceCorrection
+          supabase={supabase}
+          companyId={companyId}
+          currency={correcting.currency || currency}
+          invoice={correcting}
+          askOwner={ownerPin.ask}
+          onClose={() => setCorrecting(null)}
+          onDone={() => {
+            void load();
+            onChanged();
+          }}
+        />
+      ) : null}
       {ownerPin.modal}
 
       {serialInvoice ? (

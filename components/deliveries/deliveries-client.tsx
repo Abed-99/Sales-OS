@@ -8,6 +8,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { NumberInput } from "@/components/number-input";
+import {
+  DeliveryFeeFields,
+  deliveryFeeParams,
+  emptyDeliveryFee,
+  type DeliveryFeeCashbox,
+} from "@/components/delivery-fee-fields";
 import { formatMoney as money, formatQty as qty, formatDateTime, nameInitial } from "@/lib/format";
 
 export type DeliveryQueueItem = {
@@ -99,6 +105,14 @@ function friendlyError(
     return "الطلبية غير موجودة أو لم تعد متاحة.";
   }
 
+  if (message.includes("invalid or inactive cashbox") || message.includes("cashbox required")) {
+    return "اختر صندوق شغّال لأجرة التوصيل.";
+  }
+
+  if (message.includes("missing exchange rate")) {
+    return "ما في سعر صرف اليوم لعملة الصندوق. سجّلو من صفحة المالية أو اختر صندوق تاني.";
+  }
+
   if (message.includes("not ready for delivery")) {
     return "الطلبية لم تعد جاهزة للتوصيل.";
   }
@@ -161,6 +175,8 @@ export function DeliveriesClient({
   statusFilter,
   canUpdate,
   canViewMap,
+  canPayDelivery,
+  cashboxes,
   initialError,
 }: {
   companyId: string;
@@ -180,6 +196,8 @@ export function DeliveriesClient({
 
   canUpdate: boolean;
   canViewMap: boolean;
+  canPayDelivery: boolean;
+  cashboxes: DeliveryFeeCashbox[];
 
   initialError: string | null;
 }) {
@@ -229,6 +247,7 @@ export function DeliveriesClient({
   const [completeTarget, setCompleteTarget] = useState<DeliveryQueueRow | null>(null);
 
   const [completeNotes, setCompleteNotes] = useState("");
+  const [completeFee, setCompleteFee] = useState(() => emptyDeliveryFee(cashboxes[0]?.id));
 
   const [completeMessage, setCompleteMessage] = useState("");
 
@@ -463,6 +482,8 @@ export function DeliveriesClient({
 
     setCompleteNotes("");
 
+    setCompleteFee(emptyDeliveryFee(cashboxes[0]?.id));
+
     setCompleteMessage("");
   }
 
@@ -470,6 +491,13 @@ export function DeliveriesClient({
     event.preventDefault();
 
     if (!completeTarget || !canUpdate) {
+      return;
+    }
+
+    const fee = deliveryFeeParams(completeFee);
+
+    if (!fee.ok) {
+      setCompleteMessage(fee.message);
       return;
     }
 
@@ -484,6 +512,8 @@ export function DeliveriesClient({
         target_order: completeTarget.id,
 
         target_notes: completeNotes.trim() || null,
+
+        ...fee.params,
       });
 
       if (error) {
@@ -1040,6 +1070,14 @@ export function DeliveriesClient({
                   placeholder="اختياري"
                 />
               </label>
+
+              <DeliveryFeeFields
+                value={completeFee}
+                onChange={setCompleteFee}
+                currency={currency}
+                cashboxes={cashboxes}
+                allowCompany={canPayDelivery}
+              />
 
               {completeMessage ? (
                 <div className="toastError" role="alert">

@@ -67,7 +67,11 @@ export default async function DeliveriesPage({
 
   const supabase = await createClient();
 
-  const [queueResult, summaryResult] = await Promise.all([
+  // أجرة توصيل علينا بتطلع من صندوق، فبدها صلاحية المصاريف.
+  const canPayDelivery =
+    canUpdate && hasPermission(context.permissions, "finance.expenses_write", context.isOwner);
+
+  const [queueResult, summaryResult, cashboxResult] = await Promise.all([
     supabase.rpc("get_delivery_queue", {
       target_company: context.companyId,
 
@@ -83,6 +87,15 @@ export default async function DeliveriesPage({
     supabase.rpc("get_deliveries_summary", {
       target_company: context.companyId,
     }),
+
+    canPayDelivery
+      ? supabase
+          .from("cashboxes")
+          .select("id,name,currency")
+          .eq("company_id", context.companyId)
+          .eq("active", true)
+          .order("created_at")
+      : Promise.resolve({ data: [] as { id: string; name: string; currency: string }[] }),
   ]);
 
   let initialError: string | null = null;
@@ -142,6 +155,8 @@ export default async function DeliveriesPage({
         statusFilter={statusFilter}
         canUpdate={canUpdate}
         canViewMap={canViewMap}
+        canPayDelivery={canPayDelivery}
+        cashboxes={cashboxResult.data ?? []}
         initialError={initialError}
       />
     </>

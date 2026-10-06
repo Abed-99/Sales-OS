@@ -26,6 +26,11 @@ import {
   type UnitMode,
 } from "@/lib/units";
 import { NumberInput } from "@/components/number-input";
+import {
+  DeliveryFeeFields,
+  deliveryFeeParams,
+  emptyDeliveryFee,
+} from "@/components/delivery-fee-fields";
 import { formatMoney as money, formatNumber, todayDamascus as today } from "@/lib/format";
 
 type Line = {
@@ -63,12 +68,14 @@ export function QuickSaleClient({
   products,
   cashboxes,
   tax = null,
+  canPayDelivery = false,
 }: {
   companyId: string;
   currency: string;
   products: ProductPick[];
   cashboxes: { id: string; name: string; currency: string }[];
   tax?: { rate: number; label: string } | null;
+  canPayDelivery?: boolean;
 }) {
   const [supabase] = useState(() => createClient());
   const ownerPin = useOwnerPin(supabase, companyId);
@@ -85,6 +92,7 @@ export function QuickSaleClient({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [done, setDone] = useState<Done | null>(null);
+  const [deliveryFee, setDeliveryFee] = useState(() => emptyDeliveryFee(cashboxes[0]?.id));
 
   const productOptions = useMemo(() => products.map((row) => productOption(row)), [products]);
   const findProducts = useMemo(
@@ -103,7 +111,9 @@ export function QuickSaleClient({
   const cashbox = cashboxes.find((box) => box.id === cashboxId);
   const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.price), 0);
   const taxAmount = tax ? Math.round(subtotal * tax.rate) / 100 : 0;
-  const total = subtotal + taxAmount;
+  // أجرة التوصيل عالزبون بتنضاف بعد الضريبة.
+  const customerFee = deliveryFee.mode === "customer" ? Number(deliveryFee.amount) || 0 : 0;
+  const total = subtotal + taxAmount + customerFee;
   const paidValue = paid.trim() === "" ? total : Number(paid);
   const foreign = cashbox && cashbox.currency !== currency;
   const cashAmount = foreign ? paidValue * Number(txRate || 0) : paidValue;
@@ -185,6 +195,8 @@ export function QuickSaleClient({
       return setMessage("المبلغ المدفوع لازم يكون بين صفر ومجموع الفاتورة.");
     }
     if (paidValue > 0 && !cashbox) return setMessage("اختار الصندوق.");
+    const fee = deliveryFeeParams(deliveryFee);
+    if (!fee.ok) return setMessage(fee.message);
 
     setSaving(true);
     try {
@@ -215,6 +227,7 @@ export function QuickSaleClient({
           target_cash_amount: Number(cashAmount.toFixed(2)),
           target_method: method,
           target_notes: null,
+          ...fee.params,
         });
 
       let { data, error } = await sell();
@@ -234,6 +247,7 @@ export function QuickSaleClient({
       setLines([]);
       setPaid("");
       setTrader("");
+      setDeliveryFee(emptyDeliveryFee(cashboxes[0]?.id));
     } finally {
       setSaving(false);
     }
@@ -409,6 +423,14 @@ export function QuickSaleClient({
                 onChange={(id) => void chooseTrader(id)}
               />
             </label>
+
+            <DeliveryFeeFields
+              value={deliveryFee}
+              onChange={setDeliveryFee}
+              currency={currency}
+              cashboxes={cashboxes}
+              allowCompany={canPayDelivery}
+            />
 
             {taxAmount > 0 ? (
               <p className="muted">

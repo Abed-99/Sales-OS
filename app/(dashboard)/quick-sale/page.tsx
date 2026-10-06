@@ -58,6 +58,7 @@ export default async function QuickSalePage() {
         products={productsResult.data ?? []}
         cashboxes={cashboxesResult.data ?? []}
         tax={tax}
+        canPayDelivery={hasPermission(context.permissions, "finance.expenses_write", context.isOwner)}
       />
     </>
   );

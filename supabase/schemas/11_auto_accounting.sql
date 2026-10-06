@@ -446,10 +446,11 @@ begin
       new.cashbox_id
     );
 
+  -- مصروف التوصيل بحساب لحالو، لحتى يبين قديش عم يكلّفنا التوصيل.
   v_expense :=
     public.finance_system_account(
       new.company_id,
-      'operating_expense'
+      case when new.category = 'توصيل' then 'delivery_expense' else 'operating_expense' end
     );
 
   perform
@@ -977,6 +978,27 @@ begin
           new.trader_id,
           'memo',
           'ضريبة مبيعات'
+        )
+      );
+  end if;
+
+  if coalesce(new.delivery_fee, 0) > 0 then
+    v_lines :=
+      v_lines ||
+      jsonb_build_array(
+        jsonb_build_object(
+          'account_id',
+          public.finance_system_account(new.company_id, 'delivery_revenue'),
+          'debit',
+          0,
+          'credit',
+          new.delivery_fee,
+          'party_type',
+          'trader',
+          'party_id',
+          new.trader_id,
+          'memo',
+          'أجرة توصيل'
         )
       );
   end if;

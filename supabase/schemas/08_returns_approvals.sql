@@ -141,7 +141,8 @@ create table public.customer_payment_releases (
   company_id uuid not null references public.companies(id) on delete cascade,
   payment_id uuid not null references public.customer_payments(id) on delete restrict,
   allocation_id uuid references public.customer_payment_allocations(id) on delete set null,
-  sales_return_id uuid not null references public.sales_returns(id) on delete restrict,
+  -- فاضي لما يكون التحرير بسبب تصحيح فاتورة (الدفعة بتنتقل للفاتورة الجديدة).
+  sales_return_id uuid references public.sales_returns(id) on delete restrict,
   sales_invoice_id uuid not null references public.sales_invoices(id) on delete restrict,
   amount numeric(14,2) not null check (amount > 0),
   payment_amount numeric(20,2) not null check (payment_amount > 0),

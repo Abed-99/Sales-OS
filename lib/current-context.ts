@@ -1,5 +1,6 @@
 ﻿import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 
 type RolePermissionRow = {
@@ -36,7 +37,10 @@ export type CompanyMembership = {
   permissions: string[];
 };
 
-export async function getCurrentContext() {
+// cache: الـ layout والصفحة بيطلبوها بنفس الطلب، فمنجيبها من Supabase مرة وحدة بس.
+export const getCurrentContext = cache(loadCurrentContext);
+
+async function loadCurrentContext() {
   const supabase = await createClient();
 
   const {

@@ -16,6 +16,7 @@ export async function updateSession(request: NextRequest) {
       },
     }
   );
-  await supabase.auth.getUser();
+  // getClaims بيجدد الجلسة متل getUser، بس بيتحقق من التوكن محلياً بدل طلب على الشبكة كل مرة.
+  await supabase.auth.getClaims();
   return response;
 }
