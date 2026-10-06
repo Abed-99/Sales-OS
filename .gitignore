@@ -30,3 +30,6 @@ supabase/.branches/
 
 supabase/.temp/
 supabase/.branches/
+
+# نسخ احتياطية من قاعدة البيانات الحقيقية: ما بتنرفع على GitHub أبداً
+backup-*.sql
