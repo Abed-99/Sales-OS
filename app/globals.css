@@ -1777,5 +1777,7 @@ label:has(> input[type="radio"]) {
 .feeRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px}
 
 /* "+ ضيف جديد" بآخر قائمة البحث */
-.pickerOption.pickerCreate{border-top:1px solid var(--line);border-radius:0 0 9px 9px;margin-top:4px}
+/* ثابت بأسفل القائمة: بيضل ظاهر حتى لو النتايج كتيرة وبدها نزول. */
+.pickerOption.pickerCreate{position:sticky;bottom:-4px;background:#0a1a16;border-top:1px solid rgba(255,255,255,.1);border-radius:0 0 9px 9px;margin-top:4px;padding-block:10px}
+.pickerOption.pickerCreate:hover{background:#12372e}
 .pickerOption.pickerCreate strong{color:var(--accent)}
