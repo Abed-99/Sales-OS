@@ -1,7 +1,7 @@
 import { QuickSaleClient } from "@/components/quick-sale/quick-sale-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, quickAddRights } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function QuickSalePage() {
@@ -53,6 +53,7 @@ export default async function QuickSalePage() {
         companyName={context.companyName}
       />
       <QuickSaleClient
+        canAdd={quickAddRights(context.permissions, context.isOwner)}
         companyId={context.companyId}
         currency={context.currency}
         products={productsResult.data ?? []}

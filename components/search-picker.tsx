@@ -26,6 +26,8 @@ export function SearchPicker<T>({
   emptyText = "ما في نتائج",
   autoFocus,
   openOnFocus = true,
+  onCreate,
+  createLabel = "جديد",
 }: {
   value: string;
   options: PickerOption<T>[];
@@ -37,6 +39,9 @@ export function SearchPicker<T>({
   autoFocus?: boolean;
   /** false: القائمة ما بتنفتح غير لما يكتب (مثلًا البيع السريع، لحتى ما تغطّي السلة). */
   openOnFocus?: boolean;
+  /** "+ ضيف جديد" بآخر القائمة: بيفتح نافذة إضافة، واللي بينضاف بينختار لحالو. */
+  onCreate?: (term: string) => Promise<PickerOption<T> | null>;
+  createLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
@@ -98,6 +103,14 @@ export function SearchPicker<T>({
     setOpen(false);
   }
 
+  async function create() {
+    if (!onCreate) return;
+    const name = term.trim();
+    setOpen(false);
+    const option = await onCreate(name);
+    if (option) choose(option);
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -114,6 +127,7 @@ export function SearchPicker<T>({
       );
       const option = exact ?? results[active];
       if (option) choose(option);
+      else if (onCreate && term.trim() && !loading) void create();
       else setOpen(false);
     } else if (event.key === "Escape") {
       setOpen(false);
@@ -171,6 +185,19 @@ export function SearchPicker<T>({
             </div>
           ) : null}
           {loading && results.length ? <div className="pickerEmpty">عم نبحث...</div> : null}
+          {onCreate ? (
+            <button
+              type="button"
+              className="pickerOption pickerCreate"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => void create()}
+            >
+              <strong>
+                + ضيف {createLabel}
+                {term.trim() ? ` «${term.trim()}»` : ""}
+              </strong>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -1775,3 +1775,7 @@ label:has(> input[type="radio"]) {
 .feeChoices{display:flex;flex-wrap:wrap;gap:6px}
 .feeChoices .softButton.active{background:#0d3028;color:#fff;border-color:rgba(44,202,157,.35)}
 .feeRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px}
+
+/* "+ ضيف جديد" بآخر قائمة البحث */
+.pickerOption.pickerCreate{border-top:1px solid var(--line);border-radius:0 0 9px 9px;margin-top:4px}
+.pickerOption.pickerCreate strong{color:var(--accent)}

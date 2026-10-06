@@ -4,7 +4,7 @@ import {
 } from "@/components/purchase-orders/purchase-orders-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasAnyPermission } from "@/lib/permissions";
+import { hasAnyPermission, quickAddRights } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function PurchaseOrdersPage() {
@@ -61,6 +61,7 @@ export default async function PurchaseOrdersPage() {
         companyName={context.companyName}
       />
       <PurchaseOrdersClient
+        canAdd={quickAddRights(context.permissions, context.isOwner)}
         companyId={context.companyId}
         currency={context.currency}
         orders={(ordersResult.data ?? []) as unknown as PurchaseOrderRow[]}

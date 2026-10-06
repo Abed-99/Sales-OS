@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
+import { useQuickCreate } from "@/components/quick-create";
 import { UnitToggle } from "@/components/unit-toggle";
 import { searchProducts, searchSuppliers, type ProductPick } from "@/lib/pickers";
 import { createClient } from "@/lib/supabase/client";
@@ -70,6 +71,7 @@ const newLine = (): Line => ({
 });
 
 export function PurchaseOrdersClient({
+  canAdd = {},
   companyId,
   currency,
   orders,
@@ -81,8 +83,10 @@ export function PurchaseOrdersClient({
   orders: PurchaseOrderRow[];
   suppliers: { id: string; name: string }[];
   canCreate: boolean;
+  canAdd?: { trader?: boolean; supplier?: boolean; product?: boolean };
 }) {
   const [supabase] = useState(() => createClient());
+  const quick = useQuickCreate(supabase, companyId);
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
@@ -196,6 +200,7 @@ export function PurchaseOrdersClient({
 
   return (
     <div className="page">
+      {quick.modal}
       <div className="pageTitle">
         <div>
           <span className="eyebrow">المشتريات</span>
@@ -335,6 +340,8 @@ export function PurchaseOrdersClient({
                     placeholder="اكتب اسم المورد..."
                     options={supplierOptions}
                     onSearch={findSuppliers}
+                    onCreate={canAdd.supplier ? (term) => quick.create("supplier", term) : undefined}
+                    createLabel="مورد"
                     onChange={(id) => setSupplier(id)}
                   />
                 </label>
@@ -356,6 +363,8 @@ export function PurchaseOrdersClient({
                       placeholder="اسم الصنف أو كودو..."
                       options={[]}
                       onSearch={findProducts}
+                      onCreate={canAdd.product ? (term) => quick.create("product", term) : undefined}
+                      createLabel="صنف"
                       onChange={(_, option) =>
                         update(line.key, {
                           product: (option?.data as ProductPick) ?? null,

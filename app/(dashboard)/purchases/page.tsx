@@ -14,6 +14,7 @@ import { getCurrentContext } from "@/lib/current-context";
 import {
   hasAnyPermission,
   hasPermission,
+  quickAddRights,
 } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
@@ -648,6 +649,7 @@ export default async function PurchasesPage({
       />
 
       <PurchasesClient
+        canAdd={quickAddRights(context.permissions, context.isOwner)}
         companyId={
           context.companyId
         }

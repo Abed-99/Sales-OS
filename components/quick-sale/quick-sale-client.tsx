@@ -7,6 +7,7 @@ import { Icons } from "@/components/icons";
 import { useOwnerPin } from "@/components/owner-pin";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import { SearchPicker, type PickerOption } from "@/components/search-picker";
+import { useQuickCreate } from "@/components/quick-create";
 import { UnitToggle } from "@/components/unit-toggle";
 import { BarcodeScanButton } from "@/components/barcode-scan";
 import {
@@ -63,6 +64,7 @@ function friendly(message: string) {
 }
 
 export function QuickSaleClient({
+  canAdd = {},
   companyId,
   currency,
   products,
@@ -76,8 +78,10 @@ export function QuickSaleClient({
   cashboxes: { id: string; name: string; currency: string }[];
   tax?: { rate: number; label: string } | null;
   canPayDelivery?: boolean;
+  canAdd?: { trader?: boolean; supplier?: boolean; product?: boolean };
 }) {
   const [supabase] = useState(() => createClient());
+  const quick = useQuickCreate(supabase, companyId);
   const ownerPin = useOwnerPin(supabase, companyId);
 
   const [trader, setTrader] = useState("");
@@ -295,6 +299,7 @@ export function QuickSaleClient({
   return (
     <div className="page">
       {ownerPin.modal}
+      {quick.modal}
 
       <div className="pageGrid">
         <section className="panel panelPad">
@@ -315,6 +320,8 @@ export function QuickSaleClient({
                 placeholder="باركود أو اسم الصنف..."
                 options={productOptions}
                 onSearch={findProducts}
+                onCreate={canAdd.product ? (term) => quick.create("product", term) : undefined}
+                createLabel="صنف"
                 onChange={(_, option) => void addProduct(option)}
               />
             </div>
@@ -420,6 +427,8 @@ export function QuickSaleClient({
                 placeholder="زبون نقدي"
                 options={traderOptions}
                 onSearch={findTraders}
+                onCreate={canAdd.trader ? (term) => quick.create("trader", term) : undefined}
+                createLabel="زبون"
                 onChange={(id) => void chooseTrader(id)}
               />
             </label>

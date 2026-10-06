@@ -11,7 +11,7 @@ import {
 import { Icons } from "@/components/icons";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, quickAddRights } from "@/lib/permissions";
 import { normalizeAnyPhone } from "@/lib/phone";
 import { createClient } from "@/lib/supabase/server";
 import { searchKeyCondition, cleanSearch, firstParam } from "@/lib/search";
@@ -323,6 +323,7 @@ export default async function OrdersPage({
       />
 
       <OrdersClient
+        canAdd={quickAddRights(context.permissions, context.isOwner)}
         companyId={context.companyId}
         currency={context.currency}
         initialOrders={orders}

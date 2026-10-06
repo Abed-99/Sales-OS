@@ -8,7 +8,7 @@ import {
 } from "@/components/quotes/quotes-client";
 import { Topbar } from "@/components/topbar";
 import { getCurrentContext } from "@/lib/current-context";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, quickAddRights } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { cleanSearch, firstParam } from "@/lib/search";
 
@@ -180,6 +180,7 @@ export default async function QuotesPage({
       />
 
       <QuotesClient
+        canAdd={quickAddRights(context.permissions, context.isOwner)}
         companyId={context.companyId}
         currency={context.currency}
         initialQuotes={initialQuotes}

@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
+import { useQuickCreate } from "@/components/quick-create";
 import { UnitToggle } from "@/components/unit-toggle";
 import { approveWithOwnerPin, useOwnerPin } from "@/components/owner-pin";
 import {
@@ -255,6 +256,7 @@ function lifecycleDescription(action: LifecycleAction) {
 }
 
 export function QuotesClient({
+  canAdd = {},
   companyId,
   currency,
   initialQuotes,
@@ -293,8 +295,10 @@ export function QuotesClient({
   canUpdate: boolean;
 
   initialError: string | null;
+  canAdd?: { trader?: boolean; supplier?: boolean; product?: boolean };
 }) {
   const [supabase] = useState(() => createClient());
+  const quick = useQuickCreate(supabase, companyId);
   const ownerPin = useOwnerPin(supabase, companyId);
 
   const traderOptions = useMemo(
@@ -766,6 +770,7 @@ export function QuotesClient({
 
   return (
     <div className="page">
+      {quick.modal}
       {ownerPin.modal}
       <div className="pageTitle">
         <div>
@@ -1124,6 +1129,8 @@ export function QuotesClient({
                     placeholder="اكتب اسم العميل أو رقمو..."
                     options={traderOptions}
                     onSearch={findTraders}
+                    onCreate={canAdd.trader ? (term) => quick.create("trader", term) : undefined}
+                    createLabel="زبون"
                     onChange={(id) => {
                       setTrader(id);
                       if (id) void applyTraderPrices(id, items);
@@ -1191,6 +1198,8 @@ export function QuotesClient({
                                 placeholder="اسم الصنف أو كودو..."
                                 options={productOptions}
                                 onSearch={findProducts}
+                                onCreate={canAdd.product ? (term) => quick.create("product", term) : undefined}
+                                createLabel="صنف"
                                 onChange={(id, option) =>
                                   chooseProduct(index, id, option?.data as ProductPick | undefined)
                                 }

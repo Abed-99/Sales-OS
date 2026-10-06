@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Icons } from "@/components/icons";
 import { SearchPicker } from "@/components/search-picker";
+import { useQuickCreate } from "@/components/quick-create";
 import { UnitToggle } from "@/components/unit-toggle";
 import { RateField, applyTransactionRate } from "@/components/rate-field";
 import {
@@ -290,6 +291,7 @@ function emptyManualLine(): DraftLine {
 }
 
 export function PurchasesClient({
+  canAdd = {},
   companyId,
   currency,
   needs,
@@ -341,8 +343,10 @@ export function PurchasesClient({
   canPaySupplier: boolean;
   canViewPayments: boolean;
   canReversePayment: boolean;
+  canAdd?: { trader?: boolean; supplier?: boolean; product?: boolean };
 }) {
   const [supabase] = useState(() => createClient());
+  const quick = useQuickCreate(supabase, companyId);
 
   const supplierOptions = useMemo(
     () => suppliers.map((row) => ({ id: row.id, label: row.name })),
@@ -1562,6 +1566,7 @@ export function PurchasesClient({
 
   return (
     <div className="page">
+      {quick.modal}
       <div className="pageTitle">
         <div>
           <span className="eyebrow">دورة الشراء</span>
@@ -2163,6 +2168,8 @@ export function PurchasesClient({
                     placeholder="اكتب اسم المورد..."
                     options={supplierOptions}
                     onSearch={findSuppliers}
+                    onCreate={canAdd.supplier ? (term) => quick.create("supplier", term) : undefined}
+                    createLabel="مورد"
                     onChange={(id) => changeSupplier(id)}
                   />
                 </label>
@@ -2321,6 +2328,8 @@ export function PurchasesClient({
                                     placeholder="اسم الصنف أو كودو..."
                                     options={productOptions}
                                     onSearch={findProducts}
+                                    onCreate={canAdd.product ? (term) => quick.create("product", term) : undefined}
+                                    createLabel="صنف"
                                     onChange={(id, option) =>
                                       chooseProduct(
                                         line,
