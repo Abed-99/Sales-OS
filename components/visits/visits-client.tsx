@@ -175,6 +175,23 @@ export function VisitsClient({
     setFormMessage("");
   }
 
+  async function resolveLocation(text: string): Promise<LatLng | null> {
+    const direct = parseLatLng(text);
+    if (direct) return direct;
+    if (!isShortMapLink(text)) return null;
+    try {
+      const response = await fetch("/api/geo/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: text }),
+      });
+      const data = (await response.json()) as Partial<LatLng>;
+      return response.ok && data.lat != null && data.lng != null ? { lat: data.lat, lng: data.lng } : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function readLink() {
     if (!form) return;
     const text = form.link.trim();
@@ -263,34 +280,86 @@ export function VisitsClient({
   async function saveBulk(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!bulk) return;
-    const known = new Set(shops.map((shop) => shop.name.trim()));
-    // كل سطر محل: "الاسم" أو "الاسم - المنطقة".
-    const rows = bulk.text
+    const byName = new Map(shops.map((shop) => [shop.name.trim(), shop]));
+
+    // كل سطر محل: "الاسم"، "الاسم - المنطقة"، ومعو (اختياري) رابط Google Maps أو إحداثيات بأي مكان بالسطر.
+    const lines = bulk.text
       .split("\n")
       .map((line) => line.replace(/^\s*(\d+[.)-]|[•*-])\s*/, "").trim())
       .filter(Boolean)
       .map((line) => {
-        const [name, area] = line.split(/\s+[-–—]\s+/);
-        return { name: name.trim(), area: (area ?? bulk.area).trim() || null };
+        const link =
+          line.match(/https?:\/\/\S+/)?.[0] ?? line.match(/-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+/)?.[0] ?? "";
+        const rest = line.replace(link, "").replace(/[\s:،,–—-]+$/, "").trim();
+        const [name, area] = rest.split(/\s+[-–—]\s+/);
+        return { name: (name ?? "").trim(), area: (area ?? bulk.area).trim() || null, link };
       })
-      .filter((row) => row.name && !known.has(row.name));
+      .filter((row) => row.name);
 
-    if (!rows.length) {
-      setMessage("ما في محلات جديدة بالقائمة (أو كلهن موجودين).");
-      setBulk(null);
-      return;
-    }
+    if (!lines.length) return;
 
     setSaving(true);
-    const { data, error } = await supabase
-      .from("traders")
-      .insert(rows.map((row) => ({ ...row, company_id: companyId })))
-      .select("id,name,area,address,phone,whatsapp,latitude,longitude,status,notes");
-    setSaving(false);
-    if (error) return setMessage(friendly(error.message));
-    setShops((current) => [...((data ?? []) as VisitShop[]), ...current]);
-    setBulk(null);
-    setMessage(`انضاف ${rows.length} محل. هلق حدّد موقع كل واحد ليدخل بالطريق.`, false);
+    try {
+      // المواقع أول (الروابط القصيرة بتنفتح وحدة وحدة).
+      const located = await Promise.all(lines.map((row) => (row.link ? resolveLocation(row.link) : null)));
+      const badLinks = lines.filter((row, index) => row.link && !located[index]).map((row) => row.name);
+
+      // محل موجود ومعو رابط = منحدّث موقعو بس.
+      const updates = lines
+        .map((row, index) => ({ shop: byName.get(row.name), point: located[index] }))
+        .filter((item): item is { shop: VisitShop; point: LatLng } => Boolean(item.shop && item.point));
+      for (const { shop, point } of updates) {
+        const { error } = await supabase
+          .from("traders")
+          .update({ latitude: point.lat, longitude: point.lng })
+          .eq("company_id", companyId)
+          .eq("id", shop.id);
+        if (error) return setMessage(friendly(error.message));
+      }
+
+      const seen = new Set<string>();
+      const inserts = lines
+        .map((row, index) => ({ row, point: located[index] }))
+        .filter(({ row }) => !byName.has(row.name) && !seen.has(row.name) && seen.add(row.name))
+        .map(({ row, point }) => ({
+          company_id: companyId,
+          name: row.name,
+          area: row.area,
+          latitude: point?.lat ?? null,
+          longitude: point?.lng ?? null,
+        }));
+
+      let added: VisitShop[] = [];
+      if (inserts.length) {
+        const { data, error } = await supabase
+          .from("traders")
+          .insert(inserts)
+          .select("id,name,area,address,phone,whatsapp,latitude,longitude,status,notes");
+        if (error) return setMessage(friendly(error.message));
+        added = (data ?? []) as VisitShop[];
+      }
+
+      const moved = new Map(updates.map(({ shop, point }) => [shop.id, point]));
+      setShops((current) => [
+        ...added,
+        ...current.map((shop) => {
+          const point = moved.get(shop.id);
+          return point ? { ...shop, latitude: point.lat, longitude: point.lng } : shop;
+        }),
+      ]);
+      setRoute(null);
+      setBulk(null);
+
+      const withLocation = added.filter((shop) => shop.latitude != null).length + updates.length;
+      const parts = [
+        added.length ? `انضاف ${added.length} محل` : "",
+        withLocation ? `${withLocation} صار إلهن موقع` : "",
+        badLinks.length ? `ما قدرنا نقرأ موقع: ${badLinks.join("، ")}` : "",
+      ].filter(Boolean);
+      setMessage(parts.length ? `${parts.join(" • ")}.` : "ما في شي جديد بالقائمة.", badLinks.length > 0);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -636,11 +705,11 @@ export function VisitsClient({
             </div>
             <form onSubmit={saveBulk} className="authForm">
               <label className="field">
-                <span>المحلات: كل محل بسطر. فيك تكتب "الاسم - المنطقة"</span>
+                <span>كل محل بسطر: "الاسم - المنطقة"، وإذا معك رابط Google Maps حطّو بآخر السطر</span>
                 <textarea
                   rows={8}
                   value={bulk.text}
-                  placeholder={"Avatar - ساحة السيوف\nالبيت الأوروبي\nالزربا للإنارة"}
+                  placeholder={"Avatar - ساحة السيوف - https://maps.app.goo.gl/...\nالبيت الأوروبي\nالزربا للإنارة 33.4842, 36.3431"}
                   onChange={(event) => setBulk({ ...bulk, text: event.target.value })}
                 />
               </label>
@@ -648,7 +717,10 @@ export function VisitsClient({
                 <span>المنطقة (للي ما إلهن منطقة بالسطر)</span>
                 <input value={bulk.area} placeholder="مثلاً: جرمانا" onChange={(event) => setBulk({ ...bulk, area: event.target.value })} />
               </label>
-              <small className="helpText">المحل الموجود بنفس الاسم ما بينضاف مرتين. المواقع بتحددها بعدين من "حدّد الموقع".</small>
+              <small className="helpText">
+                المحل الموجود بنفس الاسم ما بينضاف مرتين، بس إذا معو رابط بيتحدّث موقعو. اللي بلا رابط بتحدّد موقعو بعدين من
+                "حدّد الموقع".
+              </small>
               <div className="modalActions">
                 <button type="button" className="softButton" disabled={saving} onClick={() => setBulk(null)}>
                   رجوع
