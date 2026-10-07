@@ -1795,3 +1795,12 @@ label:has(> input[type="radio"]) {
 .navSubItem{padding:8px 10px;font-size:12px}
 .navSubItem .navBadge{margin-inline-start:auto}
 @media(prefers-reduced-motion:reduce){.navChevron{transition:none}}
+
+/* جولة الزيارات */
+.visitsMap{height:460px;overflow:hidden;padding:0}
+.visitList{display:grid;gap:8px}
+.visitRow{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid rgba(255,255,255,.05);border-radius:12px;background:#0b1b17}
+.visitInfo{display:grid;gap:4px;min-width:0}
+.visitInfo strong{font-size:13px}
+@media(max-width:760px){.visitsMap{height:340px}.visitRow .rowActions .softButton,.visitRow .rowActions .dangerButton{padding:8px 10px;font-size:12px}}
+.navDivider{height:1px;background:var(--line);margin:6px 8px}

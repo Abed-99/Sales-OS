@@ -30,6 +30,7 @@ const primaryNav: readonly NavItem[] = [
 ];
 
 const moreNav: readonly NavItem[] = [
+  { href: "/visits", label: "الزيارات", icon: Icons.route, permission: "traders.view" },
   { href: "/quick-sale", label: "بيع سريع", icon: Icons.cart, permission: "sales.quick_sale" },
   { href: "/quotes", label: "عروض الأسعار", icon: Icons.money, permission: "orders.view" },
   {

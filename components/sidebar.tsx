@@ -21,6 +21,8 @@ type NavItem = {
   icon: IconComponent;
   /** بدون مجموعة = ظاهر دايمًا فوق (الشغل اليومي). */
   group?: GroupKey;
+  /** ظاهر لحالو تحت المجموعات. */
+  bottom?: boolean;
   permission?: string;
   anyPermissions?: readonly string[];
   ownerOnly?: boolean;
@@ -116,6 +118,8 @@ const nav: readonly NavItem[] = [
   },
   { href: "/owner", label: "إدارة الفريق", icon: Icons.shield, group: "admin", ownerOnly: true },
   { href: "/settings", label: "الإعدادات", icon: Icons.dots, group: "admin", permission: "settings.view" },
+
+  { href: "/visits", label: "جولة الزيارات", icon: Icons.route, bottom: true, permission: "traders.view" },
 ];
 
 type Membership = {
@@ -248,7 +252,7 @@ export function Sidebar({
       </div>
 
       <nav className="navList" aria-label="القائمة الرئيسية">
-        {visibleNav.filter((item) => !item.group).map(renderItem)}
+        {visibleNav.filter((item) => !item.group && !item.bottom).map(renderItem)}
 
         {groups.map(({ key, label, icon: Icon }) => {
           const items = visibleNav.filter((item) => item.group === key);
@@ -280,6 +284,9 @@ export function Sidebar({
             </div>
           );
         })}
+
+        {visibleNav.some((item) => item.bottom) ? <div className="navDivider" role="separator" /> : null}
+        {visibleNav.filter((item) => item.bottom).map(renderItem)}
       </nav>
 
       <div className="sidebarSpacer" />

@@ -26,7 +26,8 @@ function FollowValue({ value }: { value: [number, number] | null }) {
   const map = useMap();
   const key = value ? value.join(",") : "";
   useEffect(() => {
-    if (value) map.setView(value, Math.max(map.getZoom(), 15));
+    // بدون حركة: النافذة ممكن تتسكّر بالنص وتطلع غلطة من Leaflet.
+    if (value) map.setView(value, Math.max(map.getZoom(), 15), { animate: false });
     // Recenter only when the chosen point changes.
   }, [key]);
   return null;
